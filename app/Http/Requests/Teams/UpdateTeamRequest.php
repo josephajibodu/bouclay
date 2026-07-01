@@ -2,14 +2,15 @@
 
 namespace App\Http\Requests\Teams;
 
-use App\Enums\TeamRole;
-use App\Rules\UniqueTeamInvitation;
+use App\Concerns\BusinessDetailsValidationRules;
+use App\Rules\TeamName;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
-class CreateTeamInvitationRequest extends FormRequest
+class UpdateTeamRequest extends FormRequest
 {
+    use BusinessDetailsValidationRules;
+
     /**
      * Get the validation rules that apply to the request.
      *
@@ -18,8 +19,8 @@ class CreateTeamInvitationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['required', 'string', 'email', 'max:255', new UniqueTeamInvitation($this->user()->currentTeam)],
-            'role' => ['required', 'string', Rule::enum(TeamRole::class)],
+            'name' => ['required', 'string', 'max:255', new TeamName],
+            ...$this->businessDetailsRules(),
         ];
     }
 }

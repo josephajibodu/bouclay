@@ -1,10 +1,8 @@
-import { Form, Head, router } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { ChevronDown, Mail, UserPlus, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import CancelInvitationModal from '@/components/cancel-invitation-modal';
-import DeleteTeamModal from '@/components/delete-team-modal';
 import Heading from '@/components/heading';
-import InputError from '@/components/input-error';
 import InviteMemberModal from '@/components/invite-member-modal';
 import RemoveMemberModal from '@/components/remove-member-modal';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -16,8 +14,6 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
     Tooltip,
     TooltipContent,
@@ -25,8 +21,10 @@ import {
     TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useInitials } from '@/hooks/use-initials';
-import { edit, index, update } from '@/routes/teams';
-import { update as updateMember } from '@/routes/teams/members';
+import {
+    index as membersIndex,
+    update as updateMember,
+} from '@/routes/teams/members';
 import type {
     RoleOption,
     Team,
@@ -43,7 +41,7 @@ type Props = {
     availableRoles: RoleOption[];
 };
 
-export default function TeamEdit({
+export default function TeamMembers({
     team,
     members,
     invitations,
@@ -53,7 +51,6 @@ export default function TeamEdit({
     const getInitials = useInitials();
 
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
-    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [removeMemberDialogOpen, setRemoveMemberDialogOpen] = useState(false);
     const [memberToRemove, setMemberToRemove] = useState<TeamMember | null>(
         null,
@@ -64,15 +61,12 @@ export default function TeamEdit({
         useState<TeamInvitation | null>(null);
 
     const pageTitle = useMemo(
-        () =>
-            permissions.canUpdateTeam
-                ? `Edit ${team.name}`
-                : `View ${team.name}`,
-        [permissions.canUpdateTeam, team.name],
+        () => `Team members — ${team.name}`,
+        [team.name],
     );
 
     const updateMemberRole = (member: TeamMember, newRole: string) => {
-        router.visit(updateMember([team.slug, member.id]), {
+        router.visit(updateMember(member.id), {
             data: { role: newRole },
             preserveScroll: true,
         });
@@ -92,58 +86,9 @@ export default function TeamEdit({
         <>
             <Head title={pageTitle} />
 
-            <h1 className="sr-only">{pageTitle}</h1>
+            <h1 className="sr-only">Team members</h1>
 
             <div className="flex flex-col space-y-10">
-                <div className="space-y-6">
-                    {permissions.canUpdateTeam ? (
-                        <>
-                            <Heading
-                                variant="small"
-                                title="Team settings"
-                                description="Update your team name and settings"
-                            />
-
-                            <Form
-                                {...update.form(team.slug)}
-                                className="space-y-6"
-                            >
-                                {({ errors, processing }) => (
-                                    <>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="name">
-                                                Team name
-                                            </Label>
-                                            <Input
-                                                id="name"
-                                                name="name"
-                                                data-test="team-name-input"
-                                                defaultValue={team.name}
-                                                required
-                                            />
-                                            <InputError message={errors.name} />
-                                        </div>
-
-                                        <div className="flex items-center gap-4">
-                                            <Button
-                                                type="submit"
-                                                data-test="team-save-button"
-                                                disabled={processing}
-                                            >
-                                                Save
-                                            </Button>
-                                        </div>
-                                    </>
-                                )}
-                            </Form>
-                        </>
-                    ) : (
-                        <>
-                            <Heading variant="small" title={team.name} />
-                        </>
-                    )}
-                </div>
-
                 <div className="space-y-6">
                     <div className="flex items-center justify-between">
                         <Heading
@@ -319,37 +264,10 @@ export default function TeamEdit({
                         </div>
                     </div>
                 ) : null}
-
-                {permissions.canDeleteTeam && !team.isPersonal ? (
-                    <div className="space-y-6">
-                        <Heading
-                            variant="small"
-                            title="Delete team"
-                            description="Permanently delete your team"
-                        />
-                        <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
-                            <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
-                                <p className="font-medium">Warning</p>
-                                <p className="text-sm">
-                                    Please proceed with caution, this cannot be
-                                    undone.
-                                </p>
-                            </div>
-                            <Button
-                                variant="destructive"
-                                data-test="delete-team-button"
-                                onClick={() => setDeleteDialogOpen(true)}
-                            >
-                                Delete team
-                            </Button>
-                        </div>
-                    </div>
-                ) : null}
             </div>
 
             {permissions.canCreateInvitation ? (
                 <InviteMemberModal
-                    team={team}
                     availableRoles={availableRoles}
                     open={inviteDialogOpen}
                     onOpenChange={setInviteDialogOpen}
@@ -357,39 +275,25 @@ export default function TeamEdit({
             ) : null}
 
             <RemoveMemberModal
-                team={team}
                 member={memberToRemove}
                 open={removeMemberDialogOpen}
                 onOpenChange={setRemoveMemberDialogOpen}
             />
 
             <CancelInvitationModal
-                team={team}
                 invitation={invitationToCancel}
                 open={cancelInvitationDialogOpen}
                 onOpenChange={setCancelInvitationDialogOpen}
             />
-
-            {permissions.canDeleteTeam && !team.isPersonal ? (
-                <DeleteTeamModal
-                    team={team}
-                    open={deleteDialogOpen}
-                    onOpenChange={setDeleteDialogOpen}
-                />
-            ) : null}
         </>
     );
 }
 
-TeamEdit.layout = (props: { team: { name: string; slug: string } }) => ({
+TeamMembers.layout = () => ({
     breadcrumbs: [
         {
-            title: 'Teams',
-            href: index(),
-        },
-        {
-            title: props.team.name,
-            href: edit(props.team.slug),
+            title: 'Team members',
+            href: membersIndex(),
         },
     ],
 });

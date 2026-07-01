@@ -3,7 +3,6 @@
 use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\User;
-use Inertia\Testing\AssertableInertia as Assert;
 
 test('the teams index page can be rendered', function () {
     $user = User::factory()->create();
@@ -24,12 +23,15 @@ test('teams can be created', function () {
             'name' => 'Test Team',
         ]);
 
-    $response->assertRedirect();
+    $response->assertRedirect(route('general.edit'));
 
     $this->assertDatabaseHas('teams', [
         'name' => 'Test Team',
         'is_personal' => false,
     ]);
+
+    $team = Team::where('name', 'Test Team')->firstOrFail();
+    expect($user->fresh()->current_team_id)->toEqual($team->id);
 });
 
 test('team slug uses next available suffix', function () {
@@ -49,62 +51,6 @@ test('team slug uses next available suffix', function () {
         'name' => 'Acme',
         'slug' => 'acme-11',
     ]);
-});
-
-test('the team edit page can be rendered', function () {
-    $user = User::factory()->create();
-    $team = Team::factory()->create();
-
-    $team->members()->attach($user, ['role' => TeamRole::Owner->value]);
-
-    $response = $this
-        ->actingAs($user)
-        ->get(route('teams.edit', $team));
-
-    $response
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->component('teams/edit')
-            ->where('members.0.role', TeamRole::Owner->value)
-            ->where('members.0.role_label', TeamRole::Owner->label()),
-        );
-});
-
-test('teams can be updated by owners', function () {
-    $user = User::factory()->create();
-    $team = Team::factory()->create(['name' => 'Original Name']);
-
-    $team->members()->attach($user, ['role' => TeamRole::Owner->value]);
-
-    $response = $this
-        ->actingAs($user)
-        ->patch(route('teams.update', $team), [
-            'name' => 'Updated Name',
-        ]);
-
-    $response->assertRedirect(route('teams.edit', $team->fresh()));
-
-    $this->assertDatabaseHas('teams', [
-        'id' => $team->id,
-        'name' => 'Updated Name',
-    ]);
-});
-
-test('teams cannot be updated by members', function () {
-    $owner = User::factory()->create();
-    $member = User::factory()->create();
-    $team = Team::factory()->create();
-
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
-
-    $response = $this
-        ->actingAs($member)
-        ->patch(route('teams.update', $team), [
-            'name' => 'Updated Name',
-        ]);
-
-    $response->assertForbidden();
 });
 
 test('teams can be deleted by owners', function () {

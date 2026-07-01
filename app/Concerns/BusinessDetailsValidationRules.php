@@ -3,21 +3,22 @@
 namespace App\Concerns;
 
 use App\Enums\BusinessType;
-use App\Rules\TeamName;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
 
 trait BusinessDetailsValidationRules
 {
     /**
-     * Get the validation rules used to validate a new team's business and address details.
+     * Get the validation rules used to validate a team's business type and address details.
+     *
+     * The business/team name is validated separately by each consumer, since the
+     * field name differs (`business_name` at signup, `name` when editing a team).
      *
      * @return array<string, array<int, ValidationRule|array<mixed>|string>>
      */
     protected function businessDetailsRules(): array
     {
         return [
-            'business_name' => ['required', 'string', 'max:255', new TeamName],
             'business_type' => ['required', Rule::enum(BusinessType::class)],
             'website' => ['nullable', 'url', 'max:255'],
             'country' => ['required', 'string', 'size:2'],

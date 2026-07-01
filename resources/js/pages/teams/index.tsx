@@ -1,4 +1,4 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { Eye, LogOut, Pencil, Plus } from 'lucide-react';
 import { useState } from 'react';
 import CreateTeamModal from '@/components/create-team-modal';
@@ -12,7 +12,8 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { edit, index } from '@/routes/teams';
+import { edit as editGeneral } from '@/routes/general';
+import { index, switchMethod } from '@/routes/teams';
 import type { Team } from '@/types';
 
 type Props = {
@@ -28,23 +29,35 @@ export default function TeamsIndex({ teams }: Props) {
         setLeaveTeamDialogOpen(true);
     };
 
+    const viewTeam = (team: Team) => {
+        if (team.isCurrent) {
+            router.visit(editGeneral());
+
+            return;
+        }
+
+        router.visit(switchMethod(team.slug), {
+            onSuccess: () => router.visit(editGeneral()),
+        });
+    };
+
     return (
         <>
-            <Head title="Teams" />
+            <Head title="Businesses" />
 
-            <h1 className="sr-only">Teams</h1>
+            <h1 className="sr-only">Businesses</h1>
 
             <div className="flex flex-col space-y-6">
                 <div className="flex items-center justify-between">
                     <Heading
                         variant="small"
-                        title="Teams"
-                        description="Manage your teams and team memberships"
+                        title="Businesses"
+                        description="Manage your businesses and team memberships"
                     />
 
                     <CreateTeamModal>
                         <Button data-test="teams-new-team-button">
-                            <Plus /> New team
+                            <Plus /> New business
                         </Button>
                     </CreateTeamModal>
                 </div>
@@ -109,19 +122,15 @@ export default function TeamsIndex({ teams }: Props) {
                                                         variant="ghost"
                                                         size="sm"
                                                         data-test="team-view-button"
-                                                        asChild
+                                                        onClick={() =>
+                                                            viewTeam(team)
+                                                        }
                                                     >
-                                                        <Link
-                                                            href={edit(
-                                                                team.slug,
-                                                            )}
-                                                        >
-                                                            <Eye className="h-4 w-4" />
-                                                        </Link>
+                                                        <Eye className="h-4 w-4" />
                                                     </Button>
                                                 </TooltipTrigger>
                                                 <TooltipContent>
-                                                    <p>View team</p>
+                                                    <p>View business</p>
                                                 </TooltipContent>
                                             </Tooltip>
                                         ) : (
@@ -131,19 +140,15 @@ export default function TeamsIndex({ teams }: Props) {
                                                         variant="ghost"
                                                         size="sm"
                                                         data-test="team-edit-button"
-                                                        asChild
+                                                        onClick={() =>
+                                                            viewTeam(team)
+                                                        }
                                                     >
-                                                        <Link
-                                                            href={edit(
-                                                                team.slug,
-                                                            )}
-                                                        >
-                                                            <Pencil className="h-4 w-4" />
-                                                        </Link>
+                                                        <Pencil className="h-4 w-4" />
                                                     </Button>
                                                 </TooltipTrigger>
                                                 <TooltipContent>
-                                                    <p>Edit team</p>
+                                                    <p>Edit business</p>
                                                 </TooltipContent>
                                             </Tooltip>
                                         )}
@@ -155,7 +160,7 @@ export default function TeamsIndex({ teams }: Props) {
 
                     {teams.length === 0 ? (
                         <p className="py-8 text-center text-muted-foreground">
-                            You don't belong to any teams yet.
+                            You don't belong to any businesses yet.
                         </p>
                     ) : null}
                 </div>
@@ -173,7 +178,7 @@ export default function TeamsIndex({ teams }: Props) {
 TeamsIndex.layout = {
     breadcrumbs: [
         {
-            title: 'Teams',
+            title: 'Businesses',
             href: index(),
         },
     ],

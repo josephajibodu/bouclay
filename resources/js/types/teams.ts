@@ -10,6 +10,16 @@ export type Team = {
     isCurrent?: boolean;
 };
 
+export type TeamBusinessDetails = Team & {
+    businessType: BusinessType | null;
+    website: string | null;
+    country: string | null;
+    line1: string | null;
+    line2: string | null;
+    city: string | null;
+    postalCode: string | null;
+};
+
 export type TeamMember = {
     id: number;
     name: string;

@@ -6,7 +6,7 @@ use App\Rules\TeamName;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
-class SaveTeamRequest extends FormRequest
+class CreateTeamRequest extends FormRequest
 {
     /**
      * Get the validation rules that apply to the request.

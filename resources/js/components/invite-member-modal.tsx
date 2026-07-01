@@ -21,17 +21,15 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { store as storeInvitation } from '@/routes/teams/invitations';
-import type { RoleOption, Team } from '@/types';
+import type { RoleOption } from '@/types';
 
 type Props = {
-    team: Team;
     availableRoles: RoleOption[];
     open: boolean;
     onOpenChange: (open: boolean) => void;
 };
 
 export default function InviteMemberModal({
-    team,
     availableRoles,
     open,
     onOpenChange,
@@ -51,7 +49,7 @@ export default function InviteMemberModal({
             <DialogContent>
                 <Form
                     key={String(open)}
-                    {...storeInvitation.form(team.slug)}
+                    {...storeInvitation.form()}
                     className="space-y-6"
                     onSuccess={() => onOpenChange(false)}
                 >

@@ -7,6 +7,7 @@ use App\Concerns\BusinessDetailsValidationRules;
 use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
 use App\Models\User;
+use App\Rules\TeamName;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
@@ -31,6 +32,7 @@ class CreateNewUser implements CreatesNewUsers
         $input = Validator::make($input, [
             ...$this->profileRules(),
             'password' => $this->passwordRules(),
+            'business_name' => ['required', 'string', 'max:255', new TeamName],
             ...$this->businessDetailsRules(),
         ])->validate();
 
