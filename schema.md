@@ -79,62 +79,90 @@ erDiagram
     webhook_endpoints ||--o{ webhook_deliveries : targets
 ```
 
-> Note: `organization_id` lives on nearly every table; the diagram only draws the org edges to aggregate roots to stay legible.
+> Note: `team_id` lives on nearly every billing table; the diagram only draws the team edges to aggregate roots to stay legible.
 
 ---
 
 ## 1. Platform & Tenancy
 
-### `organizations`
-The tenant / merchant using Bouclay.
+### `teams`
+The tenant / merchant using Bouclay. **Already implemented** in the app (`Team` model); billing tables attach via `team_id`.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
 | name | string | no | |
-| slug | string | no | unique |
-| default_currency | char(3) | no | |
+| slug | string | no | unique; route key |
+| is_personal | boolean | no | default false; auto-created personal workspace on signup |
+| default_currency | char(3) | no | billing default for this team |
 | custom_data | json | yes | |
-| created_at / updated_at | timestamp | no | |
+| created_at / updated_at / deleted_at | timestamp | yes | SoftDeletes |
 
-### `organization_settings`
-One row per org — the things tenants tweak (invoice numbering, dunning).
+### `team_settings`
+One row per team — invoice numbering, dunning, and other billing config tenants tweak.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations, unique |
+| team_id | ulid | no | FK → teams, unique |
 | invoice_prefix | string | no | e.g. `BCL` |
 | next_invoice_number | unsignedBigInteger | no | sequence counter, default 1 |
 | invoice_template | string | yes | template key |
 | invoice_footer | text | yes | |
 | billing_timezone | string | no | e.g. `Africa/Lagos`; anchors when "due today" fires |
-| tax_behavior | string | no | enum: `inclusive` / `exclusive` — org default |
+| tax_behavior | string | no | enum: `inclusive` / `exclusive` — team default |
 | dunning_config | json | yes | retry schedule + terminal action override |
 | created_at / updated_at | timestamp | no | |
 
 ### `users`
-Auth for the tenant's staff.
+Global auth identity for staff. **Already implemented** in the app (`User` model). A user belongs to many teams via `team_members`; role is per membership, not on this row.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
 | name | string | no | |
-| email | string | no | unique with organization_id |
+| email | string | no | unique globally |
 | password | string | no | |
-| role | string | no | enum: `owner` / `admin` / `member` |
+| current_team_id | ulid | yes | FK → teams; active tenant context for the session |
 | phone | string | yes | |
 | email_verified_at | timestamp | yes | |
-| created_at / updated_at / deleted_at | timestamp | yes | SoftDeletes |
+| created_at / updated_at | timestamp | no | |
 
-### `api_keys`
-Per-org API credentials.
+### `team_members`
+Pivot — which users belong to which teams and with what role. **Already implemented** (`Membership` model / `team_members` table).
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
+| user_id | ulid | no | FK → users |
+| role | string | no | enum: `owner` / `admin` / `member` |
+| created_at / updated_at | timestamp | no | |
+
+Unique `(team_id, user_id)`. Exactly one `owner` per team.
+
+### `team_invitations`
+Pending invites before a user joins a team. **Already implemented** (`TeamInvitation` model).
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| code | string | no | unique; token for accept/decline links |
+| team_id | ulid | no | FK → teams |
+| email | string | no | invitee |
+| role | string | no | enum: `admin` / `member` — owner is not assignable via invite |
+| invited_by | ulid | no | FK → users |
+| expires_at | timestamp | yes | |
+| accepted_at | timestamp | yes | null until accepted |
+| created_at / updated_at | timestamp | no | |
+
+### `api_keys`
+Per-team API credentials.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| team_id | ulid | no | FK → teams |
 | mode | string | no | enum: `test` / `live` |
 | kind | string | no | enum: `publishable` / `secret` |
 | hashed_secret | string | no | unique; store a hash, show the raw key once |
@@ -148,8 +176,8 @@ Replay guard for all external writes.
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
-| key | string | no | unique with organization_id |
+| team_id | ulid | no | FK → teams |
+| key | string | no | unique with team_id |
 | request_hash | string | no | guards against key reuse with a different body |
 | response_code | smallInteger | yes | |
 | response_body | json | yes | replayed on duplicate |
@@ -166,12 +194,12 @@ The end-customers being billed.
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
-| external_ref | string | yes | the tenant's own customer id; unique with organization_id when set |
+| team_id | ulid | no | FK → teams |
+| external_ref | string | yes | the tenant's own customer id; unique with team_id when set |
 | name | string | yes | |
 | email | string | no | |
 | phone | string | yes | |
-| currency | char(3) | yes | defaults to org currency |
+| currency | char(3) | yes | defaults to team currency |
 | locale | string | yes | e.g. `en`, `fr` |
 | country | char(2) | yes | ISO-3166 |
 | default_payment_method_id | ulid | yes | FK → payment_methods (see migration order — added after payment_methods exists) |
@@ -184,7 +212,7 @@ A customer's address book. Invoices snapshot the address at finalise time — ne
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | customer_id | ulid | no | FK → customers |
 | type | string | no | enum: `billing` / `shipping` |
 | name | string | yes | |
@@ -204,7 +232,7 @@ Tokenised payment instruments. Processor-agnostic.
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | customer_id | ulid | no | FK → customers |
 | processor | string | no | enum: `nomba` (extensible) |
 | processor_token | string | no | tokenised reference |
@@ -232,7 +260,7 @@ Stripe/Paddle model: **Product → Price**. A "plan" is a product whose prices a
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | name | string | no | |
 | description | text | yes | |
 | category | string | yes | keep as string unless you truly need a categories table |
@@ -246,7 +274,7 @@ Stripe/Paddle model: **Product → Price**. A "plan" is a product whose prices a
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | product_id | ulid | no | FK → products |
 | name | string | yes | e.g. "Standard monthly" |
 | type | string | no | enum: `recurring` / `one_time` |
@@ -299,7 +327,7 @@ Present one logical price in many currencies instead of a row per currency. If u
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations (denormalised) |
+| team_id | ulid | no | FK → teams (denormalised) |
 | customer_id | ulid | no | FK → customers |
 | type | string | no | named slot, default `default`; lets one customer hold multiple distinct subs |
 | status | string | no | enum: `incomplete` / `incomplete_expired` / `trialing` / `active` / `past_due` / `paused` / `canceled` |
@@ -364,7 +392,7 @@ There is no separate `trials` table. Free vs paid is inferred from the trial pri
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | name | string | no | appears on receipts/invoices (form: "Name") |
 | product_id | ulid | no | FK → products (form: "Product") |
 | trial_price_id | ulid | no | FK → prices; recurring price charged during the trial — set `unit_amount = 0` for free trials (form: "Trial price") |
@@ -387,7 +415,7 @@ The concrete trial on one subscription item. Snapshots the catalog offer so late
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | subscription_item_id | ulid | no | FK → subscription_items, unique while `status = active` |
 | trial_offer_id | ulid | yes | FK → trial_offers (null = ad-hoc inline trial) |
 | customer_id | ulid | no | FK → customers (denormalised; enforces `once_per_customer`) |
@@ -413,8 +441,8 @@ The concrete trial on one subscription item. Snapshots the catalog offer so late
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
-| code | string | yes | unique with organization_id when set |
+| team_id | ulid | no | FK → teams |
+| code | string | yes | unique with team_id when set |
 | type | string | no | enum: `percentage` / `flat` |
 | amount | bigInteger | yes | minor units (flat); null for percentage |
 | percentage | decimal(5,2) | yes | null for flat |
@@ -449,10 +477,10 @@ A frozen legal document — numbered, with a full money breakdown and snapshots 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | customer_id | ulid | no | FK → customers |
 | subscription_id | ulid | yes | FK → subscriptions (null for one-off) |
-| number | string | yes | `{prefix}-{sequence}`, assigned at finalise; unique with organization_id |
+| number | string | yes | `{prefix}-{sequence}`, assigned at finalise; unique with team_id |
 | status | string | no | enum: `draft` / `open` / `paid` / `void` / `uncollectible` |
 | billing_reason | string | no | enum: `subscription_create` / `subscription_cycle` / `subscription_update` / `manual` |
 | collection_mode | string | no | enum: `automatic` / `manual` |
@@ -502,7 +530,7 @@ One charge attempt against the processor (merges the board's `payment_attempts` 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | invoice_id | ulid | no | FK → invoices |
 | customer_id | ulid | no | FK → customers |
 | payment_method_id | ulid | yes | FK → payment_methods |
@@ -543,7 +571,7 @@ Emitted-event log (`subscription.created`, `invoice.paid`, …).
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | type | string | no | |
 | data | json | no | |
 | created_at | timestamp | no | |
@@ -553,7 +581,7 @@ Emitted-event log (`subscription.created`, `invoice.paid`, …).
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
+| team_id | ulid | no | FK → teams |
 | url | string | no | |
 | signing_secret | string | no | HMAC secret |
 | active | boolean | no | default true |
@@ -578,27 +606,29 @@ At-least-once delivery with exponential backoff.
 
 | Model | Relationships |
 |---|---|
-| Organization | hasOne settings; hasMany users, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, events, webhookEndpoints |
-| User | belongsTo organization |
-| Customer | belongsTo organization; hasMany addresses, paymentMethods, subscriptions, invoices, payments, subscriptionItemTrials; belongsTo defaultPaymentMethod |
-| Address | belongsTo organization, customer |
-| PaymentMethod | belongsTo organization, customer, billingAddress; hasMany payments |
-| Product | belongsTo organization; hasMany prices, trialOffers |
-| Price | belongsTo organization, product; hasMany tiers, currencyOptions, subscriptionItems, trialOffersAsTrialPrice, trialOffersAsTransitionPrice |
+| Team | hasOne settings; hasMany members (through teamMembers), invitations, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, events, webhookEndpoints |
+| User | belongsTo currentTeam; belongsToMany teams (through teamMembers); hasMany teamMemberships, sentInvitations |
+| Membership (team_members) | belongsTo team, user |
+| TeamInvitation | belongsTo team, inviter (user) |
+| Customer | belongsTo team; hasMany addresses, paymentMethods, subscriptions, invoices, payments, subscriptionItemTrials; belongsTo defaultPaymentMethod |
+| Address | belongsTo team, customer |
+| PaymentMethod | belongsTo team, customer, billingAddress; hasMany payments |
+| Product | belongsTo team; hasMany prices, trialOffers |
+| Price | belongsTo team, product; hasMany tiers, currencyOptions, subscriptionItems, trialOffersAsTrialPrice, trialOffersAsTransitionPrice |
 | PriceTier | belongsTo price |
-| Subscription | belongsTo organization, customer, paymentMethod, discount; hasMany items, scheduledChanges, invoices; hasMany subscriptionItemTrials (through items) |
+| Subscription | belongsTo team, customer, paymentMethod, discount; hasMany items, scheduledChanges, invoices; hasMany subscriptionItemTrials (through items) |
 | SubscriptionItem | belongsTo subscription, price, product; hasOne currentTrial (subscriptionItemTrial) |
 | ScheduledChange | belongsTo subscription |
-| TrialOffer | belongsTo organization, product, trialPrice, transitionProduct, transitionPrice; hasMany subscriptionItemTrials |
-| SubscriptionItemTrial | belongsTo organization, subscriptionItem, trialOffer, customer, trialPrice, transitionPrice |
-| Discount | belongsTo organization; hasMany redemptions |
+| TrialOffer | belongsTo team, product, trialPrice, transitionProduct, transitionPrice; hasMany subscriptionItemTrials |
+| SubscriptionItemTrial | belongsTo team, subscriptionItem, trialOffer, customer, trialPrice, transitionPrice |
+| Discount | belongsTo team; hasMany redemptions |
 | DiscountRedemption | belongsTo discount, subscription, customer |
-| Invoice | belongsTo organization, customer, subscription; hasMany lines, payments |
+| Invoice | belongsTo team, customer, subscription; hasMany lines, payments |
 | InvoiceLine | belongsTo invoice, subscriptionItem, price, product |
-| Payment | belongsTo organization, invoice, customer, paymentMethod; hasMany refunds |
+| Payment | belongsTo team, invoice, customer, paymentMethod; hasMany refunds |
 | Refund | belongsTo payment |
-| Event | belongsTo organization; hasMany deliveries |
-| WebhookEndpoint | belongsTo organization; hasMany deliveries |
+| Event | belongsTo team; hasMany deliveries |
+| WebhookEndpoint | belongsTo team; hasMany deliveries |
 | WebhookDelivery | belongsTo webhookEndpoint, event |
 
 ---
@@ -607,10 +637,11 @@ At-least-once delivery with exponential backoff.
 
 | Column | Values |
 |---|---|
-| users.role | owner, admin, member |
+| team_members.role | owner, admin, member |
+| team_invitations.role | admin, member |
 | api_keys.mode | test, live |
 | api_keys.kind | publishable, secret |
-| organization_settings.tax_behavior | inclusive, exclusive |
+| team_settings.tax_behavior | inclusive, exclusive |
 | addresses.type | billing, shipping |
 | payment_methods.processor | nomba |
 | payment_methods.type | card, bank, wallet |
@@ -646,9 +677,9 @@ At-least-once delivery with exponential backoff.
 ## Indexing & constraints
 
 - **FK indexes**: index every FK column.
-- **Tenancy**: index `organization_id` on every table; add composite `(organization_id, status)` on `subscriptions`, `invoices`, `payments` for dashboard filters.
+- **Tenancy**: index `team_id` on every table; add composite `(team_id, status)` on `subscriptions`, `invoices`, `payments` for dashboard filters.
 - **Billing scheduler hot path**: composite index on `subscriptions (status, current_period_end)` — the scheduler scans for due subs by this.
-- **Unique**: `organizations.slug`; `users (organization_id, email)`; `api_keys.hashed_secret`; `customers (organization_id, external_ref)` (when not null); `idempotency_keys (organization_id, key)`; `invoices (organization_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
+- **Unique**: `teams.slug`; `users.email`; `team_members (team_id, user_id)`; `team_invitations.code`; `api_keys.hashed_secret`; `customers (team_id, external_ref)` (when not null); `idempotency_keys (team_id, key)`; `invoices (team_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
 - **Anti-abuse**: index `subscription_item_trials (customer_id, trial_offer_id)` and `discount_redemptions (discount_id, customer_id)`.
 - **Money**: enforce non-negative amounts at the application layer; keep everything in the subscription's single currency (don't mix currencies on one invoice).
 
@@ -658,30 +689,32 @@ At-least-once delivery with exponential backoff.
 
 Two FKs are circular and must be deferred: `customers.default_payment_method_id ↔ payment_methods.customer_id`, and `payment_methods.billing_address_id ↔ addresses.customer_id`. Create the base tables first, then add the back-reference in a follow-up migration.
 
-1. organizations
-2. organization_settings, users, api_keys, idempotency_keys, events, webhook_endpoints
-3. webhook_deliveries
-4. customers *(without `default_payment_method_id`)*
-5. addresses
-6. payment_methods
-7. **alter** customers → add `default_payment_method_id` FK
-8. products
-9. prices *(refs products)*
-10. trial_offers *(refs products, prices)*
-11. price_tiers, price_currency_options
-12. discounts
-13. subscriptions *(refs customers, payment_methods, discounts)*
-14. subscription_items, scheduled_changes, subscription_item_trials, discount_redemptions
-15. invoices
-16. invoice_lines
-17. payments
-18. refunds
+1. teams *(already in app — add billing columns `default_currency`, `custom_data` via alter)*
+2. users *(already in app — add `current_team_id` via alter if not present)*
+3. team_members, team_invitations *(already in app)*
+4. team_settings, api_keys, idempotency_keys, events, webhook_endpoints
+5. webhook_deliveries
+6. customers *(without `default_payment_method_id`)*
+7. addresses
+8. payment_methods
+9. **alter** customers → add `default_payment_method_id` FK
+10. products
+11. prices *(refs products)*
+12. trial_offers *(refs products, prices)*
+13. price_tiers, price_currency_options
+14. discounts
+15. subscriptions *(refs customers, payment_methods, discounts)*
+16. subscription_items, scheduled_changes, subscription_item_trials, discount_redemptions
+17. invoices
+18. invoice_lines
+19. payments
+20. refunds
 
 ---
 
 ## Build order & cut-lines (hackathon)
 
-**Build now** — a complete, demoable engine: organizations, users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
+**Build now** — a complete, demoable engine: teams, team_members, team_invitations, users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
 
 **Defer** — keep the tables, don't wire the logic: price_currency_options, refunds, both graduated *and* volume (ship one), discounts + discount_redemptions if time-pressed, paid trials (`trial_price.unit_amount > 0`), product-transition trials (`transition_to_different_product`), and timestamp-duration trials (ship `relative` only for MVP).
 
