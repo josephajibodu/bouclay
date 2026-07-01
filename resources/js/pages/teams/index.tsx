@@ -1,17 +1,11 @@
 import { Head, router } from '@inertiajs/react';
-import { Eye, LogOut, Pencil, Plus } from 'lucide-react';
+import { ArrowLeftRight, LogOut, Plus } from 'lucide-react';
 import { useState } from 'react';
 import CreateTeamModal from '@/components/create-team-modal';
 import Heading from '@/components/heading';
 import LeaveTeamModal from '@/components/leave-team-modal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { edit as editGeneral } from '@/routes/general';
 import { index, switchMethod } from '@/routes/teams';
 import type { Team } from '@/types';
@@ -29,13 +23,7 @@ export default function TeamsIndex({ teams }: Props) {
         setLeaveTeamDialogOpen(true);
     };
 
-    const viewTeam = (team: Team) => {
-        if (team.isCurrent) {
-            router.visit(editGeneral());
-
-            return;
-        }
-
+    const switchToTeam = (team: Team) => {
         router.visit(switchMethod(team.slug), {
             onSuccess: () => router.visit(editGeneral()),
         });
@@ -79,6 +67,9 @@ export default function TeamsIndex({ teams }: Props) {
                                             <span className="font-medium">
                                                 {team.name}
                                             </span>
+                                            {team.isCurrent ? (
+                                                <Badge>Current</Badge>
+                                            ) : null}
                                             {team.isPersonal ? (
                                                 <Badge variant="secondary">
                                                     Personal
@@ -91,69 +82,35 @@ export default function TeamsIndex({ teams }: Props) {
                                     </div>
                                 </div>
 
-                                <TooltipProvider>
-                                    <div className="flex items-center gap-2">
-                                        {canLeaveTeam ? (
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        data-test="team-leave-button"
-                                                        onClick={() =>
-                                                            openLeaveTeamDialog(
-                                                                team,
-                                                            )
-                                                        }
-                                                    >
-                                                        <LogOut className="h-4 w-4" />
-                                                    </Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>Leave team</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        ) : null}
+                                <div className="flex items-center gap-2">
+                                    {canLeaveTeam ? (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            data-test="team-leave-button"
+                                            onClick={() =>
+                                                openLeaveTeamDialog(team)
+                                            }
+                                        >
+                                            <LogOut className="h-4 w-4" />
+                                            Leave
+                                        </Button>
+                                    ) : null}
 
-                                        {team.role === 'member' ? (
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        data-test="team-view-button"
-                                                        onClick={() =>
-                                                            viewTeam(team)
-                                                        }
-                                                    >
-                                                        <Eye className="h-4 w-4" />
-                                                    </Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>View business</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        ) : (
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        data-test="team-edit-button"
-                                                        onClick={() =>
-                                                            viewTeam(team)
-                                                        }
-                                                    >
-                                                        <Pencil className="h-4 w-4" />
-                                                    </Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>Edit business</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        )}
-                                    </div>
-                                </TooltipProvider>
+                                    {!team.isCurrent ? (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            data-test="team-switch-button"
+                                            onClick={() =>
+                                                switchToTeam(team)
+                                            }
+                                        >
+                                            <ArrowLeftRight className="h-4 w-4" />
+                                            Switch
+                                        </Button>
+                                    ) : null}
+                                </div>
                             </div>
                         );
                     })}
