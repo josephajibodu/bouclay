@@ -10,7 +10,7 @@ These apply to every table — assume them rather than repeating per row.
 
 - **Primary key**: `ulid` column named `id`.
 - **Money**: always `bigInteger` in **minor units** (kobo/cents) paired with an ISO-4217 `currency` `char(3)`. Never floats.
-- **Tenancy**: every tenant-owned table carries `organization_id` (`ulid`, FK, indexed). All queries scope by it; workers never trust a join to infer the tenant.
+- **Tenancy**: every tenant-owned table carries `team_id` (`ulid`, FK, indexed). All queries scope by it; workers never trust a join to infer the tenant. Staff access the dashboard through `team_members`; `users.current_team_id` is the active tenant context in the session.
 - **Flexibility**: `custom_data` `json` (nullable) on the major entities — Paddle's `custom_data` / Stripe's `metadata`. Avoids a polymorphic metadata table.
 - **Timestamps**: `created_at` + `updated_at` on every table. `deleted_at` (SoftDeletes) on catalog and customer rows only.
 - **Enums**: stored as `string`, cast to PHP enums in the model. Values listed per column and collected in the [Enums appendix](#enums-appendix).
@@ -22,19 +22,22 @@ These apply to every table — assume them rather than repeating per row.
 
 ```mermaid
 erDiagram
-    organizations ||--o| organization_settings : configures
-    organizations ||--o{ users : employs
-    organizations ||--o{ api_keys : issues
-    organizations ||--o{ customers : owns
-    organizations ||--o{ products : owns
-    organizations ||--o{ subscriptions : owns
-    organizations ||--o{ invoices : owns
-    organizations ||--o{ discounts : defines
-    organizations ||--o{ trial_offers : defines
-    organizations ||--o{ meters : defines
-    organizations ||--o{ events : emits
-    organizations ||--o{ webhook_endpoints : registers
-    organizations ||--o{ idempotency_keys : tracks
+    teams ||--o| team_settings : configures
+    teams ||--o{ team_members : has
+    teams ||--o{ team_invitations : invites
+    teams ||--o{ api_keys : issues
+    teams ||--o{ customers : owns
+    teams ||--o{ products : owns
+    teams ||--o{ subscriptions : owns
+    teams ||--o{ invoices : owns
+    teams ||--o{ discounts : defines
+    teams ||--o{ trial_offers : defines
+    teams ||--o{ events : emits
+    teams ||--o{ webhook_endpoints : registers
+    teams ||--o{ idempotency_keys : tracks
+
+    users ||--o{ team_members : belongs
+    users }o--o| teams : currentTeam
 
     customers ||--o{ addresses : has
     customers ||--o{ payment_methods : has
@@ -51,7 +54,6 @@ erDiagram
     prices ||--o{ price_currency_options : priced_in
     prices ||--o{ trial_offers : trial_price_for
     prices ||--o{ trial_offers : transition_price_for
-    meters ||--o{ prices : metered_by
 
     subscriptions ||--o{ subscription_items : contains
     subscriptions ||--o{ scheduled_changes : schedules
@@ -62,7 +64,6 @@ erDiagram
     subscription_items }o--|| prices : references
     subscription_items }o--|| products : references
     subscription_items ||--o| subscription_item_trials : current_trial
-    subscription_items ||--o{ usage_records : meters
 
     trial_offers ||--o{ subscription_item_trials : applied_as
     discounts ||--o{ discount_redemptions : redeemed_as
@@ -250,13 +251,11 @@ Stripe/Paddle model: **Product → Price**. A "plan" is a product whose prices a
 | name | string | yes | e.g. "Standard monthly" |
 | type | string | no | enum: `recurring` / `one_time` |
 | pricing_model | string | no | enum: `standard` / `tiered` / `volume` / `graduated` / `package` |
-| usage_type | string | no | enum: `licensed` / `metered`; default `licensed` |
 | unit_amount | bigInteger | yes | minor units; used for `standard` + `package`; null for tiered/volume/graduated |
 | currency | char(3) | no | simple multi-currency = one price row per currency |
 | billing_interval | string | yes | enum: `day` / `week` / `month` / `year`; null for `one_time` |
 | billing_frequency | smallInteger | no | default 1; `3` + `month` = every 3 months |
 | package_size | integer | yes | for `package`; units per block |
-| meter_id | ulid | yes | FK → meters; required when `usage_type = metered` |
 | tax_mode | string | no | enum: `inclusive` / `exclusive` / `account`; default `account` |
 | status | string | no | enum: `active` / `archived` |
 | version | integer | no | default 1; bump to grandfather existing subscribers |
@@ -291,18 +290,6 @@ Present one logical price in many currencies instead of a row per currency. If u
 | currency | char(3) | no | unique with price_id |
 | unit_amount | bigInteger | no | minor units |
 
-### `meters` *(only with metered billing)*
-Defines a usage meter.
-
-| Column | Type | Null | Notes |
-|---|---|---|---|
-| id | ulid | no | PK |
-| organization_id | ulid | no | FK → organizations |
-| name | string | no | |
-| event_name | string | no | what tenants report against |
-| aggregation | string | no | enum: `sum` / `last_during_period` / `max` |
-| created_at / updated_at | timestamp | no | |
-
 ---
 
 ## 4. Subscriptions
@@ -334,7 +321,7 @@ Defines a usage meter.
 | created_at / updated_at | timestamp | no | |
 
 ### `subscription_items`
-A subscription carries many priced items (base + add-ons + metered).
+A subscription carries many priced items (base + add-ons).
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -342,22 +329,9 @@ A subscription carries many priced items (base + add-ons + metered).
 | subscription_id | ulid | no | FK → subscriptions |
 | price_id | ulid | no | FK → prices |
 | product_id | ulid | no | FK → products (denormalised) |
-| quantity | integer | no | default 1; for licensed prices |
+| quantity | integer | no | default 1 |
 | status | string | no | enum: `active` / `removed` |
-| metered | boolean | no | mirrors the price's usage_type, default false |
 | created_at / updated_at | timestamp | no | |
-
-### `usage_records` *(only with metered billing)*
-Reported usage drained into invoice lines at period end.
-
-| Column | Type | Null | Notes |
-|---|---|---|---|
-| id | ulid | no | PK |
-| subscription_item_id | ulid | no | FK → subscription_items |
-| quantity | bigInteger | no | |
-| idempotency_key | string | no | unique with subscription_item_id |
-| recorded_at | timestamp | no | |
-| created_at | timestamp | no | |
 
 ### `scheduled_changes`
 Future cancel / pause / resume at the next boundary (the Paddle "borrow" pattern).
@@ -509,7 +483,7 @@ A frozen legal document — numbered, with a full money breakdown and snapshots 
 | subscription_item_id | ulid | yes | FK → subscription_items |
 | price_id | ulid | yes | FK → prices |
 | product_id | ulid | yes | FK → products |
-| kind | string | no | enum: `subscription` / `proration` / `usage` / `one_time` / `tax` / `discount` |
+| kind | string | no | enum: `subscription` / `proration` / `one_time` / `tax` / `discount` |
 | description | string | no | |
 | quantity | integer | no | default 1 |
 | unit_amount | bigInteger | no | minor units |
@@ -604,18 +578,16 @@ At-least-once delivery with exponential backoff.
 
 | Model | Relationships |
 |---|---|
-| Organization | hasOne settings; hasMany users, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, meters, events, webhookEndpoints |
+| Organization | hasOne settings; hasMany users, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, events, webhookEndpoints |
 | User | belongsTo organization |
 | Customer | belongsTo organization; hasMany addresses, paymentMethods, subscriptions, invoices, payments, subscriptionItemTrials; belongsTo defaultPaymentMethod |
 | Address | belongsTo organization, customer |
 | PaymentMethod | belongsTo organization, customer, billingAddress; hasMany payments |
 | Product | belongsTo organization; hasMany prices, trialOffers |
-| Price | belongsTo organization, product, meter; hasMany tiers, currencyOptions, subscriptionItems, trialOffersAsTrialPrice, trialOffersAsTransitionPrice |
+| Price | belongsTo organization, product; hasMany tiers, currencyOptions, subscriptionItems, trialOffersAsTrialPrice, trialOffersAsTransitionPrice |
 | PriceTier | belongsTo price |
-| Meter | belongsTo organization; hasMany prices, usageRecords (through items) |
 | Subscription | belongsTo organization, customer, paymentMethod, discount; hasMany items, scheduledChanges, invoices; hasMany subscriptionItemTrials (through items) |
-| SubscriptionItem | belongsTo subscription, price, product; hasOne currentTrial (subscriptionItemTrial); hasMany usageRecords |
-| UsageRecord | belongsTo subscriptionItem |
+| SubscriptionItem | belongsTo subscription, price, product; hasOne currentTrial (subscriptionItemTrial) |
 | ScheduledChange | belongsTo subscription |
 | TrialOffer | belongsTo organization, product, trialPrice, transitionProduct, transitionPrice; hasMany subscriptionItemTrials |
 | SubscriptionItemTrial | belongsTo organization, subscriptionItem, trialOffer, customer, trialPrice, transitionPrice |
@@ -646,11 +618,9 @@ At-least-once delivery with exponential backoff.
 | products.status | active, archived |
 | prices.type | recurring, one_time |
 | prices.pricing_model | standard, tiered, volume, graduated, package |
-| prices.usage_type | licensed, metered |
 | prices.billing_interval | day, week, month, year |
 | prices.tax_mode | inclusive, exclusive, account |
 | prices.status | active, archived |
-| meters.aggregation | sum, last_during_period, max |
 | subscriptions.status | incomplete, incomplete_expired, trialing, active, past_due, paused, canceled |
 | subscriptions.collection_mode | automatic, manual |
 | subscriptions.trial_end_behavior | cancel, pause, create_invoice |
@@ -665,7 +635,7 @@ At-least-once delivery with exponential backoff.
 | invoices.status | draft, open, paid, void, uncollectible |
 | invoices.billing_reason | subscription_create, subscription_cycle, subscription_update, manual |
 | invoices.collection_mode | automatic, manual |
-| invoice_lines.kind | subscription, proration, usage, one_time, tax, discount |
+| invoice_lines.kind | subscription, proration, one_time, tax, discount |
 | payments.processor | nomba |
 | payments.status | pending, processing, succeeded, failed, refunded |
 | refunds.status | pending, succeeded, failed |
@@ -678,7 +648,7 @@ At-least-once delivery with exponential backoff.
 - **FK indexes**: index every FK column.
 - **Tenancy**: index `organization_id` on every table; add composite `(organization_id, status)` on `subscriptions`, `invoices`, `payments` for dashboard filters.
 - **Billing scheduler hot path**: composite index on `subscriptions (status, current_period_end)` — the scheduler scans for due subs by this.
-- **Unique**: `organizations.slug`; `users (organization_id, email)`; `api_keys.hashed_secret`; `customers (organization_id, external_ref)` (when not null); `idempotency_keys (organization_id, key)`; `invoices (organization_id, number)`; `payments.idempotency_key`; `usage_records (subscription_item_id, idempotency_key)`; `price_currency_options (price_id, currency)`.
+- **Unique**: `organizations.slug`; `users (organization_id, email)`; `api_keys.hashed_secret`; `customers (organization_id, external_ref)` (when not null); `idempotency_keys (organization_id, key)`; `invoices (organization_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
 - **Anti-abuse**: index `subscription_item_trials (customer_id, trial_offer_id)` and `discount_redemptions (discount_id, customer_id)`.
 - **Money**: enforce non-negative amounts at the application layer; keep everything in the subscription's single currency (don't mix currencies on one invoice).
 
@@ -695,18 +665,17 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 5. addresses
 6. payment_methods
 7. **alter** customers → add `default_payment_method_id` FK
-8. products, meters
-9. prices *(refs products, meters)*
+8. products
+9. prices *(refs products)*
 10. trial_offers *(refs products, prices)*
 11. price_tiers, price_currency_options
 12. discounts
 13. subscriptions *(refs customers, payment_methods, discounts)*
 14. subscription_items, scheduled_changes, subscription_item_trials, discount_redemptions
-15. usage_records
-16. invoices
-17. invoice_lines
-18. payments
-19. refunds
+15. invoices
+16. invoice_lines
+17. payments
+18. refunds
 
 ---
 
@@ -714,7 +683,7 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 
 **Build now** — a complete, demoable engine: organizations, users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
 
-**Defer** — keep the tables, don't wire the logic: meters + usage_records (metered billing), price_currency_options, refunds, both graduated *and* volume (ship one), discounts + discount_redemptions if time-pressed, paid trials (`trial_price.unit_amount > 0`), product-transition trials (`transition_to_different_product`), and timestamp-duration trials (ship `relative` only for MVP).
+**Defer** — keep the tables, don't wire the logic: price_currency_options, refunds, both graduated *and* volume (ship one), discounts + discount_redemptions if time-pressed, paid trials (`trial_price.unit_amount > 0`), product-transition trials (`transition_to_different_product`), and timestamp-duration trials (ship `relative` only for MVP).
 
 ---
 
