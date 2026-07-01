@@ -24,7 +24,7 @@ Judged on: state-machine completeness, dunning sophistication, multi-tenant clea
 ## Architecture (short)
 
 - **Tenancy:** `teams` — each integrator is a team; billing data is scoped by `team_id`.
-- **Staff access:** global `users` + `team_members` pivot (role per team).
+- **Staff access:** global `users` + `team_members` + **roles & permissions** (many roles per member, Paddle-style).
 - **Nomba BYOK:** `team_processor_connections` stores encrypted Nomba keys per team.
 - **Inbound webhooks:** Nomba → `POST /webhooks/nomba/{token}` (generated per team).
 - **Outbound webhooks:** Bouclay → integrator URLs in `webhook_endpoints`.
@@ -69,7 +69,7 @@ Bouclay is the product. A minimal **reference app** (e.g. “Acme Notes”) will
 
 ## Status
 
-**In progress** — platform auth and teams exist; billing engine and Nomba integration are planned per `IMPLEMENTATION.md`.
+**In progress** — platform auth and teams exist; **Phase 1 (roles & permissions)** is next, then billing engine and Nomba integration per `IMPLEMENTATION.md`.
 
 ## License
 

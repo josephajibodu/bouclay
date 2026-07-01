@@ -16,6 +16,7 @@ These apply to every table — assume them rather than repeating per row.
 - **Enums**: stored as `string`, cast to PHP enums in the model. Values listed per column and collected in the [Enums appendix](#enums-appendix).
 - **Idempotency**: all external write endpoints gate on `idempotency_keys`.
 - **Processor (Nomba BYOK)**: each team connects **their own** Nomba API keys. Bouclay charges and tokenises on their merchant account; settlement stays with Nomba. Bouclay exposes a **generated inbound webhook URL** per team for the Nomba dashboard; integrators register **outbound** URLs in `webhook_endpoints` for subscription lifecycle events.
+- **Authorization**: Spatie-lite RBAC — `permissions` attach to `roles` only; staff receive permissions through **roles assigned per `team_members` row** (many roles per member, Paddle-style). No direct user permissions. Gate dashboard routes and APIs with `$user->hasTeamPermission($team, 'invoices.manage')`, which unions permissions across all roles on that membership.
 
 ---
 
@@ -27,6 +28,12 @@ erDiagram
     teams ||--o| team_processor_connections : connects
     teams ||--o{ team_members : has
     teams ||--o{ team_invitations : invites
+    roles ||--o{ role_permission : grants
+    permissions ||--o{ role_permission : includes
+    team_members ||--o{ team_member_roles : assigned
+    roles ||--o{ team_member_roles : receives
+    team_invitations ||--o{ team_invitation_roles : offers
+    roles ||--o{ team_invitation_roles : receives
     teams ||--o{ api_keys : issues
     teams ||--o{ customers : owns
     teams ||--o{ products : owns
@@ -142,7 +149,7 @@ Nomba sends payment/checkout events here. Bouclay resolves `team_id` from the to
 **Charge path**: API request scoped to team → read keys from this row for the request's mode (`test` / `live`) → call Nomba Charge/Checkout APIs with **that team's** credentials.
 
 ### `users`
-Global auth identity for staff. **Already implemented** in the app (`User` model). A user belongs to many teams via `team_members`; role is per membership, not on this row.
+Global auth identity for staff. **Already implemented** in the app (`User` model). A user belongs to many teams via `team_members`; authorization is via roles on that membership, not columns on this row.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -155,21 +162,68 @@ Global auth identity for staff. **Already implemented** in the app (`User` model
 | email_verified_at | timestamp | yes | |
 | created_at / updated_at | timestamp | no | |
 
+### `permissions`
+App-global permission catalog (seeded). Permissions attach to **roles only** — never directly to users.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| name | string | no | unique machine name, e.g. `invoices.manage` |
+| label | string | no | human label for UI |
+| description | text | yes | |
+| group | string | no | UI grouping, e.g. `invoicing`, `finance`, `technical` |
+| created_at / updated_at | timestamp | no | |
+
+### `roles`
+App-global role catalog (seeded). Paddle-style preset roles; not tenant-customisable in MVP.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| name | string | no | unique slug, e.g. `admin`, `finance` |
+| label | string | no | display name, e.g. `Admin`, `Finance` |
+| description | text | yes | shown on role assignment UI |
+| is_system | boolean | no | default true; system roles cannot be deleted |
+| sort_order | smallInteger | no | default 0; display order in UI |
+| created_at / updated_at | timestamp | no | |
+
+### `role_permission`
+Pivot — which permissions each role grants.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| role_id | ulid | no | FK → roles |
+| permission_id | ulid | no | FK → permissions |
+
+Primary key `(role_id, permission_id)`.
+
 ### `team_members`
-Pivot — which users belong to which teams and with what role. **Already implemented** (`Membership` model / `team_members` table).
+Which users belong to which teams. **Partially implemented** (`Membership` model / `team_members` table) — migrate off the legacy single `role` enum to `team_member_roles` + `is_owner`.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
 | team_id | ulid | no | FK → teams |
 | user_id | ulid | no | FK → users |
-| role | string | no | enum: `owner` / `admin` / `member` |
+| is_owner | boolean | no | default false; exactly one `true` per team — billing owner, can delete team, transfer ownership |
 | created_at / updated_at | timestamp | no | |
 
-Unique `(team_id, user_id)`. Exactly one `owner` per team.
+Unique `(team_id, user_id)`. Team creator gets `is_owner = true` and the **Admin** role. `is_owner` is not a role; it is a guard on destructive team actions.
+
+### `team_member_roles`
+Pivot — roles assigned to a team member (many per member; Paddle-style checkboxes).
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| team_member_id | ulid | no | FK → team_members |
+| role_id | ulid | no | FK → roles |
+
+Primary key `(team_member_id, role_id)`.
+
+Effective permissions = union of all permissions from all assigned roles. The **Admin** role receives every permission via seeder.
 
 ### `team_invitations`
-Pending invites before a user joins a team. **Already implemented** (`TeamInvitation` model).
+Pending invites before a user joins a team. **Partially implemented** (`TeamInvitation` model) — migrate off legacy single `role` to `team_invitation_roles`.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -177,11 +231,20 @@ Pending invites before a user joins a team. **Already implemented** (`TeamInvita
 | code | string | no | unique; token for accept/decline links |
 | team_id | ulid | no | FK → teams |
 | email | string | no | invitee |
-| role | string | no | enum: `admin` / `member` — owner is not assignable via invite |
 | invited_by | ulid | no | FK → users |
 | expires_at | timestamp | yes | |
 | accepted_at | timestamp | yes | null until accepted |
 | created_at / updated_at | timestamp | no | |
+
+### `team_invitation_roles`
+Roles pre-assigned on invite; copied to `team_member_roles` when accepted.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| team_invitation_id | ulid | no | FK → team_invitations |
+| role_id | ulid | no | FK → roles |
+
+Primary key `(team_invitation_id, role_id)`. **Admin** and owner transfer are not assignable via invite without existing owner approval.
 
 ### `api_keys`
 Per-team **Bouclay** API credentials — for downstream developers calling Bouclay (not Nomba keys; those live in `team_processor_connections`).
@@ -645,8 +708,13 @@ At-least-once delivery with exponential backoff.
 |---|---|
 | Team | hasOne settings, processorConnection; hasMany members (through teamMembers), invitations, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, events, webhookEndpoints |
 | User | belongsTo currentTeam; belongsToMany teams (through teamMembers); hasMany teamMemberships, sentInvitations |
-| Membership (team_members) | belongsTo team, user |
-| TeamInvitation | belongsTo team, inviter (user) |
+| Permission | belongsToMany roles (through rolePermission) |
+| Role | belongsToMany permissions (through rolePermission); belongsToMany teamMembers (through teamMemberRoles); belongsToMany teamInvitations (through teamInvitationRoles) |
+| RolePermission | belongsTo role, permission |
+| Membership (team_members) | belongsTo team, user; belongsToMany roles (through teamMemberRoles) |
+| TeamMemberRole | belongsTo teamMember, role |
+| TeamInvitation | belongsTo team, inviter (user); belongsToMany roles (through teamInvitationRoles) |
+| TeamInvitationRole | belongsTo teamInvitation, role |
 | TeamProcessorConnection | belongsTo team |
 | Customer | belongsTo team; hasMany addresses, paymentMethods, subscriptions, invoices, payments, subscriptionItemTrials; belongsTo defaultPaymentMethod |
 | Address | belongsTo team, customer |
@@ -675,8 +743,7 @@ At-least-once delivery with exponential backoff.
 
 | Column | Values |
 |---|---|
-| team_members.role | owner, admin, member |
-| team_invitations.role | admin, member |
+| roles.name (seed) | admin, finance, invoicing, subscription_kpis, support, technical |
 | api_keys.mode | test, live |
 | api_keys.kind | publishable, secret |
 | team_settings.tax_behavior | inclusive, exclusive |
@@ -712,6 +779,71 @@ At-least-once delivery with exponential backoff.
 
 ---
 
+## RBAC seed appendix
+
+Seeded on deploy. Permission names use `resource.action`. **Admin** receives all permissions.
+
+### Permissions
+
+| name | group | label |
+|---|---|---|
+| `team.view` | team | View team settings |
+| `team.update` | team | Update team settings |
+| `team.delete` | team | Delete team |
+| `members.view` | team | View team members |
+| `members.invite` | team | Invite team members |
+| `members.update` | team | Update team members |
+| `members.remove` | team | Remove team members |
+| `members.assign_roles` | team | Assign roles to members |
+| `customers.view` | catalog | View customers |
+| `customers.manage` | catalog | Manage customers |
+| `products.view` | catalog | View products |
+| `products.manage` | catalog | Manage products |
+| `prices.view` | catalog | View prices |
+| `prices.manage` | catalog | Manage prices |
+| `trial_offers.view` | catalog | View trial offers |
+| `trial_offers.manage` | catalog | Manage trial offers |
+| `invoices.view` | invoicing | View invoices |
+| `invoices.manage` | invoicing | Manage invoices |
+| `invoices.finalize` | invoicing | Finalize invoices |
+| `subscriptions.view` | subscriptions | View subscriptions |
+| `subscriptions.manage` | subscriptions | Manage subscriptions |
+| `subscription_kpis.view` | subscriptions | View subscription KPIs |
+| `orders.view` | finance | View orders |
+| `orders.manage` | finance | Manage orders |
+| `payments.view` | finance | View payments |
+| `financial_reports.view` | finance | View financial reports |
+| `transfers.view` | finance | View transfers |
+| `transfers.manage` | finance | Manage transfers |
+| `refunds.view` | support | View refunds |
+| `refunds.process` | support | Process refunds |
+| `licenses.view` | support | View licenses |
+| `licenses.manage` | support | Manage licenses |
+| `api_keys.view` | technical | View API keys |
+| `api_keys.manage` | technical | Manage API keys |
+| `webhooks.view` | technical | View webhook endpoints |
+| `webhooks.manage` | technical | Manage webhook endpoints |
+| `integrations.view` | technical | View integrations |
+| `integrations.manage` | technical | Manage integrations (Nomba BYOK) |
+| `diagnostics.view` | technical | View diagnostics |
+| `team_settings.view` | technical | View vendor/billing settings |
+| `team_settings.manage` | technical | Manage vendor/billing settings |
+
+### Default roles → permissions
+
+| Role | Description | Permissions |
+|---|---|---|
+| **Admin** | Account administrator. Full access to all Bouclay functions. | **All** |
+| **Finance** | Finance and accounting. View orders and financial reports; manage transfers. | `orders.view`, `payments.view`, `financial_reports.view`, `transfers.view`, `transfers.manage`, `invoices.view` |
+| **Invoicing** | B2B invoicing plus customers, products, and prices. | `invoices.view`, `invoices.manage`, `invoices.finalize`, `customers.view`, `customers.manage`, `products.view`, `products.manage`, `prices.view`, `prices.manage` |
+| **Subscription KPIs** | Read-only subscription analytics. | `subscription_kpis.view`, `subscriptions.view` |
+| **Support** | End-user support — orders, refunds, licenses. | `orders.view`, `orders.manage`, `refunds.view`, `refunds.process`, `licenses.view`, `licenses.manage`, `customers.view`, `subscriptions.view` |
+| **Technical** | API integration, keys, catalog, diagnostics, vendor settings. | `api_keys.view`, `api_keys.manage`, `webhooks.view`, `webhooks.manage`, `integrations.view`, `integrations.manage`, `diagnostics.view`, `team_settings.view`, `team_settings.manage`, `products.view`, `products.manage`, `prices.view`, `prices.manage`, `trial_offers.view`, `trial_offers.manage` |
+
+**Owner guard (not a role):** `team.delete`, `members.assign_roles`, and ownership transfer require `team_members.is_owner = true` in addition to the permission.
+
+---
+
 ## Indexing & constraints
 
 - **FK indexes**: index every FK column.
@@ -729,30 +861,32 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 
 1. teams *(already in app — add billing columns `default_currency`, `custom_data` via alter)*
 2. users *(already in app — add `current_team_id` via alter if not present)*
-3. team_members, team_invitations *(already in app)*
-4. team_settings, team_processor_connections, api_keys, idempotency_keys, events, webhook_endpoints
-5. webhook_deliveries
-6. customers *(without `default_payment_method_id`)*
-7. addresses
-8. payment_methods
-9. **alter** customers → add `default_payment_method_id` FK
-10. products
-11. prices *(refs products)*
-12. trial_offers *(refs products, prices)*
-13. price_tiers, price_currency_options
-14. discounts
-15. subscriptions *(refs customers, payment_methods, discounts)*
-16. subscription_items, scheduled_changes, subscription_item_trials, discount_redemptions
-17. invoices
-18. invoice_lines
-19. payments
-20. refunds
+3. permissions, roles, role_permission *(global seed data)*
+4. team_members *(already in app — migrate: drop `role`, add `is_owner`)*
+5. team_member_roles, team_invitations *(already in app)*, team_invitation_roles
+6. team_settings, team_processor_connections, api_keys, idempotency_keys, events, webhook_endpoints
+7. webhook_deliveries
+8. customers *(without `default_payment_method_id`)*
+9. addresses
+10. payment_methods
+11. **alter** customers → add `default_payment_method_id` FK
+12. products
+13. prices *(refs products)*
+14. trial_offers *(refs products, prices)*
+15. price_tiers, price_currency_options
+16. discounts
+17. subscriptions *(refs customers, payment_methods, discounts)*
+18. subscription_items, scheduled_changes, subscription_item_trials, discount_redemptions
+19. invoices
+20. invoice_lines
+21. payments
+22. refunds
 
 ---
 
 ## Build order & cut-lines (hackathon)
 
-**Build now** — a complete, demoable engine: teams, team_members, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
+**Build now** — a complete, demoable engine: teams, team_members, team_member_roles, permissions, roles, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
 
 **Defer** — keep the tables, don't wire the logic: price_currency_options, refunds, both graduated *and* volume (ship one), discounts + discount_redemptions if time-pressed, paid trials (`trial_price.unit_amount > 0`), product-transition trials (`transition_to_different_product`), and timestamp-duration trials (ship `relative` only for MVP).
 

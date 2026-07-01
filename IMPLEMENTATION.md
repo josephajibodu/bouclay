@@ -17,24 +17,43 @@ Authoritative schema: [`schema.md`](schema.md)
 
 **Exit criteria:** User can register, own a personal team, invite members, switch teams.
 
+**Note:** Phase 0 uses a legacy single-role enum (`owner` / `admin` / `member`). Phase 1 replaces this with the RBAC model in `schema.md`.
+
 ---
 
-## Phase 1 — Tenancy & integrator credentials
+## Phase 1 — Roles & permissions
+
+**Goal:** Paddle-style RBAC before billing work — permissions on roles only, many roles per team member.
+
+**Build:**
+- Migrations: `permissions`, `roles`, `role_permission`, `team_member_roles`, `team_invitation_roles`
+- Migrate `team_members`: drop `role` column, add `is_owner`; team creator gets `is_owner = true` + **Admin** role
+- Seeder: default roles and permissions from [RBAC seed appendix](schema.md#rbac-seed-appendix) (`Admin`, `Finance`, `Invoicing`, `Subscription KPIs`, `Support`, `Technical`)
+- `HasTeams` / policies: `$user->hasTeamPermission($team, 'invoices.manage')` unions permissions across assigned roles; `is_owner` guard for `team.delete` and `members.assign_roles`
+- Team member UI: checkbox role assignment (like Paddle screenshot)
+- Invitation flow: assign multiple roles on invite → copy to `team_member_roles` on accept
+- Share effective permissions with Inertia (`TeamPermissions` DTO expands to match seeded permissions)
+
+**Exit criteria:** Owner assigns Finance + Invoicing to a member; member can view invoices but cannot manage API keys; non-owner cannot delete team.
+
+---
+
+## Phase 2 — Tenancy & integrator credentials
 
 **Goal:** A team can connect to Bouclay as an integrator — Nomba BYOK + Bouclay API keys.
 
 **Build:**
 - `team_settings` (invoice prefix, timezone, dunning config stub)
 - `team_processor_connections` — encrypted Nomba test/live keys, `inbound_webhook_token`
-- Settings UI: paste Nomba keys → show copy-paste inbound webhook URL
-- `api_keys` — Bouclay secret/publishable keys per team (test/live)
+- Settings UI: paste Nomba keys → show copy-paste inbound webhook URL *(requires `integrations.manage`)*
+- `api_keys` — Bouclay secret/publishable keys per team (test/live) *(requires `api_keys.manage`)*
 - `idempotency_keys` table + middleware for write APIs
 
 **Exit criteria:** Team saves Nomba keys; dashboard displays `POST /webhooks/nomba/{token}`; team can create/revoke a Bouclay API key.
 
 ---
 
-## Phase 2 — Catalog (products, prices, trials)
+## Phase 3 — Catalog (products, prices, trials)
 
 **Goal:** Integrators define what they sell.
 
@@ -50,7 +69,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 3 — Customers & payment methods
+## Phase 4 — Customers & payment methods
 
 **Goal:** End-customers exist in Bouclay; cards tokenise via Nomba.
 
@@ -64,7 +83,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 4 — Subscriptions & state machine
+## Phase 5 — Subscriptions & state machine
 
 **Goal:** Core subscription lifecycle without full invoicing yet.
 
@@ -79,7 +98,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 5 — Invoicing, charges & proration
+## Phase 6 — Invoicing, charges & proration
 
 **Goal:** Money moves on a schedule; upgrades/downgrades prorate.
 
@@ -94,7 +113,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 6 — Nomba inbound webhooks
+## Phase 7 — Nomba inbound webhooks
 
 **Goal:** Payment outcomes drive subscription state (not just synchronous API responses).
 
@@ -108,7 +127,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 7 — Dunning & failed-payment recovery
+## Phase 8 — Dunning & failed-payment recovery
 
 **Goal:** Hackathon “dunning sophistication” — retries and terminal actions.
 
@@ -123,7 +142,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 8 — Outbound webhooks & events
+## Phase 9 — Outbound webhooks & events
 
 **Goal:** Downstream developers integrate without polling.
 
@@ -137,7 +156,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 9 — Billing API surface
+## Phase 10 — Billing API surface
 
 **Goal:** API ergonomics for downstream developers.
 
@@ -151,7 +170,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 10 — Self-service portal (minimal)
+## Phase 11 — Self-service portal (minimal)
 
 **Goal:** Hackathon “customer self-service portal” — thin, not a second product.
 
@@ -164,7 +183,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 11 — Reference integrator app (“Acme Notes”)
+## Phase 12 — Reference integrator app (“Acme Notes”)
 
 **Goal:** Prove the integrator story live.
 
@@ -177,7 +196,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 12 — Polish & defer bucket
+## Phase 13 — Polish & defer bucket
 
 **Goal:** Judge-ready demo and docs.
 
@@ -199,20 +218,21 @@ Authoritative schema: [`schema.md`](schema.md)
 
 | Order | Phase | Priority |
 |---|---|---|
-| 1 | Phase 1 — Credentials | P0 |
-| 2 | Phase 2 — Catalog | P0 |
-| 3 | Phase 3 — Customers & PMs | P0 |
-| 4 | Phase 4 — Subscriptions | P0 |
-| 5 | Phase 6 — Inbound webhooks | P0 |
-| 6 | Phase 5 — Invoicing & charge | P0 |
-| 7 | Phase 7 — Dunning | P0 |
-| 8 | Phase 8 — Outbound webhooks | P0 |
-| 9 | Phase 11 — Reference app | P0 for demo |
-| 10 | Phase 9 — API polish | P1 |
-| 11 | Phase 10 — Portal | P1 |
-| 12 | Phase 12 — Polish | P1 |
+| 1 | Phase 1 — Roles & permissions | P0 |
+| 2 | Phase 2 — Credentials | P0 |
+| 3 | Phase 3 — Catalog | P0 |
+| 4 | Phase 4 — Customers & PMs | P0 |
+| 5 | Phase 5 — Subscriptions | P0 |
+| 6 | Phase 7 — Inbound webhooks | P0 |
+| 7 | Phase 6 — Invoicing & charge | P0 |
+| 8 | Phase 8 — Dunning | P0 |
+| 9 | Phase 9 — Outbound webhooks | P0 |
+| 10 | Phase 12 — Reference app | P0 for demo |
+| 11 | Phase 10 — API polish | P1 |
+| 12 | Phase 11 — Portal | P1 |
+| 13 | Phase 13 — Polish | P1 |
 
-Phases 5 and 6 can overlap once charge API works synchronously; inbound webhooks should land before relying on them for dunning.
+Phases 6 and 7 can overlap once charge API works synchronously; inbound webhooks should land before relying on them for dunning.
 
 ---
 
@@ -221,37 +241,39 @@ Phases 5 and 6 can overlap once charge API works synchronously; inbound webhooks
 ```mermaid
 flowchart TD
     P0[Phase 0: Auth & teams]
-    P1[Phase 1: BYOK & API keys]
-    P2[Phase 2: Catalog]
-    P3[Phase 3: Customers & tokens]
-    P4[Phase 4: Subscriptions]
-    P5[Phase 5: Invoices & charges]
-    P6[Phase 6: Nomba inbound WH]
-    P7[Phase 7: Dunning]
-    P8[Phase 8: Outbound WH]
-    P9[Phase 9: Public API]
-    P10[Phase 10: Portal]
-    P11[Phase 11: Reference app]
-    P12[Phase 12: Polish]
+    P1[Phase 1: Roles & permissions]
+    P2[Phase 2: BYOK & API keys]
+    P3[Phase 3: Catalog]
+    P4[Phase 4: Customers & tokens]
+    P5[Phase 5: Subscriptions]
+    P6[Phase 6: Invoices & charges]
+    P7[Phase 7: Nomba inbound WH]
+    P8[Phase 8: Dunning]
+    P9[Phase 9: Outbound WH]
+    P10[Phase 10: Public API]
+    P11[Phase 11: Portal]
+    P12[Phase 12: Reference app]
+    P13[Phase 13: Polish]
 
     P0 --> P1
     P1 --> P2
-    P1 --> P3
+    P2 --> P3
     P2 --> P4
-    P3 --> P4
-    P4 --> P5
     P3 --> P5
-    P1 --> P6
+    P4 --> P5
     P5 --> P6
-    P5 --> P7
+    P4 --> P6
+    P2 --> P7
     P6 --> P7
+    P6 --> P8
     P7 --> P8
-    P4 --> P8
     P8 --> P9
-    P4 --> P10
-    P8 --> P11
-    P9 --> P11
-    P11 --> P12
+    P5 --> P9
+    P9 --> P10
+    P5 --> P11
+    P9 --> P12
+    P10 --> P12
+    P12 --> P13
 ```
 
 ---
