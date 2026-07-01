@@ -15,6 +15,7 @@ These apply to every table — assume them rather than repeating per row.
 - **Timestamps**: `created_at` + `updated_at` on every table. `deleted_at` (SoftDeletes) on catalog and customer rows only.
 - **Enums**: stored as `string`, cast to PHP enums in the model. Values listed per column and collected in the [Enums appendix](#enums-appendix).
 - **Idempotency**: all external write endpoints gate on `idempotency_keys`.
+- **Processor (Nomba BYOK)**: each team connects **their own** Nomba API keys. Bouclay charges and tokenises on their merchant account; settlement stays with Nomba. Bouclay exposes a **generated inbound webhook URL** per team for the Nomba dashboard; integrators register **outbound** URLs in `webhook_endpoints` for subscription lifecycle events.
 
 ---
 
@@ -23,6 +24,7 @@ These apply to every table — assume them rather than repeating per row.
 ```mermaid
 erDiagram
     teams ||--o| team_settings : configures
+    teams ||--o| team_processor_connections : connects
     teams ||--o{ team_members : has
     teams ||--o{ team_invitations : invites
     teams ||--o{ api_keys : issues
@@ -114,6 +116,31 @@ One row per team — invoice numbering, dunning, and other billing config tenant
 | dunning_config | json | yes | retry schedule + terminal action override |
 | created_at / updated_at | timestamp | no | |
 
+### `team_processor_connections`
+Bring-your-own-key (BYOK) link between a team and Nomba — like connecting API keys on OpenCode. Created when a team first opens processor settings; the **Nomba webhook URL** is generated here and shown in the dashboard for paste into Nomba.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| team_id | ulid | no | FK → teams, unique |
+| processor | string | no | enum: `nomba`; extensible |
+| nomba_test_secret_key | text | yes | encrypted at rest; used for test-mode charges |
+| nomba_live_secret_key | text | yes | encrypted at rest; used for live-mode charges |
+| inbound_webhook_token | string | no | unique; unguessable segment in the Nomba → Bouclay URL |
+| nomba_test_webhook_secret | string | yes | encrypted; Nomba signing secret from their dashboard (test), if separate from API key |
+| nomba_live_webhook_secret | string | yes | encrypted; Nomba signing secret from their dashboard (live), if separate from API key |
+| test_connected_at | timestamp | yes | set when test keys first saved |
+| live_connected_at | timestamp | yes | set when live keys first saved |
+| created_at / updated_at | timestamp | no | |
+
+**Generated inbound URL** (display only, not stored):
+
+`POST {APP_URL}/webhooks/nomba/{inbound_webhook_token}`
+
+Nomba sends payment/checkout events here. Bouclay resolves `team_id` from the token, verifies the signature with that team's Nomba webhook secret, updates subscriptions/invoices/payments, then emits **outbound** events to the team's `webhook_endpoints`.
+
+**Charge path**: API request scoped to team → read keys from this row for the request's mode (`test` / `live`) → call Nomba Charge/Checkout APIs with **that team's** credentials.
+
 ### `users`
 Global auth identity for staff. **Already implemented** in the app (`User` model). A user belongs to many teams via `team_members`; role is per membership, not on this row.
 
@@ -157,7 +184,7 @@ Pending invites before a user joins a team. **Already implemented** (`TeamInvita
 | created_at / updated_at | timestamp | no | |
 
 ### `api_keys`
-Per-team API credentials.
+Per-team **Bouclay** API credentials — for downstream developers calling Bouclay (not Nomba keys; those live in `team_processor_connections`).
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -565,8 +592,17 @@ One charge attempt against the processor (merges the board's `payment_attempts` 
 
 ## 8. Events & Webhooks
 
+Two directions — do not conflate them:
+
+| Direction | Configured where | Purpose |
+|---|---|---|
+| **Inbound** (Nomba → Bouclay) | Nomba dashboard → paste URL from `team_processor_connections.inbound_webhook_token` | Raw payment/checkout events; drives dunning and subscription state |
+| **Outbound** (Bouclay → integrator) | `webhook_endpoints` in Bouclay dashboard / API | Normalised billing events (`invoice.paid`, `subscription.updated`, …) |
+
+Integrators never wire Nomba webhooks into their app for subscription logic. They wire **Bouclay** webhooks.
+
 ### `events`
-Emitted-event log (`subscription.created`, `invoice.paid`, …).
+Normalised event log emitted **to integrators** (`subscription.created`, `invoice.paid`, …).
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -577,6 +613,7 @@ Emitted-event log (`subscription.created`, `invoice.paid`, …).
 | created_at | timestamp | no | |
 
 ### `webhook_endpoints`
+Integrator-owned URLs Bouclay POSTs to when `events` fire. Distinct from the inbound Nomba URL.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -606,10 +643,11 @@ At-least-once delivery with exponential backoff.
 
 | Model | Relationships |
 |---|---|
-| Team | hasOne settings; hasMany members (through teamMembers), invitations, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, events, webhookEndpoints |
+| Team | hasOne settings, processorConnection; hasMany members (through teamMembers), invitations, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, events, webhookEndpoints |
 | User | belongsTo currentTeam; belongsToMany teams (through teamMembers); hasMany teamMemberships, sentInvitations |
 | Membership (team_members) | belongsTo team, user |
 | TeamInvitation | belongsTo team, inviter (user) |
+| TeamProcessorConnection | belongsTo team |
 | Customer | belongsTo team; hasMany addresses, paymentMethods, subscriptions, invoices, payments, subscriptionItemTrials; belongsTo defaultPaymentMethod |
 | Address | belongsTo team, customer |
 | PaymentMethod | belongsTo team, customer, billingAddress; hasMany payments |
@@ -679,7 +717,7 @@ At-least-once delivery with exponential backoff.
 - **FK indexes**: index every FK column.
 - **Tenancy**: index `team_id` on every table; add composite `(team_id, status)` on `subscriptions`, `invoices`, `payments` for dashboard filters.
 - **Billing scheduler hot path**: composite index on `subscriptions (status, current_period_end)` — the scheduler scans for due subs by this.
-- **Unique**: `teams.slug`; `users.email`; `team_members (team_id, user_id)`; `team_invitations.code`; `api_keys.hashed_secret`; `customers (team_id, external_ref)` (when not null); `idempotency_keys (team_id, key)`; `invoices (team_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
+- **Unique**: `teams.slug`; `users.email`; `team_members (team_id, user_id)`; `team_invitations.code`; `team_processor_connections.inbound_webhook_token`; `team_processor_connections (team_id)`; `api_keys.hashed_secret`; `customers (team_id, external_ref)` (when not null); `idempotency_keys (team_id, key)`; `invoices (team_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
 - **Anti-abuse**: index `subscription_item_trials (customer_id, trial_offer_id)` and `discount_redemptions (discount_id, customer_id)`.
 - **Money**: enforce non-negative amounts at the application layer; keep everything in the subscription's single currency (don't mix currencies on one invoice).
 
@@ -692,7 +730,7 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 1. teams *(already in app — add billing columns `default_currency`, `custom_data` via alter)*
 2. users *(already in app — add `current_team_id` via alter if not present)*
 3. team_members, team_invitations *(already in app)*
-4. team_settings, api_keys, idempotency_keys, events, webhook_endpoints
+4. team_settings, team_processor_connections, api_keys, idempotency_keys, events, webhook_endpoints
 5. webhook_deliveries
 6. customers *(without `default_payment_method_id`)*
 7. addresses
@@ -714,7 +752,7 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 
 ## Build order & cut-lines (hackathon)
 
-**Build now** — a complete, demoable engine: teams, team_members, team_invitations, users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
+**Build now** — a complete, demoable engine: teams, team_members, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
 
 **Defer** — keep the tables, don't wire the logic: price_currency_options, refunds, both graduated *and* volume (ship one), discounts + discount_redemptions if time-pressed, paid trials (`trial_price.unit_amount > 0`), product-transition trials (`transition_to_different_product`), and timestamp-duration trials (ship `relative` only for MVP).
 
@@ -723,6 +761,7 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 ## Cashier / Paddle mapping (positioning)
 
 - Bouclay's `products` / `prices` / `subscriptions` / `subscription_items` correspond to Paddle's catalog and Cashier's mirror — except Bouclay *owns* them rather than mirroring Paddle.
+- **Nomba BYOK**: each `team` connects their own Nomba keys via `team_processor_connections`. Bouclay orchestrates checkout/charge/dunning; money settles to the integrator's Nomba merchant account. Inbound Nomba webhooks hit a generated Bouclay URL; outbound billing events hit the integrator's `webhook_endpoints`.
 - Bouclay's `trial_offers` + `subscription_item_trials` map to Stripe's Trial Offer API: catalog offers attach trial prices to products and transition to a regular price; applied trials live on subscription items (`items[].current_trial`), not on the subscription root.
 - Bouclay's `payments` is what Cashier calls `transactions`, but Bouclay records every *attempt* (it runs its own dunning), where Cashier stores only Paddle's completed transactions.
 - The `incomplete` / `incomplete_expired` states and the first-class dunning machine are the deliberate divergence from Paddle: Bouclay charges the token itself, so it needs the pre-active states Paddle hides behind hosted checkout.
