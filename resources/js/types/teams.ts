@@ -55,3 +55,10 @@ export type RoleOption = {
     value: TeamRole;
     label: string;
 };
+
+export type BusinessType = 'individual' | 'private' | 'public';
+
+export type BusinessTypeOption = {
+    value: BusinessType;
+    label: string;
+};

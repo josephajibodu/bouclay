@@ -11,13 +11,16 @@ class CreateTeam
 {
     /**
      * Create a new team and add the user as owner.
+     *
+     * @param  array<string, mixed>  $attributes  additional team attributes, e.g. business_type, website, country, line1, line2, city, postal_code
      */
-    public function handle(User $user, string $name, bool $isPersonal = false): Team
+    public function handle(User $user, string $name, bool $isPersonal = false, array $attributes = []): Team
     {
-        return DB::transaction(function () use ($user, $name, $isPersonal) {
+        return DB::transaction(function () use ($user, $name, $isPersonal, $attributes) {
             $team = Team::create([
                 'name' => $name,
                 'is_personal' => $isPersonal,
+                ...$attributes,
             ]);
 
             $membership = $team->memberships()->create([

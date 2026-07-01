@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Concerns\GeneratesUniqueTeamSlugs;
+use App\Enums\BusinessType;
 use App\Enums\TeamRole;
 use Database\Factories\TeamFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -19,6 +20,13 @@ use Illuminate\Support\Carbon;
  * @property string $name
  * @property string $slug
  * @property bool $is_personal
+ * @property BusinessType|null $business_type
+ * @property string|null $website
+ * @property string|null $country
+ * @property string|null $line1
+ * @property string|null $line2
+ * @property string|null $city
+ * @property string|null $postal_code
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
@@ -26,7 +34,10 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Membership> $memberships
  * @property-read Collection<int, User> $members
  */
-#[Fillable(['name', 'slug', 'is_personal'])]
+#[Fillable([
+    'name', 'slug', 'is_personal',
+    'business_type', 'website', 'country', 'line1', 'line2', 'city', 'postal_code',
+])]
 class Team extends Model
 {
     /** @use HasFactory<TeamFactory> */
@@ -104,6 +115,7 @@ class Team extends Model
     {
         return [
             'is_personal' => 'boolean',
+            'business_type' => BusinessType::class,
         ];
     }
 

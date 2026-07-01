@@ -1,4 +1,5 @@
 import { Form, Head } from '@inertiajs/react';
+import { useRef, useState } from 'react';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
 import TeamInvitationAlert from '@/components/team-invitation-alert';
@@ -6,133 +7,431 @@ import TextLink from '@/components/text-link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { countries } from '@/lib/countries';
 import { login } from '@/routes';
 import { store } from '@/routes/register';
-import type { TeamInvitationContext } from '@/types';
+import type { BusinessType, BusinessTypeOption, TeamInvitationContext } from '@/types';
 
 type Props = {
     passwordRules: string;
     teamInvitation?: TeamInvitationContext | null;
+    businessTypes: BusinessTypeOption[];
 };
 
-export default function Register({ passwordRules, teamInvitation }: Props) {
+const STEPS = [
+    { number: 1, title: 'Account details' },
+    { number: 2, title: 'Business details' },
+    { number: 3, title: 'Business address' },
+] as const;
+
+const STEP_FIELDS: Record<number, string[]> = {
+    1: ['first_name', 'last_name', 'email', 'password', 'password_confirmation'],
+    2: ['business_name', 'business_type', 'website'],
+    3: ['country', 'line1', 'line2', 'city', 'postal_code'],
+};
+
+export default function Register({
+    passwordRules,
+    teamInvitation,
+    businessTypes,
+}: Props) {
+    const [step, setStep] = useState(1);
+    const [businessType, setBusinessType] = useState<BusinessType>(
+        'individual',
+    );
+    const [country, setCountry] = useState(countries[0].code);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    function goToStep(next: number) {
+        const form = containerRef.current?.querySelector('form');
+
+        if (next > step && form && !form.reportValidity()) {
+            return;
+        }
+
+        setStep(next);
+    }
+
     return (
         <>
             <Head title="Register" />
-            <Form
-                {...store.form()}
-                resetOnSuccess={['password', 'password_confirmation']}
-                disableWhileProcessing
-                className="flex flex-col gap-6"
-            >
-                {({ processing, errors }) => (
-                    <>
-                        {teamInvitation && (
-                            <TeamInvitationAlert
-                                invitation={teamInvitation}
-                                action="Register"
-                            />
-                        )}
+            <div ref={containerRef} className="flex flex-col gap-6">
+                <Form
+                    {...store.form()}
+                    resetOnSuccess={['password', 'password_confirmation']}
+                    disableWhileProcessing
+                    className="flex flex-col gap-6"
+                    onError={(errors) => {
+                        const erroredStep = Object.entries(STEP_FIELDS).find(
+                            ([, fields]) =>
+                                fields.some((field) => field in errors),
+                        );
 
-                        <div className="grid gap-6">
-                            <div className="grid gap-2">
-                                <Label htmlFor="name">Name</Label>
-                                <Input
-                                    id="name"
-                                    type="text"
-                                    required
-                                    autoFocus
-                                    tabIndex={1}
-                                    autoComplete="name"
-                                    name="name"
-                                    placeholder="Full name"
+                        if (erroredStep) {
+                            setStep(Number(erroredStep[0]));
+                        }
+                    }}
+                >
+                    {({ processing, errors }) => (
+                        <>
+                            {teamInvitation && step === 1 && (
+                                <TeamInvitationAlert
+                                    invitation={teamInvitation}
+                                    action="Register"
                                 />
-                                <InputError
-                                    message={errors.name}
-                                    className="mt-2"
-                                />
+                            )}
+
+                            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                                {STEPS.map(({ number, title }) => (
+                                    <span
+                                        key={number}
+                                        className={
+                                            number === step
+                                                ? 'font-medium text-foreground'
+                                                : undefined
+                                        }
+                                    >
+                                        {number}. {title}
+                                        {number !== STEPS.length && (
+                                            <span className="mx-2">
+                                                &rarr;
+                                            </span>
+                                        )}
+                                    </span>
+                                ))}
                             </div>
 
-                            <div className="grid gap-2">
-                                <Label htmlFor="email">Email address</Label>
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    required
-                                    tabIndex={2}
-                                    autoComplete="email"
-                                    name="email"
-                                    placeholder="email@example.com"
-                                />
-                                <InputError message={errors.email} />
+                            <div className="grid gap-6" hidden={step !== 1}>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="first_name">
+                                            First name
+                                        </Label>
+                                        <Input
+                                            id="first_name"
+                                            type="text"
+                                            required={step === 1}
+                                            autoFocus
+                                            tabIndex={1}
+                                            autoComplete="given-name"
+                                            name="first_name"
+                                            placeholder="First name"
+                                        />
+                                        <InputError
+                                            message={errors.first_name}
+                                        />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="last_name">
+                                            Last name
+                                        </Label>
+                                        <Input
+                                            id="last_name"
+                                            type="text"
+                                            required={step === 1}
+                                            tabIndex={2}
+                                            autoComplete="family-name"
+                                            name="last_name"
+                                            placeholder="Last name"
+                                        />
+                                        <InputError
+                                            message={errors.last_name}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="email">
+                                        Email address
+                                    </Label>
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        required={step === 1}
+                                        tabIndex={3}
+                                        autoComplete="email"
+                                        name="email"
+                                        placeholder="email@example.com"
+                                    />
+                                    <InputError message={errors.email} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="password">Password</Label>
+                                    <PasswordInput
+                                        id="password"
+                                        required={step === 1}
+                                        tabIndex={4}
+                                        autoComplete="new-password"
+                                        name="password"
+                                        placeholder="Password"
+                                        passwordrules={passwordRules}
+                                    />
+                                    <InputError message={errors.password} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="password_confirmation">
+                                        Confirm password
+                                    </Label>
+                                    <PasswordInput
+                                        id="password_confirmation"
+                                        required={step === 1}
+                                        tabIndex={5}
+                                        autoComplete="new-password"
+                                        name="password_confirmation"
+                                        placeholder="Confirm password"
+                                        passwordrules={passwordRules}
+                                    />
+                                    <InputError
+                                        message={
+                                            errors.password_confirmation
+                                        }
+                                    />
+                                </div>
+
+                                <Button
+                                    type="button"
+                                    className="mt-2 w-full"
+                                    tabIndex={6}
+                                    data-test="register-next-button"
+                                    onClick={() => goToStep(2)}
+                                >
+                                    Continue
+                                </Button>
                             </div>
 
-                            <div className="grid gap-2">
-                                <Label htmlFor="password">Password</Label>
-                                <PasswordInput
-                                    id="password"
-                                    required
-                                    tabIndex={3}
-                                    autoComplete="new-password"
-                                    name="password"
-                                    placeholder="Password"
-                                    passwordrules={passwordRules}
-                                />
-                                <InputError message={errors.password} />
+                            <div className="grid gap-6" hidden={step !== 2}>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="business_name">
+                                        Business name
+                                    </Label>
+                                    <Input
+                                        id="business_name"
+                                        type="text"
+                                        required={step === 2}
+                                        tabIndex={1}
+                                        name="business_name"
+                                        placeholder="Acme Inc"
+                                    />
+                                    <InputError
+                                        message={errors.business_name}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="business_type">
+                                        Business type
+                                    </Label>
+                                    <Select
+                                        name="business_type"
+                                        value={businessType}
+                                        onValueChange={(value) =>
+                                            setBusinessType(
+                                                value as BusinessType,
+                                            )
+                                        }
+                                    >
+                                        <SelectTrigger
+                                            id="business_type"
+                                            className="w-full"
+                                        >
+                                            <SelectValue placeholder="Select a business type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {businessTypes.map((type) => (
+                                                <SelectItem
+                                                    key={type.value}
+                                                    value={type.value}
+                                                >
+                                                    {type.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError
+                                        message={errors.business_type}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="website">
+                                        Website (optional)
+                                    </Label>
+                                    <Input
+                                        id="website"
+                                        type="url"
+                                        tabIndex={2}
+                                        name="website"
+                                        placeholder="https://example.com"
+                                    />
+                                    <InputError message={errors.website} />
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        className="w-full"
+                                        onClick={() => setStep(1)}
+                                    >
+                                        Back
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        className="w-full"
+                                        data-test="register-next-button"
+                                        onClick={() => goToStep(3)}
+                                    >
+                                        Continue
+                                    </Button>
+                                </div>
                             </div>
 
-                            <div className="grid gap-2">
-                                <Label htmlFor="password_confirmation">
-                                    Confirm password
-                                </Label>
-                                <PasswordInput
-                                    id="password_confirmation"
-                                    required
-                                    tabIndex={4}
-                                    autoComplete="new-password"
-                                    name="password_confirmation"
-                                    placeholder="Confirm password"
-                                    passwordrules={passwordRules}
-                                />
-                                <InputError
-                                    message={errors.password_confirmation}
-                                />
+                            <div className="grid gap-6" hidden={step !== 3}>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="country">Country</Label>
+                                    <Select
+                                        name="country"
+                                        value={country}
+                                        onValueChange={setCountry}
+                                    >
+                                        <SelectTrigger
+                                            id="country"
+                                            className="w-full"
+                                        >
+                                            <SelectValue placeholder="Select a country" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {countries.map((c) => (
+                                                <SelectItem
+                                                    key={c.code}
+                                                    value={c.code}
+                                                >
+                                                    {c.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError message={errors.country} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="line1">
+                                        Street address line 1
+                                    </Label>
+                                    <Input
+                                        id="line1"
+                                        type="text"
+                                        required={step === 3}
+                                        tabIndex={1}
+                                        autoComplete="address-line1"
+                                        name="line1"
+                                        placeholder="Street address"
+                                    />
+                                    <InputError message={errors.line1} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="line2">
+                                        Street address line 2 (optional)
+                                    </Label>
+                                    <Input
+                                        id="line2"
+                                        type="text"
+                                        tabIndex={2}
+                                        autoComplete="address-line2"
+                                        name="line2"
+                                        placeholder="Apartment, suite, etc."
+                                    />
+                                    <InputError message={errors.line2} />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="city">
+                                            City / Town
+                                        </Label>
+                                        <Input
+                                            id="city"
+                                            type="text"
+                                            required={step === 3}
+                                            tabIndex={3}
+                                            autoComplete="address-level2"
+                                            name="city"
+                                            placeholder="City"
+                                        />
+                                        <InputError message={errors.city} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="postal_code">
+                                            Postal / Zip code (optional)
+                                        </Label>
+                                        <Input
+                                            id="postal_code"
+                                            type="text"
+                                            tabIndex={4}
+                                            autoComplete="postal-code"
+                                            name="postal_code"
+                                            placeholder="Postal code"
+                                        />
+                                        <InputError
+                                            message={errors.postal_code}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        className="w-full"
+                                        onClick={() => setStep(2)}
+                                    >
+                                        Back
+                                    </Button>
+                                    <Button
+                                        type="submit"
+                                        className="w-full"
+                                        data-test="register-user-button"
+                                    >
+                                        {processing && <Spinner />}
+                                        Create account
+                                    </Button>
+                                </div>
                             </div>
+                        </>
+                    )}
+                </Form>
 
-                            <Button
-                                type="submit"
-                                className="mt-2 w-full"
-                                tabIndex={5}
-                                data-test="register-user-button"
-                            >
-                                {processing && <Spinner />}
-                                Create account
-                            </Button>
-                        </div>
-
-                        <div className="text-center text-sm text-muted-foreground">
-                            Already have an account?{' '}
-                            <TextLink
-                                href={
-                                    teamInvitation
-                                        ? login.url({
-                                              query: {
-                                                  invitation:
-                                                      teamInvitation.code,
-                                              },
-                                          })
-                                        : login()
-                                }
-                                data-test="team-invitation-login-link"
-                                tabIndex={6}
-                            >
-                                Log in
-                            </TextLink>
-                        </div>
-                    </>
-                )}
-            </Form>
+                <div className="text-center text-sm text-muted-foreground">
+                    Already have an account?{' '}
+                    <TextLink
+                        href={
+                            teamInvitation
+                                ? login.url({
+                                      query: {
+                                          invitation: teamInvitation.code,
+                                      },
+                                  })
+                                : login()
+                        }
+                        data-test="team-invitation-login-link"
+                    >
+                        Log in
+                    </TextLink>
+                </div>
+            </div>
         </>
     );
 }

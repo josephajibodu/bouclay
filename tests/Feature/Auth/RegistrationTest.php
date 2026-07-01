@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\BusinessType;
 use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\TeamInvitation;
@@ -35,14 +36,31 @@ test('registration screen includes team invitation context', function () {
 
 test('new users can register', function () {
     $response = $this->post(route('register.store'), [
-        'name' => 'Test User',
+        'first_name' => 'Test',
+        'last_name' => 'User',
         'email' => 'test@example.com',
         'password' => 'password',
         'password_confirmation' => 'password',
+        'business_name' => 'Acme Inc',
+        'business_type' => 'individual',
+        'website' => 'https://acme.test',
+        'country' => 'NG',
+        'line1' => '1 Broad Street',
+        'line2' => null,
+        'city' => 'Lagos',
+        'postal_code' => '100001',
     ]);
 
     $this->assertAuthenticated();
 
     $user = User::where('email', 'test@example.com')->first();
     $response->assertRedirect(route('dashboard'));
+
+    expect($user->first_name)->toBe('Test');
+    expect($user->last_name)->toBe('User');
+
+    $team = $user->currentTeam;
+    expect($team->name)->toBe('Acme Inc');
+    expect($team->business_type)->toBe(BusinessType::Individual);
+    expect($team->country)->toBe('NG');
 });

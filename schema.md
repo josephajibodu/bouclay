@@ -100,12 +100,21 @@ The tenant / merchant using Bouclay. **Already implemented** in the app (`Team` 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| name | string | no | |
+| name | string | no | business name, collected at signup |
 | slug | string | no | unique; route key |
 | is_personal | boolean | no | default false; auto-created personal workspace on signup |
+| business_type | string | yes | enum: `individual` / `private` / `public`; collected at signup |
+| website | string | yes | |
+| country | char(2) | yes | ISO-3166; business address, collected at signup |
+| line1 | string | yes | business address street line 1 |
+| line2 | string | yes | business address street line 2 |
+| city | string | yes | business address city/town |
+| postal_code | string | yes | business address postal/zip code |
 | default_currency | char(3) | no | billing default for this team |
 | custom_data | json | yes | |
 | created_at / updated_at / deleted_at | timestamp | yes | SoftDeletes |
+
+The `business_type` / `website` / `country` / `line1` / `line2` / `city` / `postal_code` columns are nullable at the schema level (teams created later via "create team" only carry a name), but the signup flow requires all of them except `website` and `line2`. This is the team's *own* business address — distinct from `addresses`, which stores each *customer's* billing/shipping address.
 
 ### `team_settings`
 One row per team — invoice numbering, dunning, and other billing config tenants tweak.
@@ -154,13 +163,16 @@ Global auth identity for staff. **Already implemented** in the app (`User` model
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| name | string | no | |
+| first_name | string | no | |
+| last_name | string | no | |
 | email | string | no | unique globally |
 | password | string | no | |
 | current_team_id | ulid | yes | FK → teams; active tenant context for the session |
 | phone | string | yes | |
 | email_verified_at | timestamp | yes | |
 | created_at / updated_at | timestamp | no | |
+
+`name` (full name) is a computed accessor (`first_name` + `last_name`), not a stored column.
 
 ### `permissions`
 App-global permission catalog (seeded). Permissions attach to **roles only** — never directly to users.
@@ -743,6 +755,7 @@ At-least-once delivery with exponential backoff.
 
 | Column | Values |
 |---|---|
+| teams.business_type | individual, private, public |
 | roles.name (seed) | admin, finance, invoicing, subscription_kpis, support, technical |
 | api_keys.mode | test, live |
 | api_keys.kind | publishable, secret |

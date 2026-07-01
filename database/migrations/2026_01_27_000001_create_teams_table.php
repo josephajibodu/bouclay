@@ -16,6 +16,13 @@ return new class extends Migration
             $table->string('name');
             $table->string('slug')->unique();
             $table->boolean('is_personal')->default(false);
+            $table->string('business_type')->nullable();
+            $table->string('website')->nullable();
+            $table->string('country', 2)->nullable();
+            $table->string('line1')->nullable();
+            $table->string('line2')->nullable();
+            $table->string('city')->nullable();
+            $table->string('postal_code')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });

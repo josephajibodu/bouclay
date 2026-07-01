@@ -14,8 +14,9 @@ Authoritative schema: [`schema.md`](schema.md)
 - Laravel + Inertia + Fortify
 - `teams`, `team_members`, `team_invitations`, `users.current_team_id`
 - Team dashboard shell, settings, invitations
+- 3-step signup wizard: account details (first/last name, email, password) → business details (business name, business type, website) → business address (country, address lines, city, postal code)
 
-**Exit criteria:** User can register, own a personal team, invite members, switch teams.
+**Exit criteria:** User can register through the 3-step wizard, own a personal team pre-filled with their business details, invite members, switch teams.
 
 **Note:** Phase 0 uses a legacy single-role enum (`owner` / `admin` / `member`). Phase 1 replaces this with the RBAC model in `schema.md`.
 

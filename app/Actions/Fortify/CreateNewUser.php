@@ -3,6 +3,7 @@
 namespace App\Actions\Fortify;
 
 use App\Actions\Teams\CreateTeam;
+use App\Concerns\BusinessDetailsValidationRules;
 use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
 use App\Models\User;
@@ -12,7 +13,7 @@ use Laravel\Fortify\Contracts\CreatesNewUsers;
 
 class CreateNewUser implements CreatesNewUsers
 {
-    use PasswordValidationRules, ProfileValidationRules;
+    use BusinessDetailsValidationRules, PasswordValidationRules, ProfileValidationRules;
 
     public function __construct(private CreateTeam $createTeam)
     {
@@ -20,25 +21,36 @@ class CreateNewUser implements CreatesNewUsers
     }
 
     /**
-     * Validate and create a newly registered user.
+     * Validate and create a newly registered user, along with the business
+     * they're signing up on behalf of.
      *
      * @param  array<string, string>  $input
      */
     public function create(array $input): User
     {
-        Validator::make($input, [
+        $input = Validator::make($input, [
             ...$this->profileRules(),
             'password' => $this->passwordRules(),
+            ...$this->businessDetailsRules(),
         ])->validate();
 
         return DB::transaction(function () use ($input) {
             $user = User::create([
-                'name' => $input['name'],
+                'first_name' => $input['first_name'],
+                'last_name' => $input['last_name'],
                 'email' => $input['email'],
                 'password' => $input['password'],
             ]);
 
-            $this->createTeam->handle($user, $user->name."'s Team", isPersonal: true);
+            $this->createTeam->handle($user, $input['business_name'], isPersonal: true, attributes: [
+                'business_type' => $input['business_type'],
+                'website' => $input['website'] ?? null,
+                'country' => $input['country'],
+                'line1' => $input['line1'],
+                'line2' => $input['line2'] ?? null,
+                'city' => $input['city'],
+                'postal_code' => $input['postal_code'] ?? null,
+            ]);
 
             return $user;
         });
