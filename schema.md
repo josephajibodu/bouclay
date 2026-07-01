@@ -30,7 +30,7 @@ erDiagram
     organizations ||--o{ subscriptions : owns
     organizations ||--o{ invoices : owns
     organizations ||--o{ discounts : defines
-    organizations ||--o{ trials : defines
+    organizations ||--o{ trial_offers : defines
     organizations ||--o{ meters : defines
     organizations ||--o{ events : emits
     organizations ||--o{ webhook_endpoints : registers
@@ -41,28 +41,30 @@ erDiagram
     customers ||--o{ subscriptions : holds
     customers ||--o{ invoices : billed_on
     customers ||--o{ payments : pays
-    customers ||--o{ trial_offers : redeems
+    customers ||--o{ subscription_item_trials : redeems
     customers ||--o{ discount_redemptions : redeems
     payment_methods }o--o| addresses : billed_to
 
     products ||--o{ prices : priced_by
+    products ||--o{ trial_offers : offers
     prices ||--o{ price_tiers : tiered_by
     prices ||--o{ price_currency_options : priced_in
-    trials ||--o{ prices : default_for
+    prices ||--o{ trial_offers : trial_price_for
+    prices ||--o{ trial_offers : transition_price_for
     meters ||--o{ prices : metered_by
 
     subscriptions ||--o{ subscription_items : contains
     subscriptions ||--o{ scheduled_changes : schedules
-    subscriptions ||--o{ trial_offers : grants
     subscriptions ||--o{ invoices : generates
     subscriptions ||--o{ discount_redemptions : applies
     subscriptions }o--o| payment_methods : charges
     subscriptions }o--o| discounts : discounted_by
     subscription_items }o--|| prices : references
     subscription_items }o--|| products : references
+    subscription_items ||--o| subscription_item_trials : current_trial
     subscription_items ||--o{ usage_records : meters
 
-    trials ||--o{ trial_offers : instantiated_as
+    trial_offers ||--o{ subscription_item_trials : applied_as
     discounts ||--o{ discount_redemptions : redeemed_as
 
     invoices ||--o{ invoice_lines : itemized_by
@@ -256,7 +258,6 @@ Stripe/Paddle model: **Product → Price**. A "plan" is a product whose prices a
 | package_size | integer | yes | for `package`; units per block |
 | meter_id | ulid | yes | FK → meters; required when `usage_type = metered` |
 | tax_mode | string | no | enum: `inclusive` / `exclusive` / `account`; default `account` |
-| default_trial_id | ulid | yes | FK → trials; the trial this price offers by default |
 | status | string | no | enum: `active` / `archived` |
 | version | integer | no | default 1; bump to grandfather existing subscribers |
 | custom_data | json | yes | |
@@ -322,7 +323,9 @@ Defines a usage meter.
 | billing_anchor | string | yes | e.g. month-end anchor metadata |
 | current_period_start | timestamp | yes | |
 | current_period_end | timestamp | yes | next renewal charge fires here |
-| trial_ends_at | timestamp | yes | the clock the workers read |
+| trial_ends_at | timestamp | yes | denormalised clock; mirrors the earliest active `subscription_item_trials.ends_at` on this sub |
+| trial_end_behavior | string | yes | enum: `cancel` / `pause` / `create_invoice`; when trial ends without a payment method (Stripe `missing_payment_method`) |
+| billing_cycle_anchor_on_trial_end | string | yes | enum: `now` / `unchanged`; default `now` — reset anchor when trial transitions to regular price |
 | paused_at | timestamp | yes | |
 | pause_resumes_at | timestamp | yes | |
 | canceled_at | timestamp | yes | set when cancellation is scheduled |
@@ -371,48 +374,61 @@ Future cancel / pause / resume at the next boundary (the Paddle "borrow" pattern
 
 ---
 
-## 5. Trials
+## 5. Trial offers
 
-A trial gates access and **delays the first charge** — distinct from a discount. Two models, mirroring `discounts` → `discount_redemptions`: a reusable definition, and the applied instance on a subscription. `subscriptions.trial_ends_at` stays as the denormalised clock the billing/access workers read.
+Stripe models trials as **trial offers** — a catalog object that attaches a trial price to a product for a limited duration, then transitions to a regular price. Bouclay mirrors that split:
 
-### `trials` (definition)
+- **`trial_offers`** — reusable catalog definition (Stripe `Trial Offer`; the "Create trial" form).
+- **`subscription_item_trials`** — the applied instance on one subscription item (Stripe `items[].current_trial`).
+
+There is no separate `trials` table. Free vs paid is inferred from the trial price (`unit_amount = 0` → free). Whether a card is required at signup is a **subscription** setting (`trial_end_behavior`), not a field on the offer.
+
+`subscriptions.trial_ends_at` stays as the denormalised clock the billing/access workers read (earliest active item trial end).
+
+### `trial_offers` (catalog definition)
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
 | organization_id | ulid | no | FK → organizations |
-| name | string | no | e.g. "14-day free trial" |
-| type | string | no | enum: `free` / `card_required` / `paid` |
-| length_count | integer | no | e.g. 14 |
-| length_interval | string | no | enum: `day` / `week` / `month`; default `day` |
-| trial_amount | bigInteger | yes | minor units, for `paid` trials |
-| trial_currency | char(3) | yes | required for `paid` |
-| auto_convert | boolean | no | default true; roll into full price at end |
-| once_per_customer | boolean | no | default true; anti-abuse, enforced via `trial_offers` |
+| name | string | no | appears on receipts/invoices (form: "Name") |
+| product_id | ulid | no | FK → products (form: "Product") |
+| trial_price_id | ulid | no | FK → prices; recurring price charged during the trial — set `unit_amount = 0` for free trials (form: "Trial price") |
+| transition_to_different_product | boolean | no | default false (form: "Transition to a different product when trial ends") |
+| transition_product_id | ulid | yes | FK → products; required when `transition_to_different_product = true` |
+| transition_price_id | ulid | no | FK → prices; price the item moves to when the trial ends (form: "Price when trial ends") |
+| duration_type | string | no | enum: `relative` / `timestamp`; `relative` = N billing intervals of `trial_price_id`, `timestamp` = fixed end date |
+| duration_iterations | integer | yes | for `relative`; number of times the trial price repeats (form: "Repeat N times"); null when `duration_type = timestamp` |
+| duration_ends_at | timestamp | yes | for `timestamp`; absolute trial end; null when `duration_type = relative` |
+| once_per_customer | boolean | no | default true; anti-abuse, enforced via `subscription_item_trials` |
 | active | boolean | no | default true |
 | custom_data | json | yes | |
 | created_at / updated_at | timestamp | no | |
 
-### `trial_offers` (applied trial)
-The concrete trial extended to one subscription. Snapshots the definition so later edits to a `trials` row don't rewrite history.
+**Constraints**: `trial_price_id` and `transition_price_id` must be `recurring` prices. When `transition_to_different_product = false`, `transition_product_id` must equal `product_id`. Duration is mutually exclusive: set `duration_iterations` for `relative`, or `duration_ends_at` for `timestamp`.
+
+### `subscription_item_trials` (applied trial)
+The concrete trial on one subscription item. Snapshots the catalog offer so later edits to a `trial_offers` row don't rewrite history. One active row per item (`subscription_items` has at most one current trial).
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
 | organization_id | ulid | no | FK → organizations |
-| subscription_id | ulid | no | FK → subscriptions |
-| trial_id | ulid | yes | FK → trials (null = ad-hoc inline trial) |
-| customer_id | ulid | no | FK → customers (denormalised; enforces once_per_customer) |
-| type | string | no | snapshot of trial type at application |
+| subscription_item_id | ulid | no | FK → subscription_items, unique while `status = active` |
+| trial_offer_id | ulid | yes | FK → trial_offers (null = ad-hoc inline trial) |
+| customer_id | ulid | no | FK → customers (denormalised; enforces `once_per_customer`) |
+| trial_price_id | ulid | no | snapshot of catalog `trial_price_id` at application |
+| transition_price_id | ulid | no | snapshot of catalog `transition_price_id` at application |
+| duration_type | string | no | snapshot: `relative` / `timestamp` |
+| duration_iterations | integer | yes | snapshot |
+| duration_ends_at | timestamp | yes | snapshot |
 | starts_at | timestamp | no | |
-| ends_at | timestamp | no | `subscriptions.trial_ends_at` mirrors this |
-| trial_amount | bigInteger | yes | snapshot, minor units |
-| trial_currency | char(3) | yes | |
+| ends_at | timestamp | no | worker clock for this item; `subscriptions.trial_ends_at` mirrors the earliest active `ends_at` |
 | status | string | no | enum: `active` / `converted` / `canceled` / `expired` |
-| converted_at | timestamp | yes | when it rolled into the first paid period |
+| converted_at | timestamp | yes | when it transitioned to `transition_price_id` |
 | created_at / updated_at | timestamp | no | |
 
-**State-machine threading**: `free` (no card) → sub starts in `trialing`, skips `incomplete`. `card_required` / `paid` → card captured (and intro amount charged for `paid`) at signup, so `incomplete → trialing` is real and `incomplete_expired` applies if setup never completes. At `ends_at` with `auto_convert` → first full charge (→ `active`), offer → `converted`; abandoned → `expired`.
+**State-machine threading**: free trial (`trial_price.unit_amount = 0`, no payment method) → sub starts in `trialing`, skips `incomplete`. Paid trial (`trial_price.unit_amount > 0`) → payment captured at signup, sub follows normal `incomplete → active` (Stripe treats paid trials as active, not trialing). At `ends_at` → item price swaps to `transition_price_id`, offer → `converted`, sub → `active` (or `canceled`/`paused` per `trial_end_behavior` if no payment method). Abandoned before conversion → `expired`.
 
 ---
 
@@ -588,21 +604,21 @@ At-least-once delivery with exponential backoff.
 
 | Model | Relationships |
 |---|---|
-| Organization | hasOne settings; hasMany users, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trials, meters, events, webhookEndpoints |
+| Organization | hasOne settings; hasMany users, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, meters, events, webhookEndpoints |
 | User | belongsTo organization |
-| Customer | belongsTo organization; hasMany addresses, paymentMethods, subscriptions, invoices, payments, trialOffers; belongsTo defaultPaymentMethod |
+| Customer | belongsTo organization; hasMany addresses, paymentMethods, subscriptions, invoices, payments, subscriptionItemTrials; belongsTo defaultPaymentMethod |
 | Address | belongsTo organization, customer |
 | PaymentMethod | belongsTo organization, customer, billingAddress; hasMany payments |
-| Product | belongsTo organization; hasMany prices |
-| Price | belongsTo organization, product, meter, defaultTrial; hasMany tiers, currencyOptions, subscriptionItems |
+| Product | belongsTo organization; hasMany prices, trialOffers |
+| Price | belongsTo organization, product, meter; hasMany tiers, currencyOptions, subscriptionItems, trialOffersAsTrialPrice, trialOffersAsTransitionPrice |
 | PriceTier | belongsTo price |
 | Meter | belongsTo organization; hasMany prices, usageRecords (through items) |
-| Subscription | belongsTo organization, customer, paymentMethod, discount; hasMany items, scheduledChanges, trialOffers, invoices |
-| SubscriptionItem | belongsTo subscription, price, product; hasMany usageRecords |
+| Subscription | belongsTo organization, customer, paymentMethod, discount; hasMany items, scheduledChanges, invoices; hasMany subscriptionItemTrials (through items) |
+| SubscriptionItem | belongsTo subscription, price, product; hasOne currentTrial (subscriptionItemTrial); hasMany usageRecords |
 | UsageRecord | belongsTo subscriptionItem |
 | ScheduledChange | belongsTo subscription |
-| Trial | belongsTo organization; hasMany trialOffers, prices (as default) |
-| TrialOffer | belongsTo organization, subscription, trial, customer |
+| TrialOffer | belongsTo organization, product, trialPrice, transitionProduct, transitionPrice; hasMany subscriptionItemTrials |
+| SubscriptionItemTrial | belongsTo organization, subscriptionItem, trialOffer, customer, trialPrice, transitionPrice |
 | Discount | belongsTo organization; hasMany redemptions |
 | DiscountRedemption | belongsTo discount, subscription, customer |
 | Invoice | belongsTo organization, customer, subscription; hasMany lines, payments |
@@ -637,11 +653,13 @@ At-least-once delivery with exponential backoff.
 | meters.aggregation | sum, last_during_period, max |
 | subscriptions.status | incomplete, incomplete_expired, trialing, active, past_due, paused, canceled |
 | subscriptions.collection_mode | automatic, manual |
+| subscriptions.trial_end_behavior | cancel, pause, create_invoice |
+| subscriptions.billing_cycle_anchor_on_trial_end | now, unchanged |
 | subscription_items.status | active, removed |
 | scheduled_changes.action | cancel, pause, resume |
-| trials.type | free, card_required, paid |
-| trials.length_interval | day, week, month |
-| trial_offers.status | active, converted, canceled, expired |
+| trial_offers.duration_type | relative, timestamp |
+| subscription_item_trials.duration_type | relative, timestamp |
+| subscription_item_trials.status | active, converted, canceled, expired |
 | discounts.type | percentage, flat |
 | discounts.duration | once, repeating, forever |
 | invoices.status | draft, open, paid, void, uncollectible |
@@ -661,7 +679,7 @@ At-least-once delivery with exponential backoff.
 - **Tenancy**: index `organization_id` on every table; add composite `(organization_id, status)` on `subscriptions`, `invoices`, `payments` for dashboard filters.
 - **Billing scheduler hot path**: composite index on `subscriptions (status, current_period_end)` — the scheduler scans for due subs by this.
 - **Unique**: `organizations.slug`; `users (organization_id, email)`; `api_keys.hashed_secret`; `customers (organization_id, external_ref)` (when not null); `idempotency_keys (organization_id, key)`; `invoices (organization_id, number)`; `payments.idempotency_key`; `usage_records (subscription_item_id, idempotency_key)`; `price_currency_options (price_id, currency)`.
-- **Anti-abuse**: index `trial_offers (customer_id, trial_id)` and `discount_redemptions (discount_id, customer_id)`.
+- **Anti-abuse**: index `subscription_item_trials (customer_id, trial_offer_id)` and `discount_redemptions (discount_id, customer_id)`.
 - **Money**: enforce non-negative amounts at the application layer; keep everything in the subscription's single currency (don't mix currencies on one invoice).
 
 ---
@@ -677,30 +695,32 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 5. addresses
 6. payment_methods
 7. **alter** customers → add `default_payment_method_id` FK
-8. products, meters, trials
-9. prices *(refs products, meters, trials)*
-10. price_tiers, price_currency_options
-11. discounts
-12. subscriptions *(refs customers, payment_methods, discounts)*
-13. subscription_items, scheduled_changes, trial_offers, discount_redemptions
-14. usage_records
-15. invoices
-16. invoice_lines
-17. payments
-18. refunds
+8. products, meters
+9. prices *(refs products, meters)*
+10. trial_offers *(refs products, prices)*
+11. price_tiers, price_currency_options
+12. discounts
+13. subscriptions *(refs customers, payment_methods, discounts)*
+14. subscription_items, scheduled_changes, subscription_item_trials, discount_redemptions
+15. usage_records
+16. invoices
+17. invoice_lines
+18. payments
+19. refunds
 
 ---
 
 ## Build order & cut-lines (hackathon)
 
-**Build now** — a complete, demoable engine: organizations, users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trials + trial_offers (free trial only), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
+**Build now** — a complete, demoable engine: organizations, users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
 
-**Defer** — keep the tables, don't wire the logic: meters + usage_records (metered billing), price_currency_options, refunds, both graduated *and* volume (ship one), discounts + discount_redemptions if time-pressed, and the `paid` / `card_required` trial types (ship `free` — it's table-stakes).
+**Defer** — keep the tables, don't wire the logic: meters + usage_records (metered billing), price_currency_options, refunds, both graduated *and* volume (ship one), discounts + discount_redemptions if time-pressed, paid trials (`trial_price.unit_amount > 0`), product-transition trials (`transition_to_different_product`), and timestamp-duration trials (ship `relative` only for MVP).
 
 ---
 
 ## Cashier / Paddle mapping (positioning)
 
 - Bouclay's `products` / `prices` / `subscriptions` / `subscription_items` correspond to Paddle's catalog and Cashier's mirror — except Bouclay *owns* them rather than mirroring Paddle.
+- Bouclay's `trial_offers` + `subscription_item_trials` map to Stripe's Trial Offer API: catalog offers attach trial prices to products and transition to a regular price; applied trials live on subscription items (`items[].current_trial`), not on the subscription root.
 - Bouclay's `payments` is what Cashier calls `transactions`, but Bouclay records every *attempt* (it runs its own dunning), where Cashier stores only Paddle's completed transactions.
 - The `incomplete` / `incomplete_expired` states and the first-class dunning machine are the deliberate divergence from Paddle: Bouclay charges the token itself, so it needs the pre-active states Paddle hides behind hosted checkout.
