@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'nomba' => [
+        'sandbox_url' => env('NOMBA_SANDBOX_URL', 'https://sandbox.nomba.com'),
+        'production_url' => env('NOMBA_PRODUCTION_URL', 'https://api.nomba.com'),
+    ],
+
 ];

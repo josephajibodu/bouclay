@@ -100,6 +100,24 @@ class TeamPolicy
     }
 
     /**
+     * Determine whether the user can view the team's Nomba integration.
+     */
+    public function viewIntegrations(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::IntegrationsView)
+            || $user->hasTeamPermission($team, PermissionName::IntegrationsManage);
+    }
+
+    /**
+     * Determine whether the user can connect, test, or disconnect the
+     * team's Nomba integration.
+     */
+    public function manageIntegrations(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::IntegrationsManage);
+    }
+
+    /**
      * Determine whether the user can delete the model.
      */
     public function delete(User $user, Team $team): bool

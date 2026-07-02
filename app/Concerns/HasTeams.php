@@ -186,6 +186,8 @@ trait HasTeams
             canManageMembers: $has(PermissionName::MembersManage),
             canViewRoles: $has(PermissionName::RolesView),
             canManageRoles: $has(PermissionName::RolesManage),
+            canViewIntegrations: $has(PermissionName::IntegrationsView) || $has(PermissionName::IntegrationsManage),
+            canManageIntegrations: $has(PermissionName::IntegrationsManage),
         );
     }
 

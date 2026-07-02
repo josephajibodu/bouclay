@@ -11,6 +11,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Runnable app with auth and multi-tenant teams.
 
 **Deliverables:**
+
 - Laravel + Inertia + Fortify
 - `teams`, `team_members`, `team_invitations`, `users.current_team_id`
 - Team dashboard shell, settings, invitations
@@ -22,11 +23,12 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 1 — Roles & permissions
+## Phase 1 — Roles & permissions ✅ (done)
 
 **Goal:** Paddle-style RBAC before billing work — permissions on roles only, many roles per team member.
 
 **Build:**
+
 - Migrations: `permissions`, `roles`, `role_permission`, `team_member_roles`, `team_invitation_roles`
 - Migrate `team_members`: drop `role` column, add `is_owner`; team creator gets `is_owner = true` + **Admin** role
 - Seeder: default roles and permissions from [RBAC seed appendix](schema.md#rbac-seed-appendix) (`Admin`, `Finance`, `Invoicing`, `Subscription KPIs`, `Support`, `Technical`)
@@ -44,6 +46,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** A team can connect to Bouclay as an integrator — Nomba BYOK + Bouclay API keys.
 
 **Build:**
+
 - `team_settings` (invoice prefix, timezone, dunning config stub)
 - `team_processor_connections` — encrypted Nomba test/live keys, `inbound_webhook_token`
 - Settings UI: paste Nomba keys → show copy-paste inbound webhook URL *(requires `integrations.manage`)*
@@ -59,6 +62,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Integrators define what they sell.
 
 **Build:**
+
 - Migrations/models: `products`, `prices`, `price_tiers` (standard + one tiered model)
 - Dashboard CRUD for products and prices (recurring: monthly, annual, custom interval)
 - `trial_offers` + catalog UI (free trial only for MVP — `trial_price.unit_amount = 0`, relative duration)
@@ -75,6 +79,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** End-customers exist in Bouclay; cards tokenise via Nomba.
 
 **Build:**
+
 - `customers`, `addresses`, `payment_methods`
 - Nomba client wrapper using **team's** keys from `team_processor_connections`
 - Checkout / tokenise flow (Nomba checkout API → store `processor_token` on `payment_methods`)
@@ -89,6 +94,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Core subscription lifecycle without full invoicing yet.
 
 **Build:**
+
 - `subscriptions`, `subscription_items`, `subscription_item_trials`
 - Create subscription (items + optional trial offer)
 - State machine: `incomplete` → `trialing` / `active`, `past_due`, `paused`, `canceled`, `incomplete_expired`
@@ -104,6 +110,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Money moves on a schedule; upgrades/downgrades prorate.
 
 **Build:**
+
 - `invoices`, `invoice_lines`, `payments`
 - Period billing worker: generate invoice at `current_period_end`
 - Charge via Nomba using team keys; record attempt on `payments`
@@ -119,6 +126,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Payment outcomes drive subscription state (not just synchronous API responses).
 
 **Build:**
+
 - Replace hardcoded webhook route with `POST /webhooks/nomba/{inbound_webhook_token}`
 - Resolve team from token; verify Nomba signature
 - Map events → update `payments`, `invoices`, `subscriptions` (paid, failed, etc.)
@@ -133,6 +141,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Hackathon “dunning sophistication” — retries and terminal actions.
 
 **Build:**
+
 - `team_settings.dunning_config` — retry schedule, max attempts
 - Scheduler: `past_due` subs, retry charges with backoff
 - Hard vs soft decline classification (`payments.failure_code`)
@@ -148,6 +157,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Downstream developers integrate without polling.
 
 **Build:**
+
 - `events`, `webhook_endpoints`, `webhook_deliveries`
 - Emit on lifecycle: `subscription.created`, `subscription.updated`, `invoice.paid`, `invoice.payment_failed`, etc.
 - HMAC signing with endpoint secret; exponential backoff delivery worker
@@ -162,6 +172,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** API ergonomics for downstream developers.
 
 **Build:**
+
 - Versioned API routes (`/api/v1/...`) authenticated with Bouclay secret key + team scope
 - Core resources: customers, products, prices, subscriptions, invoices
 - Idempotency-Key header on POST/PATCH
@@ -176,6 +187,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Hackathon “customer self-service portal” — thin, not a second product.
 
 **Build:**
+
 - Customer-facing pages or hosted portal links (team-branded minimal UI)
 - View subscription status, update payment method, cancel at period end
 - Authenticated by magic link or customer portal token
@@ -189,6 +201,7 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Prove the integrator story live.
 
 **Build:**
+
 - Tiny app (or section) that uses Bouclay API + outbound webhooks only
 - One plan, subscribe button, paywall gated on webhook/`subscription.active`
 - Does **not** talk to Nomba directly
@@ -202,11 +215,13 @@ Authoritative schema: [`schema.md`](schema.md)
 **Goal:** Judge-ready demo and docs.
 
 **Build:**
+
 - README API examples; Postman collection optional
 - Feature tests for state machine and dunning paths
 - Dashboard empty states, loading, error handling
 
 **Explicitly defer (schema present, logic later):**
+
 - `discounts` / `discount_redemptions`
 - `refunds`
 - `price_currency_options`

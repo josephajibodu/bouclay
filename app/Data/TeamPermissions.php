@@ -11,6 +11,8 @@ readonly class TeamPermissions
         public bool $canManageMembers,
         public bool $canViewRoles,
         public bool $canManageRoles,
+        public bool $canViewIntegrations,
+        public bool $canManageIntegrations,
     ) {
         //
     }

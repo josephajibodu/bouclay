@@ -66,6 +66,8 @@ export type TeamPermissions = {
     canManageMembers: boolean;
     canViewRoles: boolean;
     canManageRoles: boolean;
+    canViewIntegrations: boolean;
+    canManageIntegrations: boolean;
 };
 
 export type RoleOption = {

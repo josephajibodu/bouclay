@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -33,6 +34,9 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Membership> $memberships
  * @property-read Collection<int, User> $members
  * @property-read Collection<int, Role> $roles
+ * @property-read Collection<int, ApiKey> $apiKeys
+ * @property-read TeamSettings|null $settings
+ * @property-read TeamProcessorConnection|null $processorConnection
  */
 #[Fillable([
     'name', 'slug', 'is_personal',
@@ -114,6 +118,36 @@ class Team extends Model
     public function roles(): HasMany
     {
         return $this->hasMany(Role::class);
+    }
+
+    /**
+     * Get this team's billing/workspace settings.
+     *
+     * @return HasOne<TeamSettings, $this>
+     */
+    public function settings(): HasOne
+    {
+        return $this->hasOne(TeamSettings::class);
+    }
+
+    /**
+     * Get this team's Nomba processor connection.
+     *
+     * @return HasOne<TeamProcessorConnection, $this>
+     */
+    public function processorConnection(): HasOne
+    {
+        return $this->hasOne(TeamProcessorConnection::class);
+    }
+
+    /**
+     * Get all Bouclay API keys issued to this team.
+     *
+     * @return HasMany<ApiKey, $this>
+     */
+    public function apiKeys(): HasMany
+    {
+        return $this->hasMany(ApiKey::class);
     }
 
     /**
