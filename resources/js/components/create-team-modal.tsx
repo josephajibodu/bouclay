@@ -36,7 +36,7 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
     return (
         <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>{children}</SheetTrigger>
-            <SheetContent className="inset-y-4 right-4 h-auto overflow-y-auto rounded-xl border sm:max-w-md">
+            <SheetContent className="h-auto overflow-y-auto rounded-xl border sm:inset-y-4 sm:right-4 w-full sm:w-3/4 sm:max-w-md">
                 <Form
                     key={String(open)}
                     {...store.form()}
@@ -55,9 +55,7 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
 
                             <div className="flex flex-col gap-6 px-4">
                                 <div className="grid gap-2">
-                                    <Label htmlFor="name">
-                                        Business name
-                                    </Label>
+                                    <Label htmlFor="name">Business name</Label>
                                     <Input
                                         id="name"
                                         name="name"
@@ -204,9 +202,7 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
 
                             <SheetFooter className="flex-row justify-end gap-2">
                                 <SheetClose asChild>
-                                    <Button variant="secondary">
-                                        Cancel
-                                    </Button>
+                                    <Button variant="secondary">Cancel</Button>
                                 </SheetClose>
 
                                 <Button
