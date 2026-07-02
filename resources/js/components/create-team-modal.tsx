@@ -36,7 +36,7 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
     return (
         <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>{children}</SheetTrigger>
-            <SheetContent className="overflow-y-auto sm:max-w-md">
+            <SheetContent className="inset-y-4 right-4 h-auto overflow-y-auto rounded-xl border sm:max-w-md">
                 <Form
                     key={String(open)}
                     {...store.form()}
