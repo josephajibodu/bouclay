@@ -55,7 +55,10 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
 
                             <div className="flex flex-col gap-6 px-4">
                                 <div className="grid gap-2">
-                                    <Label htmlFor="name">Business name</Label>
+                                    <Label htmlFor="name">
+                                        Business name{' '}
+                                        <span className="text-destructive">*</span>
+                                    </Label>
                                     <Input
                                         id="name"
                                         name="name"
@@ -68,7 +71,8 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
 
                                 <div className="grid gap-2">
                                     <Label htmlFor="business_type">
-                                        Business type
+                                        Business type{' '}
+                                        <span className="text-destructive">*</span>
                                     </Label>
                                     <Select
                                         name="business_type"
@@ -102,9 +106,7 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label htmlFor="website">
-                                        Website (optional)
-                                    </Label>
+                                    <Label htmlFor="website">Website</Label>
                                     <Input
                                         id="website"
                                         type="url"
@@ -115,7 +117,10 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label htmlFor="country">Country</Label>
+                                    <Label htmlFor="country">
+                                        Country{' '}
+                                        <span className="text-destructive">*</span>
+                                    </Label>
                                     <Select
                                         name="country"
                                         value={country}
@@ -143,7 +148,8 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
 
                                 <div className="grid gap-2">
                                     <Label htmlFor="line1">
-                                        Street address line 1
+                                        Street address line 1{' '}
+                                        <span className="text-destructive">*</span>
                                     </Label>
                                     <Input
                                         id="line1"
@@ -157,7 +163,7 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
 
                                 <div className="grid gap-2">
                                     <Label htmlFor="line2">
-                                        Street address line 2 (optional)
+                                        Street address line 2
                                     </Label>
                                     <Input
                                         id="line2"
@@ -171,7 +177,10 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="grid gap-2">
                                         <Label htmlFor="city">
-                                            City / Town
+                                            City / Town{' '}
+                                            <span className="text-destructive">
+                                                *
+                                            </span>
                                         </Label>
                                         <Input
                                             id="city"
@@ -185,7 +194,7 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
 
                                     <div className="grid gap-2">
                                         <Label htmlFor="postal_code">
-                                            Postal / Zip code (optional)
+                                            Postal / Zip code
                                         </Label>
                                         <Input
                                             id="postal_code"
