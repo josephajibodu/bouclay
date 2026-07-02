@@ -36,7 +36,7 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
     return (
         <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>{children}</SheetTrigger>
-            <SheetContent className="h-auto overflow-y-auto rounded-xl border sm:inset-y-4 sm:right-4 w-full sm:w-3/4 sm:max-w-md">
+            <SheetContent className="h-auto w-full rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-md">
                 <Form
                     key={String(open)}
                     {...store.form()}
@@ -53,11 +53,13 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
                                 </SheetDescription>
                             </SheetHeader>
 
-                            <div className="flex flex-col gap-6 px-4">
+                            <div className="flex flex-col gap-6 overflow-y-auto px-4">
                                 <div className="grid gap-2">
                                     <Label htmlFor="name">
                                         Business name{' '}
-                                        <span className="text-destructive">*</span>
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
                                     </Label>
                                     <Input
                                         id="name"
@@ -72,7 +74,9 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
                                 <div className="grid gap-2">
                                     <Label htmlFor="business_type">
                                         Business type{' '}
-                                        <span className="text-destructive">*</span>
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
                                     </Label>
                                     <Select
                                         name="business_type"
@@ -119,7 +123,9 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
                                 <div className="grid gap-2">
                                     <Label htmlFor="country">
                                         Country{' '}
-                                        <span className="text-destructive">*</span>
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
                                     </Label>
                                     <Select
                                         name="country"
@@ -149,7 +155,9 @@ export default function CreateTeamModal({ children }: PropsWithChildren) {
                                 <div className="grid gap-2">
                                     <Label htmlFor="line1">
                                         Street address line 1{' '}
-                                        <span className="text-destructive">*</span>
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
                                     </Label>
                                     <Input
                                         id="line1"
