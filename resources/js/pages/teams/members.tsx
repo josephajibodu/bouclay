@@ -65,9 +65,9 @@ export default function TeamMembers({
         [team.name],
     );
 
-    const updateMemberRole = (member: TeamMember, newRole: string) => {
+    const updateMemberRole = (member: TeamMember, newRoleId: number) => {
         router.visit(updateMember(member.id), {
-            data: { role: newRole },
+            data: { role_id: newRoleId },
             preserveScroll: true,
         });
     };
@@ -95,13 +95,13 @@ export default function TeamMembers({
                             variant="small"
                             title="Team members"
                             description={
-                                permissions.canCreateInvitation
+                                permissions.canManageMembers
                                     ? 'Manage who belongs to this team'
                                     : ''
                             }
                         />
 
-                        {permissions.canCreateInvitation ? (
+                        {permissions.canManageMembers ? (
                             <Button
                                 data-test="invite-member-button"
                                 onClick={() => setInviteDialogOpen(true)}
@@ -141,8 +141,8 @@ export default function TeamMembers({
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {member.role !== 'owner' &&
-                                    permissions.canUpdateMember ? (
+                                    {!member.is_owner &&
+                                    permissions.canManageMembers ? (
                                         <DropdownMenu>
                                             <DropdownMenuTrigger asChild>
                                                 <Button
@@ -150,35 +150,35 @@ export default function TeamMembers({
                                                     size="sm"
                                                     data-test="member-role-trigger"
                                                 >
-                                                    {member.role_label}
+                                                    {member.role_name}
                                                     <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
                                                 </Button>
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent>
                                                 {availableRoles.map((role) => (
                                                     <DropdownMenuItem
-                                                        key={role.value}
+                                                        key={role.id}
                                                         data-test="member-role-option"
                                                         onSelect={() =>
                                                             updateMemberRole(
                                                                 member,
-                                                                role.value,
+                                                                role.id,
                                                             )
                                                         }
                                                     >
-                                                        {role.label}
+                                                        {role.name}
                                                     </DropdownMenuItem>
                                                 ))}
                                             </DropdownMenuContent>
                                         </DropdownMenu>
                                     ) : (
                                         <Badge variant="secondary">
-                                            {member.role_label}
+                                            {member.role_name}
                                         </Badge>
                                     )}
 
-                                    {member.role !== 'owner' &&
-                                    permissions.canRemoveMember ? (
+                                    {!member.is_owner &&
+                                    permissions.canManageMembers ? (
                                         <TooltipProvider>
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
@@ -231,12 +231,12 @@ export default function TeamMembers({
                                                 {invitation.email}
                                             </div>
                                             <div className="text-sm text-muted-foreground">
-                                                {invitation.role_label}
+                                                {invitation.role_name}
                                             </div>
                                         </div>
                                     </div>
 
-                                    {permissions.canCancelInvitation ? (
+                                    {permissions.canManageMembers ? (
                                         <TooltipProvider>
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
@@ -266,7 +266,7 @@ export default function TeamMembers({
                 ) : null}
             </div>
 
-            {permissions.canCreateInvitation ? (
+            {permissions.canManageMembers ? (
                 <InviteMemberModal
                     availableRoles={availableRoles}
                     open={inviteDialogOpen}

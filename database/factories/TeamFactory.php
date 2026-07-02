@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Actions\Teams\SeedDefaultRoles;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
@@ -25,6 +26,16 @@ class TeamFactory extends Factory
             'slug' => Str::slug($name),
             'is_personal' => false,
         ];
+    }
+
+    /**
+     * Configure the model factory.
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Team $team) {
+            app(SeedDefaultRoles::class)->handle($team);
+        });
     }
 
     /**

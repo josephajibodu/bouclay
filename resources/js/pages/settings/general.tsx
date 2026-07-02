@@ -19,11 +19,12 @@ import type {
     BusinessType,
     BusinessTypeOption,
     TeamBusinessDetails,
+    TeamPermissions,
 } from '@/types';
 
 type Props = {
     team: TeamBusinessDetails;
-    permissions: { canUpdateTeam: boolean; canDeleteTeam: boolean };
+    permissions: TeamPermissions;
     businessTypes: BusinessTypeOption[];
 };
 
@@ -41,7 +42,7 @@ export default function General({ team, permissions, businessTypes }: Props) {
             <h1 className="sr-only">General</h1>
 
             <div className="flex flex-col space-y-10">
-                {permissions.canUpdateTeam ? (
+                {permissions.canManageBusiness ? (
                     <div className="space-y-6">
                         <Heading
                             variant="small"
@@ -234,7 +235,7 @@ export default function General({ team, permissions, businessTypes }: Props) {
                     <Heading variant="small" title={team.name} />
                 )}
 
-                {permissions.canDeleteTeam && !team.isPersonal ? (
+                {permissions.canDeleteBusiness && !team.isPersonal ? (
                     <div className="max-w-xl space-y-6">
                         <Heading
                             variant="small"
@@ -261,7 +262,7 @@ export default function General({ team, permissions, businessTypes }: Props) {
                 ) : null}
             </div>
 
-            {permissions.canDeleteTeam && !team.isPersonal ? (
+            {permissions.canDeleteBusiness && !team.isPersonal ? (
                 <DeleteTeamModal
                     team={team}
                     open={deleteDialogOpen}

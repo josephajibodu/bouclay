@@ -34,13 +34,14 @@ export default function InviteMemberModal({
     open,
     onOpenChange,
 }: Props) {
-    const [inviteRole, setInviteRole] = useState<RoleOption['value']>('member');
+    const defaultRoleId = availableRoles[0]?.id ? String(availableRoles[0].id) : '';
+    const [inviteRoleId, setInviteRoleId] = useState(defaultRoleId);
 
     const handleOpenChange = (nextOpen: boolean) => {
         onOpenChange(nextOpen);
 
         if (!nextOpen) {
-            setInviteRole('member');
+            setInviteRoleId(defaultRoleId);
         }
     };
 
@@ -77,16 +78,12 @@ export default function InviteMemberModal({
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label htmlFor="role">Role</Label>
+                                    <Label htmlFor="role_id">Role</Label>
                                     <Select
-                                        name="role"
+                                        name="role_id"
                                         data-test="invite-role"
-                                        value={inviteRole}
-                                        onValueChange={(value) =>
-                                            setInviteRole(
-                                                value as RoleOption['value'],
-                                            )
-                                        }
+                                        value={inviteRoleId}
+                                        onValueChange={setInviteRoleId}
                                     >
                                         <SelectTrigger className="w-full">
                                             <SelectValue placeholder="Select a role" />
@@ -94,15 +91,15 @@ export default function InviteMemberModal({
                                         <SelectContent>
                                             {availableRoles.map((role) => (
                                                 <SelectItem
-                                                    key={role.value}
-                                                    value={role.value}
+                                                    key={role.id}
+                                                    value={String(role.id)}
                                                 >
-                                                    {role.label}
+                                                    {role.name}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                    <InputError message={errors.role} />
+                                    <InputError message={errors.role_id} />
                                 </div>
                             </div>
 

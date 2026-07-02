@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -9,7 +8,7 @@ test('the team members page can be rendered for the current team', function () {
     $user = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($user, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $user);
     $user->switchTeam($team);
 
     $response = $this
@@ -20,62 +19,70 @@ test('the team members page can be rendered for the current team', function () {
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('teams/members')
-            ->where('members.0.role', TeamRole::Owner->value)
-            ->where('members.0.role_label', TeamRole::Owner->label()),
+            ->where('members.0.role_name', 'Admin')
+            ->where('members.0.is_owner', true),
         );
 });
 
-test('team member roles can be updated by owners', function () {
-    $owner = User::factory()->create();
-    $member = User::factory()->create();
-    $team = Team::factory()->create();
-
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
-    $owner->switchTeam($team);
-
-    $response = $this
-        ->actingAs($owner)
-        ->patch(route('teams.members.update', $member), [
-            'role' => TeamRole::Admin->value,
-        ]);
-
-    $response->assertRedirect(route('teams.members.index'));
-
-    expect($team->members()->where('user_id', $member->id)->first()->pivot->role->value)->toEqual(TeamRole::Admin->value);
-});
-
-test('team member roles cannot be updated by non owners', function () {
+test('member roles can be updated by users with members.manage permission', function () {
     $owner = User::factory()->create();
     $admin = User::factory()->create();
     $member = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($admin, ['role' => TeamRole::Admin->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $admin, 'Admin');
+    attachTeamMember($team, $member, 'Developer');
     $admin->switchTeam($team);
+
+    $financeRole = $team->roles()->where('name', 'Finance')->firstOrFail();
 
     $response = $this
         ->actingAs($admin)
         ->patch(route('teams.members.update', $member), [
-            'role' => TeamRole::Admin->value,
+            'role_id' => $financeRole->id,
+        ]);
+
+    $response->assertRedirect(route('teams.members.index'));
+
+    expect($team->members()->where('user_id', $member->id)->first()->pivot->role_id)->toEqual($financeRole->id);
+});
+
+test('member roles cannot be updated without members.manage permission', function () {
+    $owner = User::factory()->create();
+    $developer = User::factory()->create();
+    $member = User::factory()->create();
+    $team = Team::factory()->create();
+
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $developer, 'Developer');
+    attachTeamMember($team, $member, 'Support');
+    $developer->switchTeam($team);
+
+    $financeRole = $team->roles()->where('name', 'Finance')->firstOrFail();
+
+    $response = $this
+        ->actingAs($developer)
+        ->patch(route('teams.members.update', $member), [
+            'role_id' => $financeRole->id,
         ]);
 
     $response->assertForbidden();
 });
 
-test('team members can be removed by owners', function () {
+test('team members can be removed by users with members.manage permission', function () {
     $owner = User::factory()->create();
+    $admin = User::factory()->create();
     $member = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
-    $owner->switchTeam($team);
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $admin, 'Admin');
+    attachTeamMember($team, $member);
+    $admin->switchTeam($team);
 
     $response = $this
-        ->actingAs($owner)
+        ->actingAs($admin)
         ->delete(route('teams.members.destroy', $member));
 
     $response->assertRedirect(route('teams.members.index'));
@@ -83,19 +90,19 @@ test('team members can be removed by owners', function () {
     expect($member->fresh()->belongsToTeam($team))->toBeFalse();
 });
 
-test('team members cannot be removed by non owners', function () {
+test('team members cannot be removed without members.manage permission', function () {
     $owner = User::factory()->create();
-    $admin = User::factory()->create();
+    $developer = User::factory()->create();
     $member = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($admin, ['role' => TeamRole::Admin->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
-    $admin->switchTeam($team);
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $developer, 'Developer');
+    attachTeamMember($team, $member);
+    $developer->switchTeam($team);
 
     $response = $this
-        ->actingAs($admin)
+        ->actingAs($developer)
         ->delete(route('teams.members.destroy', $member));
 
     $response->assertForbidden();
@@ -105,7 +112,7 @@ test('team owner cannot be removed', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
     $owner->switchTeam($team);
 
     $response = $this
@@ -117,34 +124,14 @@ test('team owner cannot be removed', function () {
     expect($owner->fresh()->belongsToTeam($team))->toBeTrue();
 });
 
-test('team member role cannot be set to owner', function () {
-    $owner = User::factory()->create();
-    $member = User::factory()->create();
-    $team = Team::factory()->create();
-
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
-    $owner->switchTeam($team);
-
-    $response = $this
-        ->actingAs($owner)
-        ->patch(route('teams.members.update', $member), [
-            'role' => TeamRole::Owner->value,
-        ]);
-
-    $response->assertSessionHasErrors('role');
-
-    expect($team->members()->where('user_id', $member->id)->first()->pivot->role->value)->toEqual(TeamRole::Member->value);
-});
-
 test('removed member current team is set to personal team', function () {
     $owner = User::factory()->create();
     $member = User::factory()->create();
     $personalTeam = $member->personalTeam();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $member);
     $owner->switchTeam($team);
 
     $member->update(['current_team_id' => $team->id]);

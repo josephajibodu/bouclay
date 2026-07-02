@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Team;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -44,7 +46,24 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * Attach a user to a team as its owner, holding the team's protected Admin role.
+ */
+function attachTeamOwner(Team $team, User $user): void
 {
-    // ..
+    $team->members()->attach($user, [
+        'role_id' => $team->roles()->where('name', 'Admin')->firstOrFail()->id,
+        'is_owner' => true,
+    ]);
+}
+
+/**
+ * Attach a user to a team as a non-owner member holding the given starter role.
+ */
+function attachTeamMember(Team $team, User $user, string $role = 'Developer'): void
+{
+    $team->members()->attach($user, [
+        'role_id' => $team->roles()->where('name', $role)->firstOrFail()->id,
+        'is_owner' => false,
+    ]);
 }

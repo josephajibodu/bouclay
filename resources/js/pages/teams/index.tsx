@@ -53,7 +53,7 @@ export default function TeamsIndex({ teams }: Props) {
                 <div className="space-y-3">
                     {teams.map((team) => {
                         const canLeaveTeam =
-                            !team.isPersonal && team.role !== 'owner';
+                            !team.isPersonal && !team.isOwner;
 
                         return (
                             <div
@@ -77,7 +77,7 @@ export default function TeamsIndex({ teams }: Props) {
                                             ) : null}
                                         </div>
                                         <span className="text-sm text-muted-foreground">
-                                            {team.roleLabel}
+                                            {team.role}
                                         </span>
                                     </div>
                                 </div>

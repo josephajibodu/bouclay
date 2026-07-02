@@ -2,15 +2,19 @@
 
 namespace App\Actions\Teams;
 
-use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 class CreateTeam
 {
+    public function __construct(private SeedDefaultRoles $seedDefaultRoles)
+    {
+        //
+    }
+
     /**
-     * Create a new team and add the user as owner.
+     * Create a new team, seed its default roles, and add the user as owner.
      *
      * @param  array<string, mixed>  $attributes  additional team attributes, e.g. business_type, website, country, line1, line2, city, postal_code
      */
@@ -23,9 +27,12 @@ class CreateTeam
                 ...$attributes,
             ]);
 
-            $membership = $team->memberships()->create([
+            $adminRole = $this->seedDefaultRoles->handle($team);
+
+            $team->memberships()->create([
                 'user_id' => $user->id,
-                'role' => TeamRole::Owner,
+                'role_id' => $adminRole->id,
+                'is_owner' => true,
             ]);
 
             $user->switchTeam($team);

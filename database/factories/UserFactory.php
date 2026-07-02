@@ -2,7 +2,6 @@
 
 namespace Database\Factories;
 
-use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -49,8 +48,11 @@ class UserFactory extends Factory
                 'name' => $user->name."'s Team",
             ]);
 
+            $adminRole = $team->roles()->where('name', 'Admin')->firstOrFail();
+
             $team->members()->attach($user, [
-                'role' => TeamRole::Owner->value,
+                'role_id' => $adminRole->id,
+                'is_owner' => true,
             ]);
 
             $user->switchTeam($team);

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Settings\GeneralController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
+use App\Http\Controllers\Teams\RoleController;
 use App\Http\Controllers\Teams\TeamController;
 use App\Http\Controllers\Teams\TeamInvitationController;
 use App\Http\Controllers\Teams\TeamMemberController;
@@ -52,6 +53,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         Route::post('settings/teams/invitations', [TeamInvitationController::class, 'store'])->name('teams.invitations.store');
         Route::delete('settings/teams/invitations/{invitation}', [TeamInvitationController::class, 'destroy'])->name('teams.invitations.destroy');
+
+        Route::get('settings/roles', [RoleController::class, 'index'])->name('roles.index');
+        Route::post('settings/roles', [RoleController::class, 'store'])->name('roles.store');
+        Route::patch('settings/roles/{role}', [RoleController::class, 'update'])->name('roles.update');
+        Route::delete('settings/roles/{role}', [RoleController::class, 'destroy'])->name('roles.destroy');
     });
 });
 

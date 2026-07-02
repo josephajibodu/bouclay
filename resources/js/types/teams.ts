@@ -1,12 +1,10 @@
-export type TeamRole = 'owner' | 'admin' | 'member';
-
 export type Team = {
     id: number;
     name: string;
     slug: string;
     isPersonal: boolean;
-    role?: TeamRole;
-    roleLabel?: string;
+    role?: string | null;
+    isOwner?: boolean;
     isCurrent?: boolean;
 };
 
@@ -25,15 +23,15 @@ export type TeamMember = {
     name: string;
     email: string;
     avatar?: string | null;
-    role: TeamRole;
-    role_label: string;
+    role_id: number;
+    role_name: string;
+    is_owner: boolean;
 };
 
 export type TeamInvitation = {
     code: string;
     email: string;
-    role: TeamRole;
-    role_label: string;
+    role_name: string;
     created_at: string;
 };
 
@@ -52,18 +50,17 @@ export type DashboardInvitation = {
 };
 
 export type TeamPermissions = {
-    canUpdateTeam: boolean;
-    canDeleteTeam: boolean;
-    canAddMember: boolean;
-    canUpdateMember: boolean;
-    canRemoveMember: boolean;
-    canCreateInvitation: boolean;
-    canCancelInvitation: boolean;
+    canManageBusiness: boolean;
+    canDeleteBusiness: boolean;
+    canViewMembers: boolean;
+    canManageMembers: boolean;
+    canViewRoles: boolean;
+    canManageRoles: boolean;
 };
 
 export type RoleOption = {
-    value: TeamRole;
-    label: string;
+    id: number;
+    name: string;
 };
 
 export type BusinessType = 'individual' | 'private' | 'public';
@@ -71,4 +68,18 @@ export type BusinessType = 'individual' | 'private' | 'public';
 export type BusinessTypeOption = {
     value: BusinessType;
     label: string;
+};
+
+export type PermissionCatalogEntry = {
+    name: string;
+    label: string;
+    group: string;
+};
+
+export type Role = {
+    id: number;
+    name: string;
+    isSystem: boolean;
+    memberCount: number;
+    permissionNames: string[];
 };

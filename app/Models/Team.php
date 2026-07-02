@@ -4,7 +4,6 @@ namespace App\Models;
 
 use App\Concerns\GeneratesUniqueTeamSlugs;
 use App\Enums\BusinessType;
-use App\Enums\TeamRole;
 use Database\Factories\TeamFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
@@ -33,6 +32,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, TeamInvitation> $invitations
  * @property-read Collection<int, Membership> $memberships
  * @property-read Collection<int, User> $members
+ * @property-read Collection<int, Role> $roles
  */
 #[Fillable([
     'name', 'slug', 'is_personal',
@@ -69,7 +69,7 @@ class Team extends Model
     public function owner(): ?Model
     {
         return $this->members()
-            ->wherePivot('role', TeamRole::Owner->value)
+            ->wherePivot('is_owner', true)
             ->first();
     }
 
@@ -82,7 +82,7 @@ class Team extends Model
     {
         return $this->belongsToMany(User::class, 'team_members', 'team_id', 'user_id')
             ->using(Membership::class)
-            ->withPivot(['role'])
+            ->withPivot(['role_id', 'is_owner'])
             ->withTimestamps();
     }
 
@@ -104,6 +104,16 @@ class Team extends Model
     public function invitations(): HasMany
     {
         return $this->hasMany(TeamInvitation::class);
+    }
+
+    /**
+     * Get all roles defined for this team.
+     *
+     * @return HasMany<Role, $this>
+     */
+    public function roles(): HasMany
+    {
+        return $this->hasMany(Role::class);
     }
 
     /**

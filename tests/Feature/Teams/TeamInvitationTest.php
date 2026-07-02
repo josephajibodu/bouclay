@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\User;
@@ -13,14 +12,16 @@ test('team invitations can be created', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
     $owner->switchTeam($team);
+
+    $developerRole = $team->roles()->where('name', 'Developer')->firstOrFail();
 
     $response = $this
         ->actingAs($owner)
         ->post(route('teams.invitations.store'), [
             'email' => 'invited@example.com',
-            'role' => TeamRole::Member->value,
+            'role_id' => $developerRole->id,
         ]);
 
     $response->assertRedirect(route('teams.members.index'));
@@ -28,7 +29,7 @@ test('team invitations can be created', function () {
     $this->assertDatabaseHas('team_invitations', [
         'team_id' => $team->id,
         'email' => 'invited@example.com',
-        'role' => TeamRole::Member->value,
+        'role_id' => $developerRole->id,
     ]);
 });
 
@@ -37,7 +38,7 @@ test('invitation email for existing users uses login route', function () {
     $invitedUser = User::factory()->create(['email' => 'invited@example.com']);
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->create([
         'team_id' => $team->id,
@@ -55,7 +56,7 @@ test('invitation email for unknown users uses login route', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->create([
         'team_id' => $team->id,
@@ -69,22 +70,24 @@ test('invitation email for unknown users uses login route', function () {
     $this->assertStringContainsString('log in', strtolower(implode(' ', $mail->introLines)));
 });
 
-test('team invitations can be created by admins', function () {
+test('team invitations can be created by users with members.manage permission', function () {
     Notification::fake();
 
     $owner = User::factory()->create();
     $admin = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($admin, ['role' => TeamRole::Admin->value]);
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $admin, 'Admin');
     $admin->switchTeam($team);
+
+    $developerRole = $team->roles()->where('name', 'Developer')->firstOrFail();
 
     $response = $this
         ->actingAs($admin)
         ->post(route('teams.invitations.store'), [
             'email' => 'invited@example.com',
-            'role' => TeamRole::Member->value,
+            'role_id' => $developerRole->id,
         ]);
 
     $response->assertRedirect(route('teams.members.index'));
@@ -97,15 +100,17 @@ test('existing team members cannot be invited', function () {
     $member = User::factory()->create(['email' => 'member@example.com']);
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $member);
     $owner->switchTeam($team);
+
+    $developerRole = $team->roles()->where('name', 'Developer')->firstOrFail();
 
     $response = $this
         ->actingAs($owner)
         ->post(route('teams.invitations.store'), [
             'email' => 'member@example.com',
-            'role' => TeamRole::Member->value,
+            'role_id' => $developerRole->id,
         ]);
 
     $response->assertSessionHasErrors('email');
@@ -116,7 +121,7 @@ test('duplicate invitations cannot be created', function () {
 
     $owner = User::factory()->create();
     $team = Team::factory()->create();
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
     $owner->switchTeam($team);
 
     TeamInvitation::factory()->create([
@@ -125,30 +130,34 @@ test('duplicate invitations cannot be created', function () {
         'invited_by' => $owner->id,
     ]);
 
+    $developerRole = $team->roles()->where('name', 'Developer')->firstOrFail();
+
     $response = $this
         ->actingAs($owner)
         ->post(route('teams.invitations.store'), [
             'email' => 'invited@example.com',
-            'role' => TeamRole::Member->value,
+            'role_id' => $developerRole->id,
         ]);
 
     $response->assertSessionHasErrors('email');
 });
 
-test('team invitations cannot be created by members', function () {
+test('team invitations cannot be created by members without members.manage permission', function () {
     $owner = User::factory()->create();
     $member = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $member);
     $member->switchTeam($team);
+
+    $developerRole = $team->roles()->where('name', 'Developer')->firstOrFail();
 
     $response = $this
         ->actingAs($member)
         ->post(route('teams.invitations.store'), [
             'email' => 'invited@example.com',
-            'role' => TeamRole::Member->value,
+            'role_id' => $developerRole->id,
         ]);
 
     $response->assertForbidden();
@@ -158,7 +167,7 @@ test('team invitations can be cancelled by owners', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
     $owner->switchTeam($team);
 
     $invitation = TeamInvitation::factory()->create([
@@ -182,12 +191,11 @@ test('team invitations can be accepted', function () {
     $invitedUser = User::factory()->create(['email' => 'invited@example.com']);
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->create([
         'team_id' => $team->id,
         'email' => 'invited@example.com',
-        'role' => TeamRole::Member,
         'invited_by' => $owner->id,
     ]);
 
@@ -207,7 +215,7 @@ test('team invitations can be declined by the invited user', function () {
     $invitedUser = User::factory()->create(['email' => 'invited@example.com']);
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->create([
         'team_id' => $team->id,
@@ -231,7 +239,7 @@ test('team invitations cannot be declined by uninvited user', function () {
     $uninvitedUser = User::factory()->create(['email' => 'uninvited@example.com']);
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->create([
         'team_id' => $team->id,
@@ -255,7 +263,7 @@ test('accepted team invitations cannot be declined', function () {
     $invitedUser = User::factory()->create(['email' => 'invited@example.com']);
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->accepted()->create([
         'team_id' => $team->id,
@@ -279,7 +287,7 @@ test('team invitations cannot be accepted by uninvited user', function () {
     $uninvitedUser = User::factory()->create(['email' => 'uninvited@example.com']);
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->create([
         'team_id' => $team->id,
@@ -301,7 +309,7 @@ test('expired invitations cannot be accepted', function () {
     $invitedUser = User::factory()->create(['email' => 'invited@example.com']);
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->expired()->create([
         'team_id' => $team->id,

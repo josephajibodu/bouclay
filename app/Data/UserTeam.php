@@ -10,7 +10,7 @@ readonly class UserTeam
         public string $slug,
         public bool $isPersonal,
         public ?string $role,
-        public ?string $roleLabel,
+        public bool $isOwner,
         public ?bool $isCurrent = null,
     ) {
         //

@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Teams;
 
-use App\Enums\TeamRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Teams\UpdateTeamMemberRequest;
 use App\Models\Membership;
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,6 +23,8 @@ class TeamMemberController extends Controller
         $user = $request->user();
         $team = $user->currentTeam;
 
+        $memberships = $team->memberships()->with(['user', 'role'])->get();
+
         return Inertia::render('teams/members', [
             'team' => [
                 'id' => $team->id,
@@ -30,31 +32,30 @@ class TeamMemberController extends Controller
                 'slug' => $team->slug,
                 'isPersonal' => $team->is_personal,
             ],
-            'members' => $team->members()->get()->map(function (User $member) {
-                /** @var Membership $membership */
-                $membership = $member->getRelation('pivot');
-
-                return [
-                    'id' => $member->id,
-                    'name' => $member->name,
-                    'email' => $member->email,
-                    'avatar' => $member->avatar ?? null,
-                    'role' => $membership->role->value,
-                    'role_label' => $membership->role->label(),
-                ];
-            }),
+            'members' => $memberships->map(fn (Membership $membership) => [
+                'id' => $membership->user->id,
+                'name' => $membership->user->name,
+                'email' => $membership->user->email,
+                'avatar' => $membership->user->avatar ?? null,
+                'role_id' => $membership->role_id,
+                'role_name' => $membership->role->name,
+                'is_owner' => $membership->is_owner,
+            ]),
             'invitations' => $team->invitations()
                 ->whereNull('accepted_at')
+                ->with('role')
                 ->get()
                 ->map(fn ($invitation) => [
                     'code' => $invitation->code,
                     'email' => $invitation->email,
-                    'role' => $invitation->role->value,
-                    'role_label' => $invitation->role->label(),
+                    'role_name' => $invitation->role->name,
                     'created_at' => $invitation->created_at->toISOString(),
                 ]),
             'permissions' => $user->toTeamPermissions($team),
-            'availableRoles' => TeamRole::assignable(),
+            'availableRoles' => $team->roles()->orderBy('name')->get()->map(fn (Role $role) => [
+                'id' => $role->id,
+                'name' => $role->name,
+            ]),
         ]);
     }
 
@@ -67,12 +68,10 @@ class TeamMemberController extends Controller
 
         Gate::authorize('updateMember', $team);
 
-        $newRole = TeamRole::from($request->validated('role'));
-
         $team->memberships()
             ->where('user_id', $user->id)
             ->firstOrFail()
-            ->update(['role' => $newRole]);
+            ->update(['role_id' => $request->validated('role_id')]);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Member role updated.')]);
 

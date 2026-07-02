@@ -1,7 +1,6 @@
 <?php
 
 use App\Enums\BusinessType;
-use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\User;
@@ -16,7 +15,7 @@ test('registration screen can be rendered', function () {
 test('registration screen includes team invitation context', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create(['name' => 'Laravel Team']);
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $owner);
 
     $invitation = TeamInvitation::factory()->create([
         'team_id' => $team->id,

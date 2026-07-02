@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\TeamRole;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Pivot;
@@ -12,13 +11,15 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property int $team_id
  * @property int $user_id
- * @property TeamRole $role
+ * @property int $role_id
+ * @property bool $is_owner
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Team $team
  * @property-read User $user
+ * @property-read Role $role
  */
-#[Fillable(['team_id', 'user_id', 'role'])]
+#[Fillable(['team_id', 'user_id', 'role_id', 'is_owner'])]
 class Membership extends Pivot
 {
     /**
@@ -56,6 +57,16 @@ class Membership extends Pivot
     }
 
     /**
+     * Get the role assigned to this membership.
+     *
+     * @return BelongsTo<Role, $this>
+     */
+    public function role(): BelongsTo
+    {
+        return $this->belongsTo(Role::class);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -63,7 +74,7 @@ class Membership extends Pivot
     protected function casts(): array
     {
         return [
-            'role' => TeamRole::class,
+            'is_owner' => 'boolean',
         ];
     }
 }

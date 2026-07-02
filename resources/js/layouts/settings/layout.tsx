@@ -6,6 +6,7 @@ import { cn, toUrl } from '@/lib/utils';
 import { edit as editAppearance } from '@/routes/appearance';
 import { edit as editGeneral } from '@/routes/general';
 import { edit } from '@/routes/profile';
+import { index as roles } from '@/routes/roles';
 import { edit as editSecurity } from '@/routes/security';
 import { index as businesses } from '@/routes/teams';
 import { index as members } from '@/routes/teams/members';
@@ -35,6 +36,11 @@ const settingsNavItems: NavItem[] = [
     {
         title: 'Teams',
         href: members(),
+        icon: null,
+    },
+    {
+        title: 'Roles',
+        href: roles(),
         icon: null,
     },
     {

@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -9,7 +8,7 @@ test('the business settings page can be rendered for the current team', function
     $user = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($user, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $user);
     $user->switchTeam($team);
 
     $response = $this
@@ -39,7 +38,7 @@ test('business settings can be updated by owners', function () {
     $user = User::factory()->create();
     $team = Team::factory()->create(['name' => 'Original Name']);
 
-    $team->members()->attach($user, ['role' => TeamRole::Owner->value]);
+    attachTeamOwner($team, $user);
     $user->switchTeam($team);
 
     $response = $this
@@ -62,13 +61,13 @@ test('business settings can be updated by owners', function () {
     ]);
 });
 
-test('business settings cannot be updated by members', function () {
+test('business settings cannot be updated by members without team.manage permission', function () {
     $owner = User::factory()->create();
     $member = User::factory()->create();
     $team = Team::factory()->create();
 
-    $team->members()->attach($owner, ['role' => TeamRole::Owner->value]);
-    $team->members()->attach($member, ['role' => TeamRole::Member->value]);
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $member, 'Support');
     $member->switchTeam($team);
 
     $response = $this
