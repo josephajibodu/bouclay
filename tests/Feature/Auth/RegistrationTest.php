@@ -15,7 +15,6 @@ test('new users can register', function () {
         'last_name' => 'User',
         'email' => 'test@example.com',
         'password' => 'password',
-        'password_confirmation' => 'password',
         'business_name' => 'Acme Inc',
         'business_type' => 'individual',
         'website' => 'https://acme.test',

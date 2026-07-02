@@ -4,17 +4,17 @@ namespace App\Actions\Fortify;
 
 use App\Actions\Teams\CreateTeam;
 use App\Concerns\BusinessDetailsValidationRules;
-use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
 use App\Models\User;
 use App\Rules\TeamName;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rules\Password;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
 
 class CreateNewUser implements CreatesNewUsers
 {
-    use BusinessDetailsValidationRules, PasswordValidationRules, ProfileValidationRules;
+    use BusinessDetailsValidationRules, ProfileValidationRules;
 
     public function __construct(private CreateTeam $createTeam)
     {
@@ -34,7 +34,7 @@ class CreateNewUser implements CreatesNewUsers
     {
         $input = Validator::make($input, [
             ...$this->profileRules(),
-            'password' => $this->passwordRules(),
+            'password' => ['required', 'string', Password::default()],
             'business_name' => ['required', 'string', 'max:255', new TeamName],
             ...$this->businessDetailsRules(),
         ])->validate();

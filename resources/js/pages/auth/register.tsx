@@ -30,13 +30,7 @@ const MILESTONES = [
 ] as const;
 
 const STEP_FIELDS: Record<number, string[]> = {
-    1: [
-        'first_name',
-        'last_name',
-        'email',
-        'password',
-        'password_confirmation',
-    ],
+    1: ['first_name', 'last_name', 'email', 'password'],
     2: [
         'business_name',
         'business_type',
@@ -72,7 +66,7 @@ export default function Register({ passwordRules, businessTypes }: Props) {
             <div ref={containerRef} className="flex flex-col gap-6">
                 <Form
                     {...store.form()}
-                    resetOnSuccess={['password', 'password_confirmation']}
+                    resetOnSuccess={['password']}
                     disableWhileProcessing
                     className="flex flex-col gap-6"
                     onError={(errors) => {
@@ -184,28 +178,10 @@ export default function Register({ passwordRules, businessTypes }: Props) {
                                     <InputError message={errors.password} />
                                 </div>
 
-                                <div className="grid gap-2">
-                                    <Label htmlFor="password_confirmation">
-                                        Confirm password
-                                    </Label>
-                                    <PasswordInput
-                                        id="password_confirmation"
-                                        required={step === 1}
-                                        tabIndex={5}
-                                        autoComplete="new-password"
-                                        name="password_confirmation"
-                                        placeholder="Confirm password"
-                                        passwordrules={passwordRules}
-                                    />
-                                    <InputError
-                                        message={errors.password_confirmation}
-                                    />
-                                </div>
-
                                 <Button
                                     type="button"
                                     className="mt-2 w-full"
-                                    tabIndex={6}
+                                    tabIndex={5}
                                     data-test="register-next-button"
                                     onClick={() => goToStep(2)}
                                 >
