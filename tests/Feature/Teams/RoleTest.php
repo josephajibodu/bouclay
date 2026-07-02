@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Permission;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\User;
@@ -24,6 +25,43 @@ test('the roles page can be rendered for the current team', function () {
             ->where('roles.0.name', 'Admin')
             ->where('roles.0.isSystem', true),
         );
+});
+
+test('the roles page cannot be viewed without roles.view or roles.manage permission', function () {
+    $owner = User::factory()->create();
+    $developer = User::factory()->create();
+    $team = Team::factory()->create();
+
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $developer, 'Developer');
+    $developer->switchTeam($team);
+
+    $response = $this
+        ->actingAs($developer)
+        ->get(route('roles.index'));
+
+    $response->assertForbidden();
+});
+
+test('the roles page can be viewed with roles.view permission alone', function () {
+    $owner = User::factory()->create();
+    $viewer = User::factory()->create();
+    $team = Team::factory()->create();
+
+    attachTeamOwner($team, $owner);
+
+    $viewerRole = $team->roles()->create(['name' => 'Viewer']);
+    $viewerRole->permissions()->attach(
+        Permission::where('name', 'roles.view')->firstOrFail(),
+    );
+    $team->members()->attach($viewer, ['role_id' => $viewerRole->id, 'is_owner' => false]);
+    $viewer->switchTeam($team);
+
+    $response = $this
+        ->actingAs($viewer)
+        ->get(route('roles.index'));
+
+    $response->assertOk();
 });
 
 test('roles can be created by users with roles.manage permission', function () {

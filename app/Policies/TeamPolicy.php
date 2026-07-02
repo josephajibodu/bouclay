@@ -51,6 +51,15 @@ class TeamPolicy
     }
 
     /**
+     * Determine whether the user can view the team's members and invitations.
+     */
+    public function viewMembers(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::MembersView)
+            || $user->hasTeamPermission($team, PermissionName::MembersManage);
+    }
+
+    /**
      * Determine whether the user can add a member to the team.
      */
     public function addMember(User $user, Team $team): bool

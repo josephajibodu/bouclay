@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Permission;
 use App\Models\Team;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -22,6 +23,43 @@ test('the team members page can be rendered for the current team', function () {
             ->where('members.0.role_name', 'Admin')
             ->where('members.0.is_owner', true),
         );
+});
+
+test('the team members page cannot be viewed without members.view or members.manage permission', function () {
+    $owner = User::factory()->create();
+    $developer = User::factory()->create();
+    $team = Team::factory()->create();
+
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $developer, 'Developer');
+    $developer->switchTeam($team);
+
+    $response = $this
+        ->actingAs($developer)
+        ->get(route('teams.members.index'));
+
+    $response->assertForbidden();
+});
+
+test('the team members page can be viewed with members.view permission alone', function () {
+    $owner = User::factory()->create();
+    $viewer = User::factory()->create();
+    $team = Team::factory()->create();
+
+    attachTeamOwner($team, $owner);
+
+    $viewerRole = $team->roles()->create(['name' => 'Viewer']);
+    $viewerRole->permissions()->attach(
+        Permission::where('name', 'members.view')->firstOrFail(),
+    );
+    $team->members()->attach($viewer, ['role_id' => $viewerRole->id, 'is_owner' => false]);
+    $viewer->switchTeam($team);
+
+    $response = $this
+        ->actingAs($viewer)
+        ->get(route('teams.members.index'));
+
+    $response->assertOk();
 });
 
 test('member roles can be updated by users with members.manage permission', function () {

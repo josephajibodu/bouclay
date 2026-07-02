@@ -42,182 +42,199 @@ export default function General({ team, permissions, businessTypes }: Props) {
             <h1 className="sr-only">General</h1>
 
             <div className="flex flex-col space-y-10">
-                {permissions.canManageBusiness ? (
-                    <div className="space-y-6">
-                        <Heading
-                            variant="small"
-                            title="Business settings"
-                            description="Update your business details and address"
-                        />
+                <div className="space-y-6">
+                    <Heading
+                        variant="small"
+                        title="Business settings"
+                        description={
+                            permissions.canManageBusiness
+                                ? 'Update your business details and address'
+                                : 'Your business details and address'
+                        }
+                    />
 
-                        <Form
-                            {...update.form()}
-                            className="max-w-xl space-y-6"
-                        >
-                            {({ errors, processing }) => (
-                                <>
+                    <Form {...update.form()} className="max-w-xl space-y-6">
+                        {({ errors, processing }) => (
+                            <>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="name">
+                                        Business name
+                                    </Label>
+                                    <Input
+                                        id="name"
+                                        name="name"
+                                        data-test="team-name-input"
+                                        defaultValue={team.name}
+                                        disabled={
+                                            !permissions.canManageBusiness
+                                        }
+                                        required
+                                    />
+                                    <InputError message={errors.name} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="business_type">
+                                        Business type
+                                    </Label>
+                                    <Select
+                                        name="business_type"
+                                        value={businessType}
+                                        disabled={
+                                            !permissions.canManageBusiness
+                                        }
+                                        onValueChange={(value) =>
+                                            setBusinessType(
+                                                value as BusinessType,
+                                            )
+                                        }
+                                    >
+                                        <SelectTrigger
+                                            id="business_type"
+                                            className="w-full"
+                                        >
+                                            <SelectValue placeholder="Select a business type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {businessTypes.map((type) => (
+                                                <SelectItem
+                                                    key={type.value}
+                                                    value={type.value}
+                                                >
+                                                    {type.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError
+                                        message={errors.business_type}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="website">
+                                        Website (optional)
+                                    </Label>
+                                    <Input
+                                        id="website"
+                                        type="url"
+                                        name="website"
+                                        defaultValue={team.website ?? ''}
+                                        placeholder="https://example.com"
+                                        disabled={
+                                            !permissions.canManageBusiness
+                                        }
+                                    />
+                                    <InputError message={errors.website} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="country">Country</Label>
+                                    <Select
+                                        name="country"
+                                        value={country}
+                                        disabled={
+                                            !permissions.canManageBusiness
+                                        }
+                                        onValueChange={setCountry}
+                                    >
+                                        <SelectTrigger
+                                            id="country"
+                                            className="w-full"
+                                        >
+                                            <SelectValue placeholder="Select a country" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {countries.map((c) => (
+                                                <SelectItem
+                                                    key={c.code}
+                                                    value={c.code}
+                                                >
+                                                    {c.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError message={errors.country} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="line1">
+                                        Street address line 1
+                                    </Label>
+                                    <Input
+                                        id="line1"
+                                        name="line1"
+                                        defaultValue={team.line1 ?? ''}
+                                        autoComplete="address-line1"
+                                        placeholder="Street address"
+                                        disabled={
+                                            !permissions.canManageBusiness
+                                        }
+                                        required
+                                    />
+                                    <InputError message={errors.line1} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="line2">
+                                        Street address line 2 (optional)
+                                    </Label>
+                                    <Input
+                                        id="line2"
+                                        name="line2"
+                                        defaultValue={team.line2 ?? ''}
+                                        autoComplete="address-line2"
+                                        placeholder="Apartment, suite, etc."
+                                        disabled={
+                                            !permissions.canManageBusiness
+                                        }
+                                    />
+                                    <InputError message={errors.line2} />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
                                     <div className="grid gap-2">
-                                        <Label htmlFor="name">
-                                            Business name
+                                        <Label htmlFor="city">
+                                            City / Town
                                         </Label>
                                         <Input
-                                            id="name"
-                                            name="name"
-                                            data-test="team-name-input"
-                                            defaultValue={team.name}
-                                            required
-                                        />
-                                        <InputError message={errors.name} />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="business_type">
-                                            Business type
-                                        </Label>
-                                        <Select
-                                            name="business_type"
-                                            value={businessType}
-                                            onValueChange={(value) =>
-                                                setBusinessType(
-                                                    value as BusinessType,
-                                                )
+                                            id="city"
+                                            name="city"
+                                            defaultValue={team.city ?? ''}
+                                            autoComplete="address-level2"
+                                            placeholder="City"
+                                            disabled={
+                                                !permissions.canManageBusiness
                                             }
-                                        >
-                                            <SelectTrigger
-                                                id="business_type"
-                                                className="w-full"
-                                            >
-                                                <SelectValue placeholder="Select a business type" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {businessTypes.map((type) => (
-                                                    <SelectItem
-                                                        key={type.value}
-                                                        value={type.value}
-                                                    >
-                                                        {type.label}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <InputError
-                                            message={errors.business_type}
-                                        />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="website">
-                                            Website (optional)
-                                        </Label>
-                                        <Input
-                                            id="website"
-                                            type="url"
-                                            name="website"
-                                            defaultValue={team.website ?? ''}
-                                            placeholder="https://example.com"
-                                        />
-                                        <InputError
-                                            message={errors.website}
-                                        />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="country">
-                                            Country
-                                        </Label>
-                                        <Select
-                                            name="country"
-                                            value={country}
-                                            onValueChange={setCountry}
-                                        >
-                                            <SelectTrigger
-                                                id="country"
-                                                className="w-full"
-                                            >
-                                                <SelectValue placeholder="Select a country" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {countries.map((c) => (
-                                                    <SelectItem
-                                                        key={c.code}
-                                                        value={c.code}
-                                                    >
-                                                        {c.name}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <InputError
-                                            message={errors.country}
-                                        />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="line1">
-                                            Street address line 1
-                                        </Label>
-                                        <Input
-                                            id="line1"
-                                            name="line1"
-                                            defaultValue={team.line1 ?? ''}
-                                            autoComplete="address-line1"
-                                            placeholder="Street address"
                                             required
                                         />
-                                        <InputError message={errors.line1} />
+                                        <InputError message={errors.city} />
                                     </div>
 
                                     <div className="grid gap-2">
-                                        <Label htmlFor="line2">
-                                            Street address line 2 (optional)
+                                        <Label htmlFor="postal_code">
+                                            Postal / Zip code (optional)
                                         </Label>
                                         <Input
-                                            id="line2"
-                                            name="line2"
-                                            defaultValue={team.line2 ?? ''}
-                                            autoComplete="address-line2"
-                                            placeholder="Apartment, suite, etc."
+                                            id="postal_code"
+                                            name="postal_code"
+                                            defaultValue={
+                                                team.postalCode ?? ''
+                                            }
+                                            autoComplete="postal-code"
+                                            placeholder="Postal code"
+                                            disabled={
+                                                !permissions.canManageBusiness
+                                            }
                                         />
-                                        <InputError message={errors.line2} />
+                                        <InputError
+                                            message={errors.postal_code}
+                                        />
                                     </div>
+                                </div>
 
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="city">
-                                                City / Town
-                                            </Label>
-                                            <Input
-                                                id="city"
-                                                name="city"
-                                                defaultValue={team.city ?? ''}
-                                                autoComplete="address-level2"
-                                                placeholder="City"
-                                                required
-                                            />
-                                            <InputError
-                                                message={errors.city}
-                                            />
-                                        </div>
-
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="postal_code">
-                                                Postal / Zip code (optional)
-                                            </Label>
-                                            <Input
-                                                id="postal_code"
-                                                name="postal_code"
-                                                defaultValue={
-                                                    team.postalCode ?? ''
-                                                }
-                                                autoComplete="postal-code"
-                                                placeholder="Postal code"
-                                            />
-                                            <InputError
-                                                message={errors.postal_code}
-                                            />
-                                        </div>
-                                    </div>
-
+                                {permissions.canManageBusiness ? (
                                     <div className="flex items-center gap-4">
                                         <Button
                                             type="submit"
@@ -227,13 +244,11 @@ export default function General({ team, permissions, businessTypes }: Props) {
                                             Save
                                         </Button>
                                     </div>
-                                </>
-                            )}
-                        </Form>
-                    </div>
-                ) : (
-                    <Heading variant="small" title={team.name} />
-                )}
+                                ) : null}
+                            </>
+                        )}
+                    </Form>
+                </div>
 
                 {permissions.canDeleteBusiness && !team.isPersonal ? (
                     <div className="max-w-xl space-y-6">

@@ -13,7 +13,9 @@ class RolePolicy
      */
     public function viewAny(User $user): bool
     {
-        return true;
+        return $user->currentTeam !== null
+            && ($user->hasTeamPermission($user->currentTeam, PermissionName::RolesView)
+                || $user->hasTeamPermission($user->currentTeam, PermissionName::RolesManage));
     }
 
     /**
@@ -21,7 +23,9 @@ class RolePolicy
      */
     public function view(User $user, Role $role): bool
     {
-        return $user->belongsToTeam($role->team);
+        return $user->belongsToTeam($role->team)
+            && ($user->hasTeamPermission($role->team, PermissionName::RolesView)
+                || $user->hasTeamPermission($role->team, PermissionName::RolesManage));
     }
 
     /**

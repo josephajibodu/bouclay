@@ -23,6 +23,28 @@ test('the business settings page can be rendered for the current team', function
         );
 });
 
+test('the business settings page is viewable read-only by members without team.manage permission', function () {
+    $owner = User::factory()->create();
+    $member = User::factory()->create();
+    $team = Team::factory()->create(['name' => 'Original Name']);
+
+    attachTeamOwner($team, $owner);
+    attachTeamMember($team, $member, 'Support');
+    $member->switchTeam($team);
+
+    $response = $this
+        ->actingAs($member)
+        ->get(route('general.edit'));
+
+    $response
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('settings/general')
+            ->where('team.name', $team->name)
+            ->where('permissions.canManageBusiness', false),
+        );
+});
+
 test('users without a current team cannot access business settings', function () {
     $user = User::factory()->create();
     $user->update(['current_team_id' => null]);

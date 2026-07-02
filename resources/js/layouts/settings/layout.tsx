@@ -1,4 +1,4 @@
-import { Link } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 import type { PropsWithChildren } from 'react';
 import Heading from '@/components/heading';
 import { useCurrentUrl } from '@/hooks/use-current-url';
@@ -10,48 +10,66 @@ import { index as roles } from '@/routes/roles';
 import { edit as editSecurity } from '@/routes/security';
 import { index as businesses } from '@/routes/teams';
 import { index as members } from '@/routes/teams/members';
-import type { NavItem } from '@/types';
+import type { NavItem, TeamPermissions } from '@/types';
 
-const settingsNavItems: NavItem[] = [
-    {
-        title: 'General',
-        href: editGeneral(),
-        icon: null,
-    },
-    {
-        title: 'Profile',
-        href: edit(),
-        icon: null,
-    },
-    {
-        title: 'Security',
-        href: editSecurity(),
-        icon: null,
-    },
-    {
-        title: 'Businesses',
-        href: businesses(),
-        icon: null,
-    },
-    {
-        title: 'Teams',
-        href: members(),
-        icon: null,
-    },
-    {
-        title: 'Roles',
-        href: roles(),
-        icon: null,
-    },
-    {
-        title: 'Appearance',
-        href: editAppearance(),
-        icon: null,
-    },
-];
+/**
+ * Every team member can reach these; team-scoped items are filtered by
+ * teamPermissions below so a member without view access never sees the tab.
+ */
+function buildSettingsNavItems(
+    teamPermissions: TeamPermissions | null,
+): NavItem[] {
+    return [
+        {
+            title: 'General',
+            href: editGeneral(),
+            icon: null,
+        },
+        {
+            title: 'Profile',
+            href: edit(),
+            icon: null,
+        },
+        {
+            title: 'Security',
+            href: editSecurity(),
+            icon: null,
+        },
+        {
+            title: 'Businesses',
+            href: businesses(),
+            icon: null,
+        },
+        ...(teamPermissions?.canViewMembers || teamPermissions?.canManageMembers
+            ? [
+                  {
+                      title: 'Teams',
+                      href: members(),
+                      icon: null,
+                  },
+              ]
+            : []),
+        ...(teamPermissions?.canViewRoles || teamPermissions?.canManageRoles
+            ? [
+                  {
+                      title: 'Roles',
+                      href: roles(),
+                      icon: null,
+                  },
+              ]
+            : []),
+        {
+            title: 'Appearance',
+            href: editAppearance(),
+            icon: null,
+        },
+    ];
+}
 
 export default function SettingsLayout({ children }: PropsWithChildren) {
     const { isCurrentOrParentUrl } = useCurrentUrl();
+    const { teamPermissions } = usePage().props;
+    const settingsNavItems = buildSettingsNavItems(teamPermissions);
 
     return (
         <div className="px-4 py-6">

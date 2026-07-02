@@ -23,6 +23,8 @@ class RoleController extends Controller
         $user = $request->user();
         $team = $user->currentTeam;
 
+        Gate::authorize('viewAny', Role::class);
+
         $roles = $team->roles()
             ->withCount('memberships')
             ->with('permissions')

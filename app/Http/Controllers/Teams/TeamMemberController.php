@@ -23,6 +23,8 @@ class TeamMemberController extends Controller
         $user = $request->user();
         $team = $user->currentTeam;
 
+        Gate::authorize('viewMembers', $team);
+
         $memberships = $team->memberships()->with(['user', 'role'])->get();
 
         return Inertia::render('teams/members', [
