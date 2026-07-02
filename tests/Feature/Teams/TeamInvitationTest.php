@@ -33,7 +33,7 @@ test('team invitations can be created', function () {
     ]);
 });
 
-test('invitation email for existing users uses login route', function () {
+test('invitation email links to the invitation landing page for existing users', function () {
     $owner = User::factory()->create();
     $invitedUser = User::factory()->create(['email' => 'invited@example.com']);
     $team = Team::factory()->create();
@@ -48,11 +48,10 @@ test('invitation email for existing users uses login route', function () {
 
     $mail = (new TeamInvitationNotification($invitation))->toMail($invitedUser);
 
-    expect($mail->actionUrl)->toBe(route('login', ['invitation' => $invitation->code]));
-    $this->assertStringContainsString('dashboard', implode(' ', $mail->introLines));
+    expect($mail->actionUrl)->toBe(route('join.show', $invitation));
 });
 
-test('invitation email for unknown users uses login route', function () {
+test('invitation email links to the invitation landing page for unknown users', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create();
 
@@ -66,8 +65,7 @@ test('invitation email for unknown users uses login route', function () {
 
     $mail = (new TeamInvitationNotification($invitation))->toMail((object) []);
 
-    expect($mail->actionUrl)->toBe(route('login', ['invitation' => $invitation->code]));
-    $this->assertStringContainsString('log in', strtolower(implode(' ', $mail->introLines)));
+    expect($mail->actionUrl)->toBe(route('join.show', $invitation));
 });
 
 test('team invitations can be created by users with members.manage permission', function () {

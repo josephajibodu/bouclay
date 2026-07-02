@@ -82,8 +82,7 @@ class FortifyServiceProvider extends ServiceProvider
             'status' => $request->session()->get('status'),
         ]));
 
-        Fortify::registerView(fn (Request $request) => Inertia::render('auth/register', [
-            'teamInvitation' => $this->teamInvitation($request),
+        Fortify::registerView(fn () => Inertia::render('auth/register', [
             'businessTypes' => BusinessType::options(),
         ]));
 

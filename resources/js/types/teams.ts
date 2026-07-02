@@ -40,6 +40,16 @@ export type TeamInvitationContext = {
     teamName: string;
 };
 
+export type InvitationLandingContext = {
+    code: string;
+    teamName: string;
+    inviterName: string;
+    roleName: string;
+    email: string;
+};
+
+export type InvitationViewerState = 'guest' | 'correct-user' | 'wrong-user';
+
 export type DashboardInvitation = {
     code: string;
     inviterName: string;

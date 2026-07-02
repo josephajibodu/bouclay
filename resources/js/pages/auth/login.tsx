@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { register } from '@/routes';
+import { show as joinShow } from '@/routes/join';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
 import type { TeamInvitationContext } from '@/types';
@@ -30,10 +31,7 @@ export default function Login({
             <Head title="Log in" />
 
             {teamInvitation && (
-                <TeamInvitationAlert
-                    invitation={teamInvitation}
-                    action="Log in"
-                />
+                <TeamInvitationAlert invitation={teamInvitation} />
             )}
 
             <PasskeyVerify />
@@ -45,6 +43,14 @@ export default function Login({
             >
                 {({ processing, errors }) => (
                     <>
+                        {teamInvitation && (
+                            <input
+                                type="hidden"
+                                name="invitation"
+                                value={teamInvitation.code}
+                            />
+                        )}
+
                         <div className="grid gap-6">
                             <div className="grid gap-2">
                                 <Label htmlFor="email">Email address</Label>
@@ -107,18 +113,26 @@ export default function Login({
                         </div>
 
                         <div className="text-center text-sm text-muted-foreground">
-                            Don't have an account?{' '}
-                            <TextLink
-                                href={register({
-                                    query: {
-                                        invitation: teamInvitation?.code,
-                                    },
-                                })}
-                                data-test="register-link"
-                                tabIndex={5}
-                            >
-                                Sign up
-                            </TextLink>
+                            {teamInvitation ? (
+                                <TextLink
+                                    href={joinShow(teamInvitation.code)}
+                                    data-test="back-to-invitation-link"
+                                    tabIndex={5}
+                                >
+                                    Back to invitation
+                                </TextLink>
+                            ) : (
+                                <>
+                                    Don't have an account?{' '}
+                                    <TextLink
+                                        href={register()}
+                                        data-test="register-link"
+                                        tabIndex={5}
+                                    >
+                                        Sign up
+                                    </TextLink>
+                                </>
+                            )}
                         </div>
                     </>
                 )}

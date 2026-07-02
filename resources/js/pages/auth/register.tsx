@@ -2,7 +2,6 @@ import { Form, Head } from '@inertiajs/react';
 import { useRef, useState } from 'react';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
-import TeamInvitationAlert from '@/components/team-invitation-alert';
 import TextLink from '@/components/text-link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,36 +17,42 @@ import { Spinner } from '@/components/ui/spinner';
 import { countries } from '@/lib/countries';
 import { login } from '@/routes';
 import { store } from '@/routes/register';
-import type { BusinessType, BusinessTypeOption, TeamInvitationContext } from '@/types';
+import type { BusinessType, BusinessTypeOption } from '@/types';
 
 type Props = {
     passwordRules: string;
-    teamInvitation?: TeamInvitationContext | null;
     businessTypes: BusinessTypeOption[];
 };
 
-const STEPS = [
-    { number: 1, title: 'Account details' },
-    { number: 2, title: 'Business details' },
-    { number: 3, title: 'Business address' },
+const MILESTONES = [
+    { number: 1, title: 'Account' },
+    { number: 2, title: 'Business' },
 ] as const;
 
 const STEP_FIELDS: Record<number, string[]> = {
-    1: ['first_name', 'last_name', 'email', 'password', 'password_confirmation'],
-    2: ['business_name', 'business_type', 'website'],
-    3: ['country', 'line1', 'line2', 'city', 'postal_code'],
+    1: [
+        'first_name',
+        'last_name',
+        'email',
+        'password',
+        'password_confirmation',
+    ],
+    2: [
+        'business_name',
+        'business_type',
+        'website',
+        'country',
+        'line1',
+        'line2',
+        'city',
+        'postal_code',
+    ],
 };
 
-export default function Register({
-    passwordRules,
-    teamInvitation,
-    businessTypes,
-}: Props) {
-    const isInvitationFlow = Boolean(teamInvitation);
+export default function Register({ passwordRules, businessTypes }: Props) {
     const [step, setStep] = useState(1);
-    const [businessType, setBusinessType] = useState<BusinessType>(
-        'individual',
-    );
+    const [businessType, setBusinessType] =
+        useState<BusinessType>('individual');
     const [country, setCountry] = useState(countries[0].code);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -63,7 +68,7 @@ export default function Register({
 
     return (
         <>
-            <Head title="Register" />
+            <Head title="Set up your business" />
             <div ref={containerRef} className="flex flex-col gap-6">
                 <Form
                     {...store.form()}
@@ -83,43 +88,35 @@ export default function Register({
                 >
                     {({ processing, errors }) => (
                         <>
-                            {teamInvitation && (
-                                <>
-                                    <input
-                                        type="hidden"
-                                        name="invitation"
-                                        value={teamInvitation.code}
-                                    />
-                                    <TeamInvitationAlert
-                                        invitation={teamInvitation}
-                                        action="Register"
-                                    />
-                                </>
-                            )}
-
-                            {!isInvitationFlow && (
-                                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                                    {STEPS.map(({ number, title }) => (
-                                        <span
-                                            key={number}
-                                            className={
-                                                number === step
-                                                    ? 'font-medium text-foreground'
-                                                    : undefined
-                                            }
-                                        >
-                                            {number}. {title}
-                                            {number !== STEPS.length && (
-                                                <span className="mx-2">
-                                                    &rarr;
-                                                </span>
-                                            )}
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
+                            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                                {MILESTONES.map(({ number, title }) => (
+                                    <span
+                                        key={number}
+                                        className={
+                                            number === step
+                                                ? 'font-medium text-foreground'
+                                                : undefined
+                                        }
+                                    >
+                                        {title}
+                                        {number !== MILESTONES.length && (
+                                            <span className="mx-2">&rarr;</span>
+                                        )}
+                                    </span>
+                                ))}
+                            </div>
 
                             <div className="grid gap-6" hidden={step !== 1}>
+                                <div className="space-y-1 text-center">
+                                    <h2 className="text-lg font-medium">
+                                        Create your account
+                                    </h2>
+                                    <p className="text-sm text-muted-foreground">
+                                        You'll set up your business next — it
+                                        only takes a minute.
+                                    </p>
+                                </div>
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="grid gap-2">
                                         <Label htmlFor="first_name">
@@ -160,9 +157,7 @@ export default function Register({
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label htmlFor="email">
-                                        Email address
-                                    </Label>
+                                    <Label htmlFor="email">Email address</Label>
                                     <Input
                                         id="email"
                                         type="email"
@@ -203,39 +198,33 @@ export default function Register({
                                         passwordrules={passwordRules}
                                     />
                                     <InputError
-                                        message={
-                                            errors.password_confirmation
-                                        }
+                                        message={errors.password_confirmation}
                                     />
                                 </div>
 
-                                {isInvitationFlow ? (
-                                    <Button
-                                        type="submit"
-                                        className="mt-2 w-full"
-                                        tabIndex={6}
-                                        data-test="register-user-button"
-                                    >
-                                        {processing && <Spinner />}
-                                        Join {teamInvitation?.teamName}
-                                    </Button>
-                                ) : (
-                                    <Button
-                                        type="button"
-                                        className="mt-2 w-full"
-                                        tabIndex={6}
-                                        data-test="register-next-button"
-                                        onClick={() => goToStep(2)}
-                                    >
-                                        Continue
-                                    </Button>
-                                )}
+                                <Button
+                                    type="button"
+                                    className="mt-2 w-full"
+                                    tabIndex={6}
+                                    data-test="register-next-button"
+                                    onClick={() => goToStep(2)}
+                                >
+                                    Continue
+                                </Button>
                             </div>
 
-                            <div
-                                className="grid gap-6"
-                                hidden={isInvitationFlow || step !== 2}
-                            >
+                            <div className="grid gap-6" hidden={step !== 2}>
+                                <div className="space-y-1 text-center">
+                                    <h2 className="text-lg font-medium">
+                                        Tell us about your business
+                                    </h2>
+                                    <p className="text-sm text-muted-foreground">
+                                        This becomes your workspace — invite
+                                        your team once you're in. We use your
+                                        address for invoices and tax settings.
+                                    </p>
+                                </div>
+
                                 <div className="grid gap-2">
                                     <Label htmlFor="business_name">
                                         Business name
@@ -302,27 +291,6 @@ export default function Register({
                                     <InputError message={errors.website} />
                                 </div>
 
-                                <div className="flex gap-2">
-                                    <Button
-                                        type="button"
-                                        variant="secondary"
-                                        className="w-full"
-                                        onClick={() => setStep(1)}
-                                    >
-                                        Back
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        className="w-full"
-                                        data-test="register-next-button"
-                                        onClick={() => goToStep(3)}
-                                    >
-                                        Continue
-                                    </Button>
-                                </div>
-                            </div>
-
-                            <div className="grid gap-6" hidden={step !== 3}>
                                 <div className="grid gap-2">
                                     <Label htmlFor="country">Country</Label>
                                     <Select
@@ -357,8 +325,8 @@ export default function Register({
                                     <Input
                                         id="line1"
                                         type="text"
-                                        required={step === 3}
-                                        tabIndex={1}
+                                        required={step === 2}
+                                        tabIndex={3}
                                         autoComplete="address-line1"
                                         name="line1"
                                         placeholder="Street address"
@@ -373,7 +341,7 @@ export default function Register({
                                     <Input
                                         id="line2"
                                         type="text"
-                                        tabIndex={2}
+                                        tabIndex={4}
                                         autoComplete="address-line2"
                                         name="line2"
                                         placeholder="Apartment, suite, etc."
@@ -389,8 +357,8 @@ export default function Register({
                                         <Input
                                             id="city"
                                             type="text"
-                                            required={step === 3}
-                                            tabIndex={3}
+                                            required={step === 2}
+                                            tabIndex={5}
                                             autoComplete="address-level2"
                                             name="city"
                                             placeholder="City"
@@ -405,7 +373,7 @@ export default function Register({
                                         <Input
                                             id="postal_code"
                                             type="text"
-                                            tabIndex={4}
+                                            tabIndex={6}
                                             autoComplete="postal-code"
                                             name="postal_code"
                                             placeholder="Postal code"
@@ -421,7 +389,7 @@ export default function Register({
                                         type="button"
                                         variant="secondary"
                                         className="w-full"
-                                        onClick={() => setStep(2)}
+                                        onClick={() => setStep(1)}
                                     >
                                         Back
                                     </Button>
@@ -431,7 +399,7 @@ export default function Register({
                                         data-test="register-user-button"
                                     >
                                         {processing && <Spinner />}
-                                        Create account
+                                        Finish setup
                                     </Button>
                                 </div>
                             </div>
@@ -441,18 +409,7 @@ export default function Register({
 
                 <div className="text-center text-sm text-muted-foreground">
                     Already have an account?{' '}
-                    <TextLink
-                        href={
-                            teamInvitation
-                                ? login.url({
-                                      query: {
-                                          invitation: teamInvitation.code,
-                                      },
-                                  })
-                                : login()
-                        }
-                        data-test="team-invitation-login-link"
-                    >
+                    <TextLink href={login()} data-test="login-link">
                         Log in
                     </TextLink>
                 </div>
@@ -462,6 +419,6 @@ export default function Register({
 }
 
 Register.layout = {
-    title: 'Create an account',
-    description: 'Enter your details below to create your account',
+    title: 'Set up your business',
+    description: 'Create your account, then tell us about your business.',
 };

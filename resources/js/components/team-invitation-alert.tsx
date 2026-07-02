@@ -4,10 +4,9 @@ import type { TeamInvitationContext } from '@/types';
 
 type Props = {
     invitation: TeamInvitationContext;
-    action: 'Log in' | 'Register';
 };
 
-export default function TeamInvitationAlert({ invitation, action }: Props) {
+export default function TeamInvitationAlert({ invitation }: Props) {
     return (
         <Alert
             data-test="team-invitation-alert"
@@ -15,7 +14,7 @@ export default function TeamInvitationAlert({ invitation, action }: Props) {
         >
             <InfoIcon />
             <AlertDescription className="text-blue-900 dark:text-blue-100">
-                {action} to join the "{invitation.teamName}" team.
+                Log in to join the "{invitation.teamName}" team.
             </AlertDescription>
         </Alert>
     );

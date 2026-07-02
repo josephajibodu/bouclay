@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Auth\JoinInvitationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Teams\TeamInvitationController;
 use App\Http\Middleware\EnsureTeamMembership;
@@ -17,6 +18,16 @@ Route::prefix('{current_team}')
 Route::middleware(['auth'])->group(function () {
     Route::post('invitations/{invitation}/accept', [TeamInvitationController::class, 'accept'])->name('invitations.accept');
     Route::delete('invitations/{invitation}', [TeamInvitationController::class, 'decline'])->name('invitations.decline');
+});
+
+// Invite-only onboarding — separate from Fortify's registration flow so an
+// invited user is never routed through business-creation forms.
+Route::get('join/{invitation}', [JoinInvitationController::class, 'show'])->name('join.show');
+Route::post('join/{invitation}/decline', [JoinInvitationController::class, 'decline'])->name('join.decline');
+
+Route::middleware('guest')->group(function () {
+    Route::get('join/{invitation}/register', [JoinInvitationController::class, 'showRegister'])->name('join.register');
+    Route::post('join/{invitation}/register', [JoinInvitationController::class, 'register'])->name('join.register.store');
 });
 
 Route::post('ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd', function () {
