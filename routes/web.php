@@ -15,16 +15,16 @@ Route::prefix('{current_team}')
     });
 
 Route::middleware(['auth'])->group(function () {
-    Route::get('invitations/{invitation}/accept', [TeamInvitationController::class, 'accept'])->name('invitations.accept');
+    Route::post('invitations/{invitation}/accept', [TeamInvitationController::class, 'accept'])->name('invitations.accept');
     Route::delete('invitations/{invitation}', [TeamInvitationController::class, 'decline'])->name('invitations.decline');
 });
 
-Route::post("ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd", function() {
-    Log::info("Incoming webhook: ", request()->all());
+Route::post('ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd', function () {
+    Log::info('Incoming webhook: ', request()->all());
 
     return response()->json([
-        "message" => "All is well and good",
-        "data" => null
+        'message' => 'All is well and good',
+        'data' => null,
     ]);
 });
 

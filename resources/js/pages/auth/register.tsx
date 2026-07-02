@@ -43,6 +43,7 @@ export default function Register({
     teamInvitation,
     businessTypes,
 }: Props) {
+    const isInvitationFlow = Boolean(teamInvitation);
     const [step, setStep] = useState(1);
     const [businessType, setBusinessType] = useState<BusinessType>(
         'individual',
@@ -82,32 +83,41 @@ export default function Register({
                 >
                     {({ processing, errors }) => (
                         <>
-                            {teamInvitation && step === 1 && (
-                                <TeamInvitationAlert
-                                    invitation={teamInvitation}
-                                    action="Register"
-                                />
+                            {teamInvitation && (
+                                <>
+                                    <input
+                                        type="hidden"
+                                        name="invitation"
+                                        value={teamInvitation.code}
+                                    />
+                                    <TeamInvitationAlert
+                                        invitation={teamInvitation}
+                                        action="Register"
+                                    />
+                                </>
                             )}
 
-                            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                                {STEPS.map(({ number, title }) => (
-                                    <span
-                                        key={number}
-                                        className={
-                                            number === step
-                                                ? 'font-medium text-foreground'
-                                                : undefined
-                                        }
-                                    >
-                                        {number}. {title}
-                                        {number !== STEPS.length && (
-                                            <span className="mx-2">
-                                                &rarr;
-                                            </span>
-                                        )}
-                                    </span>
-                                ))}
-                            </div>
+                            {!isInvitationFlow && (
+                                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                                    {STEPS.map(({ number, title }) => (
+                                        <span
+                                            key={number}
+                                            className={
+                                                number === step
+                                                    ? 'font-medium text-foreground'
+                                                    : undefined
+                                            }
+                                        >
+                                            {number}. {title}
+                                            {number !== STEPS.length && (
+                                                <span className="mx-2">
+                                                    &rarr;
+                                                </span>
+                                            )}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
 
                             <div className="grid gap-6" hidden={step !== 1}>
                                 <div className="grid grid-cols-2 gap-4">
@@ -199,18 +209,33 @@ export default function Register({
                                     />
                                 </div>
 
-                                <Button
-                                    type="button"
-                                    className="mt-2 w-full"
-                                    tabIndex={6}
-                                    data-test="register-next-button"
-                                    onClick={() => goToStep(2)}
-                                >
-                                    Continue
-                                </Button>
+                                {isInvitationFlow ? (
+                                    <Button
+                                        type="submit"
+                                        className="mt-2 w-full"
+                                        tabIndex={6}
+                                        data-test="register-user-button"
+                                    >
+                                        {processing && <Spinner />}
+                                        Join {teamInvitation?.teamName}
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        type="button"
+                                        className="mt-2 w-full"
+                                        tabIndex={6}
+                                        data-test="register-next-button"
+                                        onClick={() => goToStep(2)}
+                                    >
+                                        Continue
+                                    </Button>
+                                )}
                             </div>
 
-                            <div className="grid gap-6" hidden={step !== 2}>
+                            <div
+                                className="grid gap-6"
+                                hidden={isInvitationFlow || step !== 2}
+                            >
                                 <div className="grid gap-2">
                                     <Label htmlFor="business_name">
                                         Business name

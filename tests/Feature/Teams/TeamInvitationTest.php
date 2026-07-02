@@ -201,7 +201,7 @@ test('team invitations can be accepted', function () {
 
     $response = $this
         ->actingAs($invitedUser)
-        ->get(route('invitations.accept', $invitation));
+        ->post(route('invitations.accept', $invitation));
 
     $response->assertRedirect(route('dashboard'));
     $response->assertInertiaFlash('toast', ['type' => 'success', 'message' => 'Invitation accepted.']);
@@ -297,7 +297,7 @@ test('team invitations cannot be accepted by uninvited user', function () {
 
     $response = $this
         ->actingAs($uninvitedUser)
-        ->get(route('invitations.accept', $invitation));
+        ->post(route('invitations.accept', $invitation));
 
     $response->assertSessionHasErrors('invitation');
 
@@ -319,7 +319,7 @@ test('expired invitations cannot be accepted', function () {
 
     $response = $this
         ->actingAs($invitedUser)
-        ->get(route('invitations.accept', $invitation));
+        ->post(route('invitations.accept', $invitation));
 
     $response->assertSessionHasErrors('invitation');
 
