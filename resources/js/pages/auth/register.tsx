@@ -87,6 +87,7 @@ export default function Register({ passwordRules, businessTypes }: Props) {
                             addressExpanded ||
                             Boolean(
                                 errors.line1 ||
+                                errors.country ||
                                 errors.line2 ||
                                 errors.city ||
                                 errors.postal_code,
@@ -287,33 +288,6 @@ export default function Register({ passwordRules, businessTypes }: Props) {
                                     </div>
 
                                     <div className="grid gap-2">
-                                        <Label htmlFor="country">Country</Label>
-                                        <Select
-                                            name="country"
-                                            value={country}
-                                            onValueChange={setCountry}
-                                        >
-                                            <SelectTrigger
-                                                id="country"
-                                                className="w-full"
-                                            >
-                                                <SelectValue placeholder="Select a country" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {countries.map((c) => (
-                                                    <SelectItem
-                                                        key={c.code}
-                                                        value={c.code}
-                                                    >
-                                                        {c.name}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <InputError message={errors.country} />
-                                    </div>
-
-                                    <div className="grid gap-2">
                                         <Label htmlFor="line1">Address</Label>
                                         <Input
                                             id="line1"
@@ -350,6 +324,45 @@ export default function Register({ passwordRules, businessTypes }: Props) {
                                                 )}
                                             >
                                                 <div className="grid gap-2">
+                                                    <Label htmlFor="country">
+                                                        Country
+                                                    </Label>
+                                                    <Select
+                                                        name="country"
+                                                        value={country}
+                                                        onValueChange={
+                                                            setCountry
+                                                        }
+                                                    >
+                                                        <SelectTrigger
+                                                            id="country"
+                                                            className="w-full"
+                                                        >
+                                                            <SelectValue placeholder="Select a country" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {countries.map(
+                                                                (c) => (
+                                                                    <SelectItem
+                                                                        key={
+                                                                            c.code
+                                                                        }
+                                                                        value={
+                                                                            c.code
+                                                                        }
+                                                                    >
+                                                                        {c.name}
+                                                                    </SelectItem>
+                                                                ),
+                                                            )}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <InputError
+                                                        message={errors.country}
+                                                    />
+                                                </div>
+
+                                                <div className="grid gap-2">
                                                     <Label htmlFor="line2">
                                                         Street address line 2
                                                         (optional)
@@ -357,7 +370,7 @@ export default function Register({ passwordRules, businessTypes }: Props) {
                                                     <Input
                                                         id="line2"
                                                         type="text"
-                                                        tabIndex={4}
+                                                        tabIndex={5}
                                                         autoComplete="address-line2"
                                                         name="line2"
                                                         placeholder="Apartment, suite, etc."
@@ -378,7 +391,7 @@ export default function Register({ passwordRules, businessTypes }: Props) {
                                                             required={
                                                                 step === 2
                                                             }
-                                                            tabIndex={5}
+                                                            tabIndex={6}
                                                             autoComplete="address-level2"
                                                             name="city"
                                                             placeholder="City"
@@ -398,7 +411,7 @@ export default function Register({ passwordRules, businessTypes }: Props) {
                                                         <Input
                                                             id="postal_code"
                                                             type="text"
-                                                            tabIndex={6}
+                                                            tabIndex={7}
                                                             autoComplete="postal-code"
                                                             name="postal_code"
                                                             placeholder="Postal code"
