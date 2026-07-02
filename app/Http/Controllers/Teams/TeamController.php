@@ -34,7 +34,11 @@ class TeamController extends Controller
      */
     public function store(CreateTeamRequest $request, CreateTeam $createTeam): RedirectResponse
     {
-        $team = $createTeam->handle($request->user(), $request->validated('name'));
+        $team = $createTeam->handle(
+            $request->user(),
+            $request->validated('name'),
+            attributes: collect($request->validated())->except('name')->all(),
+        );
 
         $request->user()->switchTeam($team);
 

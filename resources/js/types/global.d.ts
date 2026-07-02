@@ -1,5 +1,5 @@
 import type { Auth } from '@/types/auth';
-import type { Team, TeamPermissions } from '@/types/teams';
+import type { BusinessTypeOption, Team, TeamPermissions } from '@/types/teams';
 
 declare module 'react' {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -17,6 +17,7 @@ declare module '@inertiajs/core' {
             currentTeam: Team | null;
             teams: Team[];
             teamPermissions: TeamPermissions | null;
+            businessTypes: BusinessTypeOption[];
             [key: string]: unknown;
         };
     }

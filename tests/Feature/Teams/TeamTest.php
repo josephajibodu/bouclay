@@ -20,6 +20,10 @@ test('teams can be created', function () {
         ->actingAs($user)
         ->post(route('teams.store'), [
             'name' => 'Test Team',
+            'business_type' => 'private',
+            'country' => 'NG',
+            'line1' => '1 Broad Street',
+            'city' => 'Lagos',
         ]);
 
     $response->assertRedirect(route('general.edit'));
@@ -27,6 +31,8 @@ test('teams can be created', function () {
     $this->assertDatabaseHas('teams', [
         'name' => 'Test Team',
         'is_personal' => false,
+        'business_type' => 'private',
+        'country' => 'NG',
     ]);
 
     $team = Team::where('name', 'Test Team')->firstOrFail();
@@ -44,6 +50,10 @@ test('team slug uses next available suffix', function () {
         ->actingAs($user)
         ->post(route('teams.store'), [
             'name' => 'Acme',
+            'business_type' => 'individual',
+            'country' => 'NG',
+            'line1' => '1 Broad Street',
+            'city' => 'Lagos',
         ]);
 
     $this->assertDatabaseHas('teams', [
