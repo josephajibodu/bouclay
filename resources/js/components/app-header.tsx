@@ -59,15 +59,14 @@ const activeItemStyles =
 
 export function AppHeader({ breadcrumbs = [] }: Props) {
     const page = usePage();
-    const { auth, currentTeam } = page.props;
+    const { auth } = page.props;
     const getInitials = useInitials();
     const { isCurrentUrl, whenCurrentUrl } = useCurrentUrl();
-    const dashboardUrl = currentTeam ? dashboard(currentTeam.slug) : '/';
 
     const mainNavItems: NavItem[] = [
         {
             title: 'Dashboard',
-            href: dashboardUrl,
+            href: dashboard(),
             icon: LayoutGrid,
         },
     ];
@@ -138,7 +137,7 @@ export function AppHeader({ breadcrumbs = [] }: Props) {
                     </div>
 
                     <Link
-                        href={dashboardUrl}
+                        href={dashboard()}
                         prefetch
                         className="flex items-center space-x-2"
                     >

@@ -1,4 +1,4 @@
-import { Form, Head, usePage } from '@inertiajs/react';
+import { Form, Head } from '@inertiajs/react';
 import { ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
 import AutofillGuard from '@/components/autofill-guard';
@@ -19,15 +19,10 @@ type Props = {
 };
 
 export default function NombaIntegration({ connection, canManage }: Props) {
-    const { currentTeam } = usePage().props;
     const [activeTab, setActiveTab] = useState<ApiKeyMode>('test');
     const [disconnectMode, setDisconnectMode] = useState<ApiKeyMode | null>(
         null,
     );
-
-    if (!currentTeam) {
-        return null;
-    }
 
     return (
         <div className="flex max-w-2xl flex-col gap-6 p-4">
@@ -59,7 +54,6 @@ export default function NombaIntegration({ connection, canManage }: Props) {
                         mode="test"
                         status={connection.test}
                         canManage={canManage}
-                        currentTeamSlug={currentTeam.slug}
                         onDisconnect={() => setDisconnectMode('test')}
                     />
                 </TabsContent>
@@ -69,7 +63,6 @@ export default function NombaIntegration({ connection, canManage }: Props) {
                         mode="live"
                         status={connection.live}
                         canManage={canManage}
-                        currentTeamSlug={currentTeam.slug}
                         onDisconnect={() => setDisconnectMode('live')}
                     />
                 </TabsContent>
@@ -87,7 +80,6 @@ export default function NombaIntegration({ connection, canManage }: Props) {
 
             <DisconnectNombaModal
                 mode={disconnectMode}
-                currentTeamSlug={currentTeam.slug}
                 open={disconnectMode !== null}
                 onOpenChange={(open) => !open && setDisconnectMode(null)}
             />
@@ -99,43 +91,28 @@ type ModePanelProps = {
     mode: ApiKeyMode;
     status: NombaModeStatus;
     canManage: boolean;
-    currentTeamSlug: string;
     onDisconnect: () => void;
 };
 
-function ModePanel({
-    mode,
-    status,
-    canManage,
-    currentTeamSlug,
-    onDisconnect,
-}: ModePanelProps) {
+function ModePanel({ mode, status, canManage, onDisconnect }: ModePanelProps) {
     if (status.connected) {
         return (
             <ConnectedCard
                 mode={mode}
                 status={status}
                 canManage={canManage}
-                currentTeamSlug={currentTeamSlug}
                 onDisconnect={onDisconnect}
             />
         );
     }
 
-    return (
-        <ConnectForm
-            mode={mode}
-            canManage={canManage}
-            currentTeamSlug={currentTeamSlug}
-        />
-    );
+    return <ConnectForm mode={mode} canManage={canManage} />;
 }
 
 function ConnectedCard({
     mode,
     status,
     canManage,
-    currentTeamSlug,
     onDisconnect,
 }: ModePanelProps) {
     return (
@@ -178,7 +155,7 @@ function ConnectedCard({
 
             {canManage && (
                 <Form
-                    {...test.form(currentTeamSlug)}
+                    {...test.form()}
                     transform={(data) => ({ ...data, mode })}
                     className="flex items-center gap-2"
                 >
@@ -215,11 +192,9 @@ function ConnectedCard({
 function ConnectForm({
     mode,
     canManage,
-    currentTeamSlug,
 }: {
     mode: ApiKeyMode;
     canManage: boolean;
-    currentTeamSlug: string;
 }) {
     const [liveConfirmation, setLiveConfirmation] = useState('');
     const isLive = mode === 'live';
@@ -265,7 +240,7 @@ function ConnectForm({
             )}
 
             <Form
-                {...connect.form(currentTeamSlug)}
+                {...connect.form()}
                 transform={(data) => ({ ...data, mode })}
                 resetOnSuccess
                 className="space-y-4"
@@ -390,13 +365,6 @@ function InputErrorText({ message }: { message?: string }) {
     return <p className="text-sm text-destructive">{message}</p>;
 }
 
-NombaIntegration.layout = (props: {
-    currentTeam?: { slug: string } | null;
-}) => ({
-    breadcrumbs: [
-        {
-            title: 'Nomba Integration',
-            href: props.currentTeam ? show(props.currentTeam.slug) : '/',
-        },
-    ],
+NombaIntegration.layout = () => ({
+    breadcrumbs: [{ title: 'Nomba Integration', href: show() }],
 });

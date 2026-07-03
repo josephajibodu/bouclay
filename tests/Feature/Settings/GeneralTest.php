@@ -45,7 +45,7 @@ test('the business settings page is viewable read-only by members without team.m
         );
 });
 
-test('users without a current team cannot access business settings', function () {
+test('users without a current team are sent to choose one', function () {
     $user = User::factory()->create();
     $user->update(['current_team_id' => null]);
 
@@ -53,7 +53,7 @@ test('users without a current team cannot access business settings', function ()
         ->actingAs($user->fresh())
         ->get(route('general.edit'));
 
-    $response->assertForbidden();
+    $response->assertRedirect(route('teams.choose'));
 });
 
 test('business settings can be updated by owners', function () {

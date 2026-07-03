@@ -30,6 +30,17 @@ class TeamController extends Controller
     }
 
     /**
+     * Show the picker for a user with no active business — the page
+     * EnsureCurrentTeam redirects to instead of a bare 403.
+     */
+    public function choose(Request $request): Response
+    {
+        return Inertia::render('auth/choose-team', [
+            'teams' => $request->user()->toUserTeams(includeCurrent: true),
+        ]);
+    }
+
+    /**
      * Store a newly created team.
      */
     public function store(CreateTeamRequest $request, CreateTeam $createTeam): RedirectResponse

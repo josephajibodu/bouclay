@@ -1,4 +1,4 @@
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import CreateApiKeyDrawer from '@/components/create-api-key-drawer';
@@ -18,7 +18,6 @@ type Props = {
 };
 
 export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) {
-    const { currentTeam } = usePage().props;
     const [activeTab, setActiveTab] = useState<ApiKeyMode>('test');
     const [createOpen, setCreateOpen] = useState(false);
     const [generatedKey, setGeneratedKey] = useState<GeneratedApiKey | null>(
@@ -37,10 +36,6 @@ export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) 
         });
     }, []);
 
-    if (!currentTeam) {
-        return null;
-    }
-
     const keysForMode = keys.filter((key) => key.mode === activeTab);
 
     return (
@@ -58,7 +53,6 @@ export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) 
 
                 {canManage && keys.length > 0 && (
                     <CreateApiKeyDrawer
-                        currentTeamSlug={currentTeam.slug}
                         liveNombaConnected={liveNombaConnected}
                         open={createOpen}
                         onOpenChange={setCreateOpen}
@@ -73,7 +67,6 @@ export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) 
             {keys.length === 0 ? (
                 <EmptyState
                     canManage={canManage}
-                    currentTeamSlug={currentTeam.slug}
                     liveNombaConnected={liveNombaConnected}
                     open={createOpen}
                     onOpenChange={setCreateOpen}
@@ -122,7 +115,6 @@ export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) 
             />
 
             <RevokeApiKeyModal
-                currentTeamSlug={currentTeam.slug}
                 apiKey={revokeTarget}
                 open={revokeTarget !== null}
                 onOpenChange={(open) => !open && setRevokeTarget(null)}
@@ -191,13 +183,11 @@ function ApiKeyRow({
 
 function EmptyState({
     canManage,
-    currentTeamSlug,
     liveNombaConnected,
     open,
     onOpenChange,
 }: {
     canManage: boolean;
-    currentTeamSlug: string;
     liveNombaConnected: boolean;
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -218,7 +208,6 @@ function EmptyState({
 
             {canManage && (
                 <CreateApiKeyDrawer
-                    currentTeamSlug={currentTeamSlug}
                     liveNombaConnected={liveNombaConnected}
                     open={open}
                     onOpenChange={onOpenChange}
@@ -232,13 +221,6 @@ function EmptyState({
     );
 }
 
-ApiKeys.layout = (props: { currentTeam?: { slug: string } | null }) => ({
-    breadcrumbs: [
-        {
-            title: 'API Keys',
-            href: props.currentTeam
-                ? apiKeysIndex(props.currentTeam.slug)
-                : '/',
-        },
-    ],
+ApiKeys.layout = () => ({
+    breadcrumbs: [{ title: 'API Keys', href: apiKeysIndex() }],
 });

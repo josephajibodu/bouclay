@@ -1,4 +1,4 @@
-import { Form, Head, usePage } from '@inertiajs/react';
+import { Form, Head } from '@inertiajs/react';
 import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
 import AutofillGuard from '@/components/autofill-guard';
@@ -17,12 +17,7 @@ type Props = {
 };
 
 export default function Webhooks({ connection, canManage }: Props) {
-    const { currentTeam } = usePage().props;
     const [rotateOpen, setRotateOpen] = useState(false);
-
-    if (!currentTeam) {
-        return null;
-    }
 
     return (
         <div className="flex max-w-2xl flex-col gap-6 p-4">
@@ -74,9 +69,7 @@ export default function Webhooks({ connection, canManage }: Props) {
                         </div>
 
                         {canManage && (
-                            <Form
-                                {...test.form(currentTeam.slug)}
-                            >
+                            <Form {...test.form()}>
                                 {({ processing }) => (
                                     <Button
                                         type="submit"
@@ -104,13 +97,11 @@ export default function Webhooks({ connection, canManage }: Props) {
                             mode="test"
                             secretSet={connection.testSecretSet}
                             canManage={canManage}
-                            currentTeamSlug={currentTeam.slug}
                         />
                         <SigningSecretRow
                             mode="live"
                             secretSet={connection.liveSecretSet}
                             canManage={canManage}
-                            currentTeamSlug={currentTeam.slug}
                         />
                     </div>
 
@@ -137,7 +128,6 @@ export default function Webhooks({ connection, canManage }: Props) {
                     )}
 
                     <RotateWebhookModal
-                        currentTeamSlug={currentTeam.slug}
                         open={rotateOpen}
                         onOpenChange={setRotateOpen}
                     />
@@ -184,12 +174,10 @@ function SigningSecretRow({
     mode,
     secretSet,
     canManage,
-    currentTeamSlug,
 }: {
     mode: ApiKeyMode;
     secretSet: boolean;
     canManage: boolean;
-    currentTeamSlug: string;
 }) {
     const [editing, setEditing] = useState(!secretSet);
 
@@ -230,7 +218,7 @@ function SigningSecretRow({
 
     return (
         <Form
-            {...secret.form(currentTeamSlug)}
+            {...secret.form()}
             transform={(data) => ({ ...data, mode })}
             resetOnSuccess
             onSuccess={() => setEditing(false)}
@@ -277,11 +265,6 @@ function SigningSecretRow({
     );
 }
 
-Webhooks.layout = (props: { currentTeam?: { slug: string } | null }) => ({
-    breadcrumbs: [
-        {
-            title: 'Webhooks',
-            href: props.currentTeam ? show(props.currentTeam.slug) : '/',
-        },
-    ],
+Webhooks.layout = () => ({
+    breadcrumbs: [{ title: 'Webhooks', href: show() }],
 });

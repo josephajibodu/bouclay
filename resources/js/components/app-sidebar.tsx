@@ -23,7 +23,6 @@ import type { NavItem } from '@/types';
 export function AppSidebar() {
     const page = usePage();
     const { currentTeam, teamPermissions } = page.props;
-    const dashboardUrl = currentTeam ? dashboard(currentTeam.slug) : '/';
 
     const catalogItems: NavItem[] = currentTeam
         ? [
@@ -39,15 +38,15 @@ export function AppSidebar() {
                   ? [
                         {
                             title: 'Nomba Integration',
-                            href: nombaIntegration(currentTeam.slug),
+                            href: nombaIntegration(),
                         },
                     ]
                   : []),
               ...(teamPermissions?.canViewApiKeys
-                  ? [{ title: 'API Keys', href: apiKeys(currentTeam.slug) }]
+                  ? [{ title: 'API Keys', href: apiKeys() }]
                   : []),
               ...(teamPermissions?.canViewWebhooks
-                  ? [{ title: 'Webhooks', href: webhooks(currentTeam.slug) }]
+                  ? [{ title: 'Webhooks', href: webhooks() }]
                   : []),
           ]
         : [];
@@ -55,7 +54,7 @@ export function AppSidebar() {
     const mainNavItems: NavItem[] = [
         {
             title: 'Overview',
-            href: dashboardUrl,
+            href: dashboard(),
             icon: LayoutGrid,
         },
         ...(currentTeam && catalogItems.length > 0
@@ -86,7 +85,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href={dashboardUrl} prefetch>
+                            <Link href={dashboard()} prefetch>
                                 <AppLogo />
                             </Link>
                         </SidebarMenuButton>

@@ -21,7 +21,6 @@ import { store } from '@/routes/developers/api-keys';
 import type { ApiKeyKind, ApiKeyMode } from '@/types';
 
 type Props = PropsWithChildren<{
-    currentTeamSlug: string;
     liveNombaConnected: boolean;
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -29,7 +28,6 @@ type Props = PropsWithChildren<{
 
 export default function CreateApiKeyDrawer({
     children,
-    currentTeamSlug,
     liveNombaConnected,
     open,
     onOpenChange,
@@ -52,7 +50,7 @@ export default function CreateApiKeyDrawer({
             <SheetContent className="h-auto w-full rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-md">
                 <Form
                     key={String(open)}
-                    {...store.form(currentTeamSlug)}
+                    {...store.form()}
                     transform={(data) => ({ ...data, kind, mode })}
                     className="flex h-full flex-col"
                     onSuccess={() => handleOpenChange(false)}

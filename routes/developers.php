@@ -3,11 +3,11 @@
 use App\Http\Controllers\Developers\ApiKeyController;
 use App\Http\Controllers\Developers\NombaConnectionController;
 use App\Http\Controllers\Developers\WebhookController;
-use App\Http\Middleware\EnsureTeamMembership;
+use App\Http\Middleware\EnsureCurrentTeam;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('{current_team}/developers')
-    ->middleware(['auth', 'verified', EnsureTeamMembership::class])
+Route::prefix('developers')
+    ->middleware(['auth', 'verified', EnsureCurrentTeam::class])
     ->name('developers.')
     ->group(function () {
         Route::get('nomba', [NombaConnectionController::class, 'show'])->name('nomba.show');

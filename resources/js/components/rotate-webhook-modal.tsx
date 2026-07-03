@@ -13,20 +13,18 @@ import {
 import { rotate } from '@/routes/developers/webhooks';
 
 type Props = {
-    currentTeamSlug: string;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 };
 
 export default function RotateWebhookModal({
-    currentTeamSlug,
     open,
     onOpenChange,
 }: Props) {
     const [processing, setProcessing] = useState(false);
 
     const rotateEndpoint = () => {
-        router.visit(rotate(currentTeamSlug), {
+        router.visit(rotate(), {
             method: 'post',
             onStart: () => setProcessing(true),
             onFinish: () => setProcessing(false),

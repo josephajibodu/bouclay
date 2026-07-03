@@ -14,14 +14,12 @@ import { destroy } from '@/routes/developers/api-keys';
 import type { ApiKey } from '@/types';
 
 type Props = {
-    currentTeamSlug: string;
     apiKey: ApiKey | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 };
 
 export default function RevokeApiKeyModal({
-    currentTeamSlug,
     apiKey,
     open,
     onOpenChange,
@@ -33,7 +31,7 @@ export default function RevokeApiKeyModal({
             return;
         }
 
-        router.visit(destroy([currentTeamSlug, apiKey.id]), {
+        router.visit(destroy(apiKey.id), {
             method: 'delete',
             onStart: () => setProcessing(true),
             onFinish: () => setProcessing(false),

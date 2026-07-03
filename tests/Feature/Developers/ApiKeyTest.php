@@ -16,7 +16,7 @@ test('the api keys page can be rendered', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->get(route('developers.api-keys.index', $team));
+        ->get(route('developers.api-keys.index'));
 
     $response
         ->assertOk()
@@ -40,7 +40,7 @@ test('members without api_keys permission cannot view the page', function () {
 
     $response = $this
         ->actingAs($member)
-        ->get(route('developers.api-keys.index', $team));
+        ->get(route('developers.api-keys.index'));
 
     $response->assertForbidden();
 });
@@ -54,13 +54,13 @@ test('a test secret key can be created', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.api-keys.store', $team), [
+        ->post(route('developers.api-keys.store'), [
             'name' => 'Backend server',
             'kind' => 'secret',
             'mode' => 'test',
         ]);
 
-    $response->assertRedirect(route('developers.api-keys.index', $team));
+    $response->assertRedirect(route('developers.api-keys.index'));
 
     $key = ApiKey::where('team_id', $team->id)->firstOrFail();
 
@@ -80,7 +80,7 @@ test('a live key cannot be created without a live nomba connection', function ()
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.api-keys.store', $team), [
+        ->post(route('developers.api-keys.store'), [
             'name' => 'Backend server',
             'kind' => 'secret',
             'mode' => 'live',
@@ -101,13 +101,13 @@ test('a live key can be created once a live nomba connection exists', function (
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.api-keys.store', $team), [
+        ->post(route('developers.api-keys.store'), [
             'name' => 'Backend server',
             'kind' => 'secret',
             'mode' => 'live',
         ]);
 
-    $response->assertRedirect(route('developers.api-keys.index', $team));
+    $response->assertRedirect(route('developers.api-keys.index'));
 
     $this->assertDatabaseHas('api_keys', ['team_id' => $team->id, 'mode' => 'live']);
 });
@@ -123,7 +123,7 @@ test('members without api_keys.manage permission cannot create a key', function 
 
     $response = $this
         ->actingAs($member)
-        ->post(route('developers.api-keys.store', $team), [
+        ->post(route('developers.api-keys.store'), [
             'name' => 'Backend server',
             'kind' => 'secret',
             'mode' => 'test',
@@ -142,9 +142,9 @@ test('a key can be revoked', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->delete(route('developers.api-keys.destroy', [$team, $key]));
+        ->delete(route('developers.api-keys.destroy', $key));
 
-    $response->assertRedirect(route('developers.api-keys.index', $team));
+    $response->assertRedirect(route('developers.api-keys.index'));
 
     expect($key->refresh()->revoked_at)->not->toBeNull();
 });
@@ -160,7 +160,7 @@ test('a key belonging to another team cannot be revoked', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->delete(route('developers.api-keys.destroy', [$team, $key]));
+        ->delete(route('developers.api-keys.destroy', $key));
 
     $response->assertNotFound();
 });

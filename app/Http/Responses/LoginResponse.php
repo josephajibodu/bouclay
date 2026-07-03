@@ -3,7 +3,6 @@
 namespace App\Http\Responses;
 
 use App\Actions\Teams\AcceptTeamInvitation;
-use App\Http\Responses\Concerns\RedirectsToCurrentTeam;
 use App\Models\TeamInvitation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,15 +13,13 @@ use Symfony\Component\HttpFoundation\Response;
 
 class LoginResponse implements LoginResponseContract
 {
-    use RedirectsToCurrentTeam;
-
     public function toResponse($request): Response
     {
         $this->acceptPendingInvitation($request);
 
         return $request->wantsJson()
             ? new JsonResponse(['two_factor' => false], 200)
-            : redirect()->intended($this->redirectPathForCurrentTeam($request, Fortify::redirects('login')));
+            : redirect()->intended(Fortify::redirects('login'));
     }
 
     /**

@@ -4,17 +4,15 @@ use App\Http\Controllers\Auth\JoinInvitationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Teams\TeamInvitationController;
 use App\Http\Controllers\Webhooks\NombaInboundController;
-use App\Http\Middleware\EnsureTeamMembership;
+use App\Http\Middleware\EnsureCurrentTeam;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'welcome')->name('home');
 
-Route::prefix('{current_team}')
-    ->middleware(['auth', 'verified', EnsureTeamMembership::class])
-    ->group(function () {
-        Route::get('dashboard', DashboardController::class)->name('dashboard');
-    });
+Route::get('dashboard', DashboardController::class)
+    ->middleware(['auth', 'verified', EnsureCurrentTeam::class])
+    ->name('dashboard');
 
 Route::middleware(['auth'])->group(function () {
     Route::post('invitations/{invitation}/accept', [TeamInvitationController::class, 'accept'])->name('invitations.accept');

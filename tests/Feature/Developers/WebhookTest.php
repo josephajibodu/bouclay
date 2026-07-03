@@ -14,7 +14,7 @@ test('the webhooks page shows an empty state before nomba is connected', functio
 
     $response = $this
         ->actingAs($owner)
-        ->get(route('developers.webhooks.show', $team));
+        ->get(route('developers.webhooks.show'));
 
     $response
         ->assertOk()
@@ -34,7 +34,7 @@ test('the webhooks page shows the inbound url once nomba is connected', function
 
     $response = $this
         ->actingAs($owner)
-        ->get(route('developers.webhooks.show', $team));
+        ->get(route('developers.webhooks.show'));
 
     $response
         ->assertOk()
@@ -58,7 +58,7 @@ test('members without webhooks permission cannot view the page', function () {
 
     $response = $this
         ->actingAs($member)
-        ->get(route('developers.webhooks.show', $team));
+        ->get(route('developers.webhooks.show'));
 
     $response->assertForbidden();
 });
@@ -73,12 +73,12 @@ test('a signing secret can be saved for a mode', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.webhooks.secret', $team), [
+        ->post(route('developers.webhooks.secret'), [
             'mode' => 'test',
             'secret' => 'whsec_1234567890',
         ]);
 
-    $response->assertRedirect(route('developers.webhooks.show', $team));
+    $response->assertRedirect(route('developers.webhooks.show'));
 
     expect($connection->refresh()->nomba_test_webhook_secret)->toBe('whsec_1234567890');
     expect($connection->nomba_live_webhook_secret)->toBeNull();
@@ -98,9 +98,9 @@ test('the endpoint can be rotated, invalidating the old token', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.webhooks.rotate', $team));
+        ->post(route('developers.webhooks.rotate'));
 
-    $response->assertRedirect(route('developers.webhooks.show', $team));
+    $response->assertRedirect(route('developers.webhooks.show'));
 
     $connection->refresh();
 
@@ -120,7 +120,7 @@ test('members without webhooks.manage permission cannot rotate the endpoint', fu
 
     $response = $this
         ->actingAs($member)
-        ->post(route('developers.webhooks.rotate', $team));
+        ->post(route('developers.webhooks.rotate'));
 
     $response->assertForbidden();
 });

@@ -88,13 +88,8 @@ class ApiKeyController extends Controller
 
     /**
      * Revoke an API key belonging to the current team.
-     *
-     * `$current_team` isn't used directly (we authorize off the user's
-     * current team) but must stay in the signature — Laravel binds route
-     * parameters to controller arguments positionally, and dropping it
-     * would shift the team slug into the `$api_key` argument.
      */
-    public function destroy(Request $request, string $current_team, ApiKey $api_key): RedirectResponse
+    public function destroy(Request $request, ApiKey $api_key): RedirectResponse
     {
         abort_unless($api_key->team_id === $request->user()->currentTeam->id, 404);
 

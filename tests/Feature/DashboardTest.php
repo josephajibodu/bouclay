@@ -15,6 +15,28 @@ test('guests are redirected to the login page', function () {
     $response->assertRedirect(route('login'));
 });
 
+test('users without a current team are redirected to choose one', function () {
+    $user = User::factory()->create();
+    $user->update(['current_team_id' => null]);
+
+    $response = $this
+        ->actingAs($user->fresh())
+        ->get(route('dashboard'));
+
+    $response->assertRedirect(route('teams.choose'));
+});
+
+test('the dashboard url no longer takes a team slug', function () {
+    $user = User::factory()->create();
+    $team = $user->currentTeam;
+
+    $response = $this
+        ->actingAs($user)
+        ->get('/'.$team->slug.'/dashboard');
+
+    $response->assertNotFound();
+});
+
 test('authenticated users can visit the dashboard', function () {
     $user = User::factory()->create();
     $team = $user->currentTeam;
@@ -171,9 +193,9 @@ test('the onboarding checklist reflects completed setup steps', function () {
         ->where('onboarding.nombaConnected', true)
         ->where('onboarding.apiKeyGenerated', true)
         ->where('onboarding.webhookVerified', true)
-        ->where('onboarding.links.nomba', route('developers.nomba.show', $team))
-        ->where('onboarding.links.apiKeys', route('developers.api-keys.index', $team))
-        ->where('onboarding.links.webhooks', route('developers.webhooks.show', $team)),
+        ->where('onboarding.links.nomba', route('developers.nomba.show'))
+        ->where('onboarding.links.apiKeys', route('developers.api-keys.index'))
+        ->where('onboarding.links.webhooks', route('developers.webhooks.show')),
     );
 });
 

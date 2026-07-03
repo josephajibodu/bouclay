@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Auth;
 use App\Actions\Teams\AcceptTeamInvitation;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\JoinInvitationRequest;
-use App\Http\Responses\Concerns\RedirectsToCurrentTeam;
 use App\Models\TeamInvitation;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -23,8 +22,6 @@ use Inertia\Response;
  */
 class JoinInvitationController extends Controller
 {
-    use RedirectsToCurrentTeam;
-
     /**
      * Show the invitation landing page.
      */
@@ -97,7 +94,7 @@ class JoinInvitationController extends Controller
 
         Auth::login($user);
 
-        return redirect()->to($this->redirectPathForCurrentTeam($request, '/dashboard'));
+        return to_route('dashboard');
     }
 
     /**

@@ -357,11 +357,6 @@ function OnboardingBanner({
     );
 }
 
-Dashboard.layout = (props: { currentTeam?: { slug: string } | null }) => ({
-    breadcrumbs: [
-        {
-            title: 'Overview',
-            href: props.currentTeam ? dashboard(props.currentTeam.slug) : '/',
-        },
-    ],
+Dashboard.layout = () => ({
+    breadcrumbs: [{ title: 'Overview', href: dashboard() }],
 });

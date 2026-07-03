@@ -18,7 +18,6 @@ import type { ApiKeyMode } from '@/types';
 
 type Props = {
     mode: ApiKeyMode | null;
-    currentTeamSlug: string;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 };
@@ -27,7 +26,6 @@ const CONFIRMATION_PHRASE = 'DISCONNECT';
 
 export default function DisconnectNombaModal({
     mode,
-    currentTeamSlug,
     open,
     onOpenChange,
 }: Props) {
@@ -52,7 +50,7 @@ export default function DisconnectNombaModal({
             <DialogContent>
                 <Form
                     key={mode}
-                    {...disconnect.form(currentTeamSlug)}
+                    {...disconnect.form()}
                     className="space-y-6"
                     onSuccess={() => handleOpenChange(false)}
                 >

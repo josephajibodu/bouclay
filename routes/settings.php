@@ -36,6 +36,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('settings/businesses', [TeamController::class, 'index'])->name('teams.index');
     Route::post('settings/businesses', [TeamController::class, 'store'])->name('teams.store');
 
+    // Where EnsureCurrentTeam sends a user with no active business — must
+    // stay reachable without one, so it lives outside that middleware group.
+    Route::get('choose-business', [TeamController::class, 'choose'])->name('teams.choose');
+
     Route::middleware(EnsureTeamMembership::class)->group(function () {
         Route::post('settings/businesses/{team}/switch', [TeamController::class, 'switch'])->name('teams.switch');
         Route::delete('settings/businesses/{team}/leave', [TeamController::class, 'leave'])->name('teams.leave');
