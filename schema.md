@@ -133,29 +133,38 @@ One row per team — invoice numbering, dunning, and other billing config tenant
 | created_at / updated_at | timestamp | no | |
 
 ### `team_processor_connections`
-Bring-your-own-key (BYOK) link between a team and Nomba — like connecting API keys on OpenCode. Created when a team first opens processor settings; the **Nomba webhook URL** is generated here and shown in the dashboard for paste into Nomba.
+Bring-your-own-key (BYOK) link between a team and Nomba — like connecting API keys on OpenCode. Created when a team first connects Nomba; the **Nomba webhook URL** is generated here and shown in the dashboard for paste into Nomba.
+
+Nomba authenticates via OAuth2 client-credentials (`accountId` + `clientId` + `clientSecret` exchanged for a short-lived access token via `POST /v1/auth/token/issue`), not a single static secret key — hence three credential fields per environment instead of one. Access/refresh tokens themselves are never persisted; `NombaClient` re-mints and caches them on demand.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
 | team_id | ulid | no | FK → teams, unique |
 | processor | string | no | enum: `nomba`; extensible |
-| nomba_test_secret_key | text | yes | encrypted at rest; used for test-mode charges |
-| nomba_live_secret_key | text | yes | encrypted at rest; used for live-mode charges |
+| nomba_test_account_id | text | yes | encrypted; parent business account, always authenticates |
+| nomba_test_subaccount_id | text | yes | encrypted; optional — when set, business-operation requests scope to this instead of the parent account |
+| nomba_test_client_id | text | yes | encrypted |
+| nomba_test_client_secret | text | yes | encrypted |
+| nomba_live_account_id | text | yes | encrypted |
+| nomba_live_subaccount_id | text | yes | encrypted |
+| nomba_live_client_id | text | yes | encrypted |
+| nomba_live_client_secret | text | yes | encrypted |
 | inbound_webhook_token | string | no | unique; unguessable segment in the Nomba → Bouclay URL |
-| nomba_test_webhook_secret | string | yes | encrypted; Nomba signing secret from their dashboard (test), if separate from API key |
-| nomba_live_webhook_secret | string | yes | encrypted; Nomba signing secret from their dashboard (live), if separate from API key |
-| test_connected_at | timestamp | yes | set when test keys first saved |
-| live_connected_at | timestamp | yes | set when live keys first saved |
+| webhook_verified_at | timestamp | yes | set when the inbound URL has actually received something (a real Nomba event or the dashboard's "Send test event" self-check); null reads as "not yet verified", never assumed reachable |
+| nomba_test_webhook_secret | text | yes | encrypted; signing key the integrator set on Nomba's dashboard (test) — pasted in, never revealed again after save |
+| nomba_live_webhook_secret | text | yes | encrypted; signing key the integrator set on Nomba's dashboard (live) |
+| test_connected_at | timestamp | yes | set when test credentials first verified against Nomba and saved |
+| live_connected_at | timestamp | yes | set when live credentials first verified against Nomba and saved |
 | created_at / updated_at | timestamp | no | |
 
 **Generated inbound URL** (display only, not stored):
 
 `POST {APP_URL}/webhooks/nomba/{inbound_webhook_token}`
 
-Nomba sends payment/checkout events here. Bouclay resolves `team_id` from the token, verifies the signature with that team's Nomba webhook secret, updates subscriptions/invoices/payments, then emits **outbound** events to the team's `webhook_endpoints`.
+Nomba sends payment/checkout events here. Bouclay resolves `team_id` from the token; today this just marks `webhook_verified_at` reachable. Signature verification (using that team's Nomba webhook secret) and mapping events to subscriptions/invoices/payments lands in Phase 7; outbound events to the team's `webhook_endpoints` follow in Phase 9.
 
-**Charge path**: API request scoped to team → read keys from this row for the request's mode (`test` / `live`) → call Nomba Charge/Checkout APIs with **that team's** credentials.
+**Charge path**: API request scoped to team → read this row's credentials for the request's mode (`test` / `live`) → exchange for an access token via `NombaClient` → call Nomba Charge/Checkout APIs, scoped to the subaccount if one is set, otherwise the parent account.
 
 ### `users`
 Global auth identity for staff. **Already implemented** in the app (`User` model). A user belongs to many teams via `team_members`; authorization is via roles on that membership, not columns on this row.
@@ -265,10 +274,13 @@ Per-team **Bouclay** API credentials — for downstream developers calling Boucl
 |---|---|---|---|
 | id | ulid | no | PK |
 | team_id | ulid | no | FK → teams |
-| mode | string | no | enum: `test` / `live` |
+| created_by | ulid | yes | FK → users, null on delete; who generated the key |
+| name | string | no | integrator-chosen label, e.g. "Backend server" |
+| mode | string | no | enum: `test` / `live`; a live key cannot be created without a connected live Nomba account |
 | kind | string | no | enum: `publishable` / `secret` |
-| hashed_secret | string | no | unique; store a hash, show the raw key once |
-| last_four | string | yes | for display |
+| hashed_secret | string | no | unique; store a hash (`sha256`), show the raw key once at creation and never again |
+| last_four | string | yes | last 4 chars of the raw key, for display (e.g. `sk_test_••••••••f2a2`) |
+| last_used_at | timestamp | yes | |
 | revoked_at | timestamp | yes | |
 | created_at / updated_at | timestamp | no | |
 

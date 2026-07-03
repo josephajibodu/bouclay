@@ -41,19 +41,23 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 2 — Tenancy & integrator credentials
+## Phase 2 — Tenancy & integrator credentials ✅ (done)
 
 **Goal:** A team can connect to Bouclay as an integrator — Nomba BYOK + Bouclay API keys.
 
 **Build:**
 
-- `team_settings` (invoice prefix, timezone, dunning config stub)
-- `team_processor_connections` — encrypted Nomba test/live keys, `inbound_webhook_token`
-- Settings UI: paste Nomba keys → show copy-paste inbound webhook URL *(requires `integrations.manage`)*
-- `api_keys` — Bouclay secret/publishable keys per team (test/live) *(requires `api_keys.manage`)*
-- `idempotency_keys` table + middleware for write APIs
+- `team_settings`, `team_processor_connections`, `api_keys` tables
+- **Developers** promoted to a primary sidebar item (collapsible: Nomba Integration / API Keys / Webhooks) instead of buried in account settings
+- Nomba Integration page — connect/test/disconnect per mode (test, live), type-to-confirm on live, credentials verified against Nomba's real token-issue endpoint before saving *(requires `integrations.manage`; `integrations.view` to read)*
+- API Keys page — create (name, publishable/secret, test/live), reveal-once with copy-confirm-before-close, revoke; live keys blocked until a live Nomba connection exists *(requires `api_keys.manage`; `api_keys.view` to read)*
+- Webhooks page — shared inbound URL (`team_processor_connections.inbound_webhook_token`), per-mode signing secret (pasted in from Nomba's dashboard, masked forever after save), rotate endpoint, "Send test event" self-check *(requires `webhooks.manage`; `webhooks.view` to read)*
+- Minimal public `POST /webhooks/nomba/{token}` receiver — resolves the team and marks `webhook_verified_at`; no signature verification or event mapping yet (Phase 7)
+- Overview onboarding checklist (business details, Nomba, API key, webhook) tying the four steps together, session-dismissible, deep-linking to the same permanent pages above
 
-**Exit criteria:** Team saves Nomba keys; dashboard displays `POST /webhooks/nomba/{token}`; team can create/revoke a Bouclay API key.
+**Deferred to a later phase:** `idempotency_keys` table + middleware — belongs with Phase 10's API surface (there's no external write endpoint yet for it to guard).
+
+**Exit criteria:** Team saves Nomba keys; dashboard displays `POST /webhooks/nomba/{token}`; team can create/revoke a Bouclay API key. ✅
 
 ---
 
