@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ApiKeyMode;
+use App\Models\Team;
 use App\Models\TeamInvitation;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -11,7 +13,8 @@ class DashboardController extends Controller
 {
     public function __invoke(Request $request): Response
     {
-        $email = strtolower($request->user()->email);
+        $user = $request->user();
+        $email = strtolower($user->email);
 
         $pendingInvitations = TeamInvitation::query()
             ->with(['inviter', 'team'])
@@ -33,6 +36,28 @@ class DashboardController extends Controller
 
         return Inertia::render('dashboard', [
             'pendingInvitations' => $pendingInvitations,
+            'onboarding' => $user->currentTeam ? $this->onboardingState($user->currentTeam) : null,
         ]);
+    }
+
+    /**
+     * @return array{businessConfirmed: bool, nombaConnected: bool, apiKeyGenerated: bool, webhookVerified: bool, links: array{nomba: string, apiKeys: string, webhooks: string}}
+     */
+    private function onboardingState(Team $team): array
+    {
+        $connection = $team->processorConnection;
+
+        return [
+            'businessConfirmed' => $team->line1 !== null && $team->city !== null && $team->country !== null,
+            'nombaConnected' => $connection !== null
+                && ($connection->isConnected(ApiKeyMode::Test) || $connection->isConnected(ApiKeyMode::Live)),
+            'apiKeyGenerated' => $team->apiKeys()->whereNull('revoked_at')->exists(),
+            'webhookVerified' => $connection?->webhook_verified_at !== null,
+            'links' => [
+                'nomba' => route('developers.nomba.show', $team),
+                'apiKeys' => route('developers.api-keys.index', $team),
+                'webhooks' => route('developers.webhooks.show', $team),
+            ],
+        ];
     }
 }

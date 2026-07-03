@@ -188,6 +188,10 @@ trait HasTeams
             canManageRoles: $has(PermissionName::RolesManage),
             canViewIntegrations: $has(PermissionName::IntegrationsView) || $has(PermissionName::IntegrationsManage),
             canManageIntegrations: $has(PermissionName::IntegrationsManage),
+            canViewApiKeys: $has(PermissionName::ApiKeysView) || $has(PermissionName::ApiKeysManage),
+            canManageApiKeys: $has(PermissionName::ApiKeysManage),
+            canViewWebhooks: $has(PermissionName::WebhooksView) || $has(PermissionName::WebhooksManage),
+            canManageWebhooks: $has(PermissionName::WebhooksManage),
         );
     }
 

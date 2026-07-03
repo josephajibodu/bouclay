@@ -118,6 +118,40 @@ class TeamPolicy
     }
 
     /**
+     * Determine whether the user can view the team's Bouclay API keys.
+     */
+    public function viewApiKeys(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::ApiKeysView)
+            || $user->hasTeamPermission($team, PermissionName::ApiKeysManage);
+    }
+
+    /**
+     * Determine whether the user can create or revoke the team's Bouclay API keys.
+     */
+    public function manageApiKeys(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::ApiKeysManage);
+    }
+
+    /**
+     * Determine whether the user can view the team's inbound webhook.
+     */
+    public function viewWebhooks(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::WebhooksView)
+            || $user->hasTeamPermission($team, PermissionName::WebhooksManage);
+    }
+
+    /**
+     * Determine whether the user can rotate the endpoint or update signing secrets.
+     */
+    public function manageWebhooks(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::WebhooksManage);
+    }
+
+    /**
      * Determine whether the user can delete the model.
      */
     public function delete(User $user, Team $team): bool

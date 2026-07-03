@@ -13,6 +13,10 @@ readonly class TeamPermissions
         public bool $canManageRoles,
         public bool $canViewIntegrations,
         public bool $canManageIntegrations,
+        public bool $canViewApiKeys,
+        public bool $canManageApiKeys,
+        public bool $canViewWebhooks,
+        public bool $canManageWebhooks,
     ) {
         //
     }

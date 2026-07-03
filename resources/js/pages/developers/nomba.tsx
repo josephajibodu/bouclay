@@ -1,6 +1,7 @@
 import { Form, Head, usePage } from '@inertiajs/react';
 import { ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
+import AutofillGuard from '@/components/autofill-guard';
 import DisconnectNombaModal from '@/components/disconnect-nomba-modal';
 import PasswordInput from '@/components/password-input';
 import { Button } from '@/components/ui/button';
@@ -271,6 +272,8 @@ function ConnectForm({
             >
                 {({ errors, processing }) => (
                     <>
+                        <AutofillGuard />
+
                         <div className="grid gap-2">
                             <Label htmlFor={`account_id_${mode}`}>
                                 Account ID
@@ -324,7 +327,7 @@ function ConnectForm({
                                 id={`client_secret_${mode}`}
                                 name="client_secret"
                                 required
-                                autoComplete="off"
+                                autoComplete="new-password"
                             />
                             <InputErrorText message={errors.client_secret} />
                         </div>

@@ -26,6 +26,7 @@ use Illuminate\Support\Str;
  * @property string $inbound_webhook_token
  * @property string|null $nomba_test_webhook_secret
  * @property string|null $nomba_live_webhook_secret
+ * @property Carbon|null $webhook_verified_at
  * @property Carbon|null $test_connected_at
  * @property Carbon|null $live_connected_at
  * @property Carbon|null $created_at
@@ -37,6 +38,7 @@ use Illuminate\Support\Str;
     'nomba_test_account_id', 'nomba_test_subaccount_id', 'nomba_test_client_id', 'nomba_test_client_secret',
     'nomba_live_account_id', 'nomba_live_subaccount_id', 'nomba_live_client_id', 'nomba_live_client_secret',
     'nomba_test_webhook_secret', 'nomba_live_webhook_secret',
+    'webhook_verified_at',
     'test_connected_at', 'live_connected_at',
 ])]
 class TeamProcessorConnection extends Model
@@ -110,6 +112,17 @@ class TeamProcessorConnection extends Model
     }
 
     /**
+     * Determine if a signing secret has been saved for the given mode.
+     */
+    public function hasWebhookSecret(ApiKeyMode $mode): bool
+    {
+        return match ($mode) {
+            ApiKeyMode::Test => $this->nomba_test_webhook_secret !== null,
+            ApiKeyMode::Live => $this->nomba_live_webhook_secret !== null,
+        };
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -127,6 +140,7 @@ class TeamProcessorConnection extends Model
             'nomba_live_client_secret' => 'encrypted',
             'nomba_test_webhook_secret' => 'encrypted',
             'nomba_live_webhook_secret' => 'encrypted',
+            'webhook_verified_at' => 'datetime',
             'test_connected_at' => 'datetime',
             'live_connected_at' => 'datetime',
         ];

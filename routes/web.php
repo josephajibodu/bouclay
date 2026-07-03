@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\JoinInvitationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Teams\TeamInvitationController;
+use App\Http\Controllers\Webhooks\NombaInboundController;
 use App\Http\Middleware\EnsureTeamMembership;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
@@ -29,6 +30,8 @@ Route::middleware('guest')->group(function () {
     Route::get('join/{invitation}/register', [JoinInvitationController::class, 'showRegister'])->name('join.register');
     Route::post('join/{invitation}/register', [JoinInvitationController::class, 'register'])->name('join.register.store');
 });
+
+Route::post('webhooks/nomba/{token}', NombaInboundController::class)->name('webhooks.nomba.receive');
 
 Route::post('ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd', function () {
     Log::info('Incoming webhook: ', request()->all());

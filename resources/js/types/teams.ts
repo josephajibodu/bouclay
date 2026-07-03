@@ -59,6 +59,18 @@ export type DashboardInvitation = {
     };
 };
 
+export type OnboardingState = {
+    businessConfirmed: boolean;
+    nombaConnected: boolean;
+    apiKeyGenerated: boolean;
+    webhookVerified: boolean;
+    links: {
+        nomba: string;
+        apiKeys: string;
+        webhooks: string;
+    };
+};
+
 export type TeamPermissions = {
     canManageBusiness: boolean;
     canDeleteBusiness: boolean;
@@ -68,6 +80,10 @@ export type TeamPermissions = {
     canManageRoles: boolean;
     canViewIntegrations: boolean;
     canManageIntegrations: boolean;
+    canViewApiKeys: boolean;
+    canManageApiKeys: boolean;
+    canViewWebhooks: boolean;
+    canManageWebhooks: boolean;
 };
 
 export type RoleOption = {

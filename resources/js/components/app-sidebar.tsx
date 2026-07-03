@@ -14,7 +14,9 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import { index as apiKeys } from '@/routes/developers/api-keys';
 import { show as nombaIntegration } from '@/routes/developers/nomba';
+import { show as webhooks } from '@/routes/developers/webhooks';
 import type { NavItem } from '@/types';
 
 export function AppSidebar() {
@@ -22,18 +24,38 @@ export function AppSidebar() {
     const { currentTeam, teamPermissions } = page.props;
     const dashboardUrl = currentTeam ? dashboard(currentTeam.slug) : '/';
 
+    const developerItems: NavItem[] = currentTeam
+        ? [
+              ...(teamPermissions?.canViewIntegrations
+                  ? [
+                        {
+                            title: 'Nomba Integration',
+                            href: nombaIntegration(currentTeam.slug),
+                        },
+                    ]
+                  : []),
+              ...(teamPermissions?.canViewApiKeys
+                  ? [{ title: 'API Keys', href: apiKeys(currentTeam.slug) }]
+                  : []),
+              ...(teamPermissions?.canViewWebhooks
+                  ? [{ title: 'Webhooks', href: webhooks(currentTeam.slug) }]
+                  : []),
+          ]
+        : [];
+
     const mainNavItems: NavItem[] = [
         {
-            title: 'Dashboard',
+            title: 'Overview',
             href: dashboardUrl,
             icon: LayoutGrid,
         },
-        ...(currentTeam && teamPermissions?.canViewIntegrations
+        ...(currentTeam && developerItems.length > 0
             ? [
                   {
                       title: 'Developers',
-                      href: nombaIntegration(currentTeam.slug),
+                      href: developerItems[0].href,
                       icon: Code2,
+                      items: developerItems,
                   },
               ]
             : []),

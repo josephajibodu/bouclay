@@ -1,7 +1,9 @@
 <?php
 
+use App\Models\ApiKey;
 use App\Models\Team;
 use App\Models\TeamInvitation;
+use App\Models\TeamProcessorConnection;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -131,4 +133,62 @@ test('dashboard does not include or delete other users invitations', function ()
     $this->assertDatabaseHas('team_invitations', [
         'id' => $invitation->id,
     ]);
+});
+
+test('a fresh team starts with an incomplete onboarding checklist', function () {
+    $user = User::factory()->create();
+
+    $response = $this
+        ->actingAs($user)
+        ->get(route('dashboard'));
+
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('dashboard')
+        ->where('onboarding.businessConfirmed', false)
+        ->where('onboarding.nombaConnected', false)
+        ->where('onboarding.apiKeyGenerated', false)
+        ->where('onboarding.webhookVerified', false),
+    );
+});
+
+test('the onboarding checklist reflects completed setup steps', function () {
+    $user = User::factory()->create();
+    $team = $user->currentTeam;
+
+    $team->update(['line1' => '1 Main St', 'city' => 'Lagos', 'country' => 'NG']);
+    TeamProcessorConnection::factory()
+        ->testConnected()
+        ->create(['team_id' => $team->id, 'webhook_verified_at' => now()]);
+    ApiKey::factory()->create(['team_id' => $team->id, 'created_by' => $user->id]);
+
+    $response = $this
+        ->actingAs($user)
+        ->get(route('dashboard'));
+
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('dashboard')
+        ->where('onboarding.businessConfirmed', true)
+        ->where('onboarding.nombaConnected', true)
+        ->where('onboarding.apiKeyGenerated', true)
+        ->where('onboarding.webhookVerified', true)
+        ->where('onboarding.links.nomba', route('developers.nomba.show', $team))
+        ->where('onboarding.links.apiKeys', route('developers.api-keys.index', $team))
+        ->where('onboarding.links.webhooks', route('developers.webhooks.show', $team)),
+    );
+});
+
+test('a revoked api key does not count toward the onboarding checklist', function () {
+    $user = User::factory()->create();
+    $team = $user->currentTeam;
+
+    ApiKey::factory()->revoked()->create(['team_id' => $team->id, 'created_by' => $user->id]);
+
+    $response = $this
+        ->actingAs($user)
+        ->get(route('dashboard'));
+
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('dashboard')
+        ->where('onboarding.apiKeyGenerated', false),
+    );
 });
