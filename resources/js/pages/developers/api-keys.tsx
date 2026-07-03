@@ -44,7 +44,7 @@ export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) 
     const keysForMode = keys.filter((key) => key.mode === activeTab);
 
     return (
-        <div className="mx-auto flex max-w-2xl flex-col gap-6 p-4">
+        <div className="flex max-w-2xl flex-col gap-6 p-4">
             <Head title="API Keys" />
 
             <div className="flex items-start justify-between gap-4">

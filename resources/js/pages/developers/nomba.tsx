@@ -30,7 +30,7 @@ export default function NombaIntegration({ connection, canManage }: Props) {
     }
 
     return (
-        <div className="mx-auto flex max-w-2xl flex-col gap-6 p-4">
+        <div className="flex max-w-2xl flex-col gap-6 p-4">
             <Head title="Nomba Integration" />
 
             <div className="space-y-1">
