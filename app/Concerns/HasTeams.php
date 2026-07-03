@@ -192,6 +192,12 @@ trait HasTeams
             canManageApiKeys: $has(PermissionName::ApiKeysManage),
             canViewWebhooks: $has(PermissionName::WebhooksView) || $has(PermissionName::WebhooksManage),
             canManageWebhooks: $has(PermissionName::WebhooksManage),
+            canViewProducts: $has(PermissionName::ProductsView) || $has(PermissionName::ProductsManage),
+            canManageProducts: $has(PermissionName::ProductsManage),
+            canViewPrices: $has(PermissionName::PricesView) || $has(PermissionName::PricesManage),
+            canManagePrices: $has(PermissionName::PricesManage),
+            canViewTrialOffers: $has(PermissionName::TrialOffersView) || $has(PermissionName::TrialOffersManage),
+            canManageTrialOffers: $has(PermissionName::TrialOffersManage),
         );
     }
 

@@ -27,6 +27,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $line2
  * @property string|null $city
  * @property string|null $postal_code
+ * @property string $default_currency
+ * @property array<string, mixed>|null $custom_data
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
@@ -35,17 +37,31 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, User> $members
  * @property-read Collection<int, Role> $roles
  * @property-read Collection<int, ApiKey> $apiKeys
+ * @property-read Collection<int, Product> $products
  * @property-read TeamSettings|null $settings
  * @property-read TeamProcessorConnection|null $processorConnection
  */
 #[Fillable([
     'name', 'slug', 'is_personal',
     'business_type', 'website', 'country', 'line1', 'line2', 'city', 'postal_code',
+    'default_currency', 'custom_data',
 ])]
 class Team extends Model
 {
     /** @use HasFactory<TeamFactory> */
     use GeneratesUniqueTeamSlugs, HasFactory, SoftDeletes;
+
+    /**
+     * The DB column carries the same default, but Eloquent doesn't
+     * hydrate DB-applied defaults onto the in-memory instance after an
+     * insert — code that reads `$team->default_currency` right after
+     * `Team::create()` in the same request would otherwise see null.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'default_currency' => 'NGN',
+    ];
 
     /**
      * Bootstrap the model and its traits.
@@ -151,6 +167,16 @@ class Team extends Model
     }
 
     /**
+     * Get all products in this team's catalog.
+     *
+     * @return HasMany<Product, $this>
+     */
+    public function products(): HasMany
+    {
+        return $this->hasMany(Product::class);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -160,6 +186,7 @@ class Team extends Model
         return [
             'is_personal' => 'boolean',
             'business_type' => BusinessType::class,
+            'custom_data' => 'array',
         ];
     }
 

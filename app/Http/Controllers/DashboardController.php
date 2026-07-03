@@ -41,7 +41,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * @return array{businessConfirmed: bool, nombaConnected: bool, apiKeyGenerated: bool, webhookVerified: bool, links: array{nomba: string, apiKeys: string, webhooks: string}}
+     * @return array{businessConfirmed: bool, nombaConnected: bool, apiKeyGenerated: bool, webhookVerified: bool, firstProductCreated: bool, links: array{nomba: string, apiKeys: string, webhooks: string, products: string}}
      */
     private function onboardingState(Team $team): array
     {
@@ -53,10 +53,12 @@ class DashboardController extends Controller
                 && ($connection->isConnected(ApiKeyMode::Test) || $connection->isConnected(ApiKeyMode::Live)),
             'apiKeyGenerated' => $team->apiKeys()->whereNull('revoked_at')->exists(),
             'webhookVerified' => $connection?->webhook_verified_at !== null,
+            'firstProductCreated' => $team->products()->exists(),
             'links' => [
                 'nomba' => route('developers.nomba.show', $team),
                 'apiKeys' => route('developers.api-keys.index', $team),
                 'webhooks' => route('developers.webhooks.show', $team),
+                'products' => route('catalog.products.index', $team),
             ],
         ];
     }

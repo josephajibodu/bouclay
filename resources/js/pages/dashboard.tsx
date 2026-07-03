@@ -86,6 +86,15 @@ export default function Dashboard({
                 cta: 'Verify',
                 done: onboarding.webhookVerified,
             },
+            {
+                key: 'firstProduct',
+                title: 'Create your first product',
+                description:
+                    "What you'll actually sell — add a price to start billing for it.",
+                href: onboarding.links.products,
+                cta: 'Create',
+                done: onboarding.firstProductCreated,
+            },
         ];
     }, [onboarding]);
 

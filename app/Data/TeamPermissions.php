@@ -17,6 +17,12 @@ readonly class TeamPermissions
         public bool $canManageApiKeys,
         public bool $canViewWebhooks,
         public bool $canManageWebhooks,
+        public bool $canViewProducts,
+        public bool $canManageProducts,
+        public bool $canViewPrices,
+        public bool $canManagePrices,
+        public bool $canViewTrialOffers,
+        public bool $canManageTrialOffers,
     ) {
         //
     }

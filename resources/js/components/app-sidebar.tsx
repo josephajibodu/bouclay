@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { Code2, LayoutGrid } from 'lucide-react';
+import { Code2, LayoutGrid, Package } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -14,6 +14,7 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import { index as products } from '@/routes/catalog/products';
 import { index as apiKeys } from '@/routes/developers/api-keys';
 import { show as nombaIntegration } from '@/routes/developers/nomba';
 import { show as webhooks } from '@/routes/developers/webhooks';
@@ -23,6 +24,14 @@ export function AppSidebar() {
     const page = usePage();
     const { currentTeam, teamPermissions } = page.props;
     const dashboardUrl = currentTeam ? dashboard(currentTeam.slug) : '/';
+
+    const catalogItems: NavItem[] = currentTeam
+        ? [
+              ...(teamPermissions?.canViewProducts
+                  ? [{ title: 'Products', href: products(currentTeam.slug) }]
+                  : []),
+          ]
+        : [];
 
     const developerItems: NavItem[] = currentTeam
         ? [
@@ -49,6 +58,16 @@ export function AppSidebar() {
             href: dashboardUrl,
             icon: LayoutGrid,
         },
+        ...(currentTeam && catalogItems.length > 0
+            ? [
+                  {
+                      title: 'Catalog',
+                      href: catalogItems[0].href,
+                      icon: Package,
+                      items: catalogItems,
+                  },
+              ]
+            : []),
         ...(currentTeam && developerItems.length > 0
             ? [
                   {

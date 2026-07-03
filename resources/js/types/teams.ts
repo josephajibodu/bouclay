@@ -64,10 +64,12 @@ export type OnboardingState = {
     nombaConnected: boolean;
     apiKeyGenerated: boolean;
     webhookVerified: boolean;
+    firstProductCreated: boolean;
     links: {
         nomba: string;
         apiKeys: string;
         webhooks: string;
+        products: string;
     };
 };
 
@@ -84,6 +86,12 @@ export type TeamPermissions = {
     canManageApiKeys: boolean;
     canViewWebhooks: boolean;
     canManageWebhooks: boolean;
+    canViewProducts: boolean;
+    canManageProducts: boolean;
+    canViewPrices: boolean;
+    canManagePrices: boolean;
+    canViewTrialOffers: boolean;
+    canManageTrialOffers: boolean;
 };
 
 export type RoleOption = {

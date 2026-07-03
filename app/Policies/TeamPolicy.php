@@ -152,6 +152,57 @@ class TeamPolicy
     }
 
     /**
+     * Determine whether the user can view the team's product catalog.
+     */
+    public function viewProducts(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::ProductsView)
+            || $user->hasTeamPermission($team, PermissionName::ProductsManage);
+    }
+
+    /**
+     * Determine whether the user can create, edit, or archive products.
+     */
+    public function manageProducts(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::ProductsManage);
+    }
+
+    /**
+     * Determine whether the user can view prices.
+     */
+    public function viewPrices(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::PricesView)
+            || $user->hasTeamPermission($team, PermissionName::PricesManage);
+    }
+
+    /**
+     * Determine whether the user can create, edit, or archive prices.
+     */
+    public function managePrices(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::PricesManage);
+    }
+
+    /**
+     * Determine whether the user can view trial offers.
+     */
+    public function viewTrialOffers(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::TrialOffersView)
+            || $user->hasTeamPermission($team, PermissionName::TrialOffersManage);
+    }
+
+    /**
+     * Determine whether the user can create, edit, or remove trial offers.
+     */
+    public function manageTrialOffers(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::TrialOffersManage);
+    }
+
+    /**
      * Determine whether the user can delete the model.
      */
     public function delete(User $user, Team $team): bool

@@ -48,3 +48,70 @@ export function formatRelativeTime(isoDate: string): string {
 
     return `${value} ${unit}${value === 1 ? '' : 's'} ago`;
 }
+
+/**
+ * Format a major-currency-unit amount (e.g. Naira, not kobo) for display.
+ */
+export function formatMoney(amount: number, currency: string): string {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency,
+        minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+        maximumFractionDigits: 2,
+    }).format(amount);
+}
+
+/**
+ * Format a recurring price as a short label, e.g. "₦15,000/mo".
+ */
+export function formatPriceInterval(
+    amount: number,
+    currency: string,
+    interval: 'day' | 'week' | 'month' | 'year',
+    frequency: number = 1,
+): string {
+    const unit = { day: 'day', week: 'wk', month: 'mo', year: 'yr' }[interval];
+    const suffix = frequency === 1 ? `/${unit}` : `/${frequency} ${unit}s`;
+
+    return `${formatMoney(amount, currency)}${suffix}`;
+}
+
+/**
+ * Summarize a graduated tier table as it's being built, e.g.
+ * "1-20: NGN 20/unit · 21+: NGN 67/unit" — so users see the shape of what
+ * they're creating before submitting, same as the standard-price preview.
+ */
+export function formatTierSummary(
+    tiers: { upTo: number | null; unitAmount: number }[],
+    currency: string,
+): string {
+    let floor = 1;
+
+    return tiers
+        .map((tier) => {
+            const range =
+                tier.upTo !== null ? `${floor}-${tier.upTo}` : `${floor}+`;
+
+            if (tier.upTo !== null) {
+                floor = tier.upTo + 1;
+            }
+
+            return `${range}: ${formatMoney(tier.unitAmount, currency)}/unit`;
+        })
+        .join(' · ');
+}
+
+/**
+ * Normalize any recurring interval to an approximate monthly amount, for
+ * comparing plans of different cadences at a glance.
+ */
+export function toMonthlyEquivalent(
+    amount: number,
+    interval: 'day' | 'week' | 'month' | 'year',
+    frequency: number = 1,
+): number {
+    const daysPerUnit = { day: 1, week: 7, month: 30, year: 365 }[interval];
+    const totalDays = daysPerUnit * frequency;
+
+    return (amount / totalDays) * 30;
+}
