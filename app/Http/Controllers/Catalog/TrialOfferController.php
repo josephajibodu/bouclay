@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\SaveTrialOfferRequest;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Team;
 use App\Models\TrialOffer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,28 +22,31 @@ class TrialOfferController extends Controller
     }
 
     /**
-     * Add a free trial to an existing price.
+     * Create a trial offer on this product.
      *
      * `$current_team` isn't used directly — see the same note on
      * ApiKeyController::destroy for why it must stay in the signature.
      */
-    public function store(SaveTrialOfferRequest $request, string $current_team, Product $product, Price $price): RedirectResponse
+    public function store(SaveTrialOfferRequest $request, string $current_team, Product $product): RedirectResponse
     {
         $team = $request->user()->currentTeam;
 
-        abort_unless($product->team_id === $team->id && $price->product_id === $product->id, 404);
+        abort_unless($product->team_id === $team->id, 404);
 
         Gate::authorize('manageTrialOffers', $team);
 
-        $this->createTrialOffer->handle($price, $request->validated());
+        $this->assertPricesBelongToTeam($request, $team, $product);
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => 'Free trial added']);
+        $this->createTrialOffer->handle($product, $request->validated());
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Trial created']);
 
         return back();
     }
 
     /**
-     * Edit a trial's duration in place.
+     * Edit a trial in place — the trial price, transition target, and
+     * repeat count are all real catalog data now, not a hidden price.
      *
      * No subscriber lock yet — see CATALOG_DESIGN.md §7.2, which documents
      * the future rule (locked once a trial has live redemptions) for
@@ -56,9 +60,19 @@ class TrialOfferController extends Controller
 
         Gate::authorize('manageTrialOffers', $team);
 
-        $trial_offer->trialPrice->update([
-            'billing_interval' => $request->validated('duration_unit'),
-            'billing_frequency' => $request->validated('duration_amount'),
+        $this->assertPricesBelongToTeam($request, $team, $product);
+
+        $data = $request->validated();
+
+        $trial_offer->update([
+            'name' => $data['name'],
+            'trial_price_id' => $data['trial_price_id'],
+            'transition_to_different_product' => $data['transition_to_different_product'],
+            'transition_product_id' => $data['transition_to_different_product']
+                ? $data['transition_product_id']
+                : $product->id,
+            'transition_price_id' => $data['transition_price_id'],
+            'duration_iterations' => $data['duration_iterations'],
         ]);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Trial updated']);
@@ -67,8 +81,8 @@ class TrialOfferController extends Controller
     }
 
     /**
-     * Remove a trial. New subscriptions to this price stop offering it;
-     * existing trials in progress are unaffected once Phase 5 exists.
+     * Remove a trial offer. The trial and transition prices are real
+     * catalog prices — removing the trial never deletes them.
      */
     public function destroy(Request $request, string $current_team, Product $product, TrialOffer $trial_offer): RedirectResponse
     {
@@ -78,12 +92,29 @@ class TrialOfferController extends Controller
 
         Gate::authorize('manageTrialOffers', $team);
 
-        $trialPrice = $trial_offer->trialPrice;
         $trial_offer->delete();
-        $trialPrice->delete();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Trial removed']);
 
         return back();
+    }
+
+    /**
+     * Guard against a request referencing another team's prices/products —
+     * `exists:prices,id` only checks the row exists, not that it's ours.
+     */
+    private function assertPricesBelongToTeam(SaveTrialOfferRequest $request, Team $team, Product $product): void
+    {
+        $trialPrice = Price::findOrFail($request->validated('trial_price_id'));
+        abort_unless($trialPrice->team_id === $team->id, 404);
+
+        $transitionPrice = Price::findOrFail($request->validated('transition_price_id'));
+        abort_unless($transitionPrice->team_id === $team->id, 404);
+
+        if ($request->validated('transition_to_different_product')) {
+            abort_unless($transitionPrice->product_id === $request->validated('transition_product_id'), 404);
+        } else {
+            abort_unless($transitionPrice->product_id === $product->id, 404);
+        }
     }
 }

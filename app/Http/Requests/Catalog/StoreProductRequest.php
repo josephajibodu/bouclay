@@ -4,17 +4,16 @@ namespace App\Http\Requests\Catalog;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StoreProductRequest extends FormRequest
 {
     /**
      * Get the validation rules that apply to the request.
      *
-     * `sometimes` on every nested `price.*`/`trial.*` rule matters here:
-     * without it, `required_unless`/`required_if` still evaluate — and
-     * therefore still fail — even when the whole `price`/`trial` key is
-     * absent from the request (a product created with no price at all).
+     * `sometimes` on every nested `price.*` rule matters here: without it,
+     * `required_unless`/`required_if` still evaluate — and therefore still
+     * fail — even when the whole `price` key is absent from the request (a
+     * product created with no price at all).
      *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
@@ -36,10 +35,6 @@ class StoreProductRequest extends FormRequest
             'price.tiers.*.up_to' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'price.tiers.*.unit_amount' => ['sometimes', 'required', 'numeric', 'min:0'],
             'price.tiers.*.flat_amount' => ['sometimes', 'nullable', 'numeric', 'min:0'],
-
-            'trial' => ['nullable', 'array'],
-            'trial.duration_amount' => ['sometimes', 'required_with:trial', 'integer', 'min:1'],
-            'trial.duration_unit' => ['sometimes', 'required_with:trial', Rule::in(['day', 'week', 'month'])],
         ];
     }
 }

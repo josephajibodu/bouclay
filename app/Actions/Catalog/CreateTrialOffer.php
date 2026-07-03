@@ -2,55 +2,47 @@
 
 namespace App\Actions\Catalog;
 
-use App\Enums\CatalogStatus;
-use App\Enums\PriceType;
-use App\Enums\PricingModel;
 use App\Enums\TrialDurationType;
-use App\Models\Price;
+use App\Models\Product;
 use App\Models\TrialOffer;
-use Illuminate\Support\Facades\DB;
 
 class CreateTrialOffer
 {
     /**
-     * Create a free trial on a price.
+     * Create a trial offer.
      *
-     * Maps the single "how long?" question the UI asks (CATALOG_DESIGN.md
-     * §7.1) onto the full `trial_offers` shape: a hidden zero-amount price
-     * carries the duration (billing_interval/billing_frequency), the trial
-     * always runs for exactly one period of it (duration_iterations = 1),
-     * and it never transitions to a different product for MVP.
+     * `trial_price_id` and `transition_price_id` are real, user-chosen
+     * prices — the trial isn't necessarily free, and the price it charges
+     * during the trial is a normal catalog price like any other (see
+     * CATALOG_DESIGN.md §7.1, revised). Duration comes from the trial
+     * price's own billing interval × `duration_iterations` ("Repeat"),
+     * matching Stripe's Trial Offer model this mirrors.
      *
-     * @param  array{duration_amount: int, duration_unit: string}  $data
+     * @param  array{
+     *     name: string,
+     *     trial_price_id: int,
+     *     transition_to_different_product: bool,
+     *     transition_product_id: int|null,
+     *     transition_price_id: int,
+     *     duration_iterations: int,
+     * }  $data
      */
-    public function handle(Price $transitionPrice, array $data): TrialOffer
+    public function handle(Product $product, array $data): TrialOffer
     {
-        return DB::transaction(function () use ($transitionPrice, $data) {
-            $trialPrice = $transitionPrice->product->prices()->create([
-                'team_id' => $transitionPrice->team_id,
-                'name' => 'Trial — '.$transitionPrice->product->name,
-                'type' => PriceType::Recurring,
-                'pricing_model' => PricingModel::Standard,
-                'unit_amount' => 0,
-                'currency' => $transitionPrice->currency,
-                'billing_interval' => $data['duration_unit'],
-                'billing_frequency' => $data['duration_amount'],
-                'status' => CatalogStatus::Active,
-            ]);
-
-            return TrialOffer::create([
-                'team_id' => $transitionPrice->team_id,
-                'name' => $transitionPrice->product->name.' free trial',
-                'product_id' => $transitionPrice->product_id,
-                'trial_price_id' => $trialPrice->id,
-                'transition_to_different_product' => false,
-                'transition_product_id' => $transitionPrice->product_id,
-                'transition_price_id' => $transitionPrice->id,
-                'duration_type' => TrialDurationType::Relative,
-                'duration_iterations' => 1,
-                'once_per_customer' => true,
-                'active' => true,
-            ]);
-        });
+        return TrialOffer::create([
+            'team_id' => $product->team_id,
+            'name' => $data['name'],
+            'product_id' => $product->id,
+            'trial_price_id' => $data['trial_price_id'],
+            'transition_to_different_product' => $data['transition_to_different_product'],
+            'transition_product_id' => $data['transition_to_different_product']
+                ? $data['transition_product_id']
+                : $product->id,
+            'transition_price_id' => $data['transition_price_id'],
+            'duration_type' => TrialDurationType::Relative,
+            'duration_iterations' => $data['duration_iterations'],
+            'once_per_customer' => true,
+            'active' => true,
+        ]);
     }
 }

@@ -1,7 +1,9 @@
 import { Form } from '@inertiajs/react';
 import type { PropsWithChildren } from 'react';
 import { useState } from 'react';
+import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -23,17 +25,24 @@ import {
 } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
 import { store, update } from '@/routes/catalog/trials';
-import type { TrialDurationUnit } from '@/types';
+import type { OtherProduct, PriceRef, TrialOffer } from '@/types';
 
+/**
+ * `children`, when provided, becomes the inline trigger. Omit it to control
+ * the drawer purely via `open`/`onOpenChange` — e.g. an external "Edit"
+ * button that isn't rendered inside this component.
+ */
 type Props = PropsWithChildren<{
     currentTeamSlug: string;
     productId: number;
     productName: string;
-    /** Fixed target price — used when triggered from a specific price row. */
-    priceId?: number;
-    /** Prices without a trial yet — shown as a picker when `priceId` isn't fixed (the section-level "Create trial" trigger). */
-    eligiblePrices?: { id: number; label: string }[];
-    trial?: { id: number; durationAmount: number; durationUnit: TrialDurationUnit } | null;
+    /** This product's own prices — the trial price and same-product transition price are picked from here. */
+    prices: PriceRef[];
+    /** Other active products (with their active prices) for the "transition to a different product" picker. */
+    otherProducts: OtherProduct[];
+    /** Pre-select a transition price, e.g. when triggered from that price's row. */
+    defaultTransitionPriceId?: number;
+    trial?: TrialOffer | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }>;
@@ -43,159 +52,257 @@ export default function TrialDrawer({
     currentTeamSlug,
     productId,
     productName,
-    priceId,
-    eligiblePrices,
+    prices,
+    otherProducts,
+    defaultTransitionPriceId,
     trial,
     open,
     onOpenChange,
 }: Props) {
-    const [amount, setAmount] = useState(String(trial?.durationAmount ?? 14));
-    const [unit, setUnit] = useState<TrialDurationUnit>(
-        trial?.durationUnit ?? 'day',
+    const [name, setName] = useState(trial?.name ?? '');
+    const [trialPriceId, setTrialPriceId] = useState<string>(
+        trial ? String(trial.trialPrice.id) : '',
     );
-    const [selectedPriceId, setSelectedPriceId] = useState<string>(
-        priceId ? String(priceId) : (eligiblePrices?.[0]?.id.toString() ?? ''),
+    const [transitionToDifferentProduct, setTransitionToDifferentProduct] =
+        useState(trial?.transitionToDifferentProduct ?? false);
+    const [transitionProductId, setTransitionProductId] = useState<string>(
+        trial?.transitionProduct ? String(trial.transitionProduct.id) : '',
     );
-
-    const needsPricePicker = !trial && !priceId;
-    const targetPriceId = priceId ?? Number(selectedPriceId);
+    const [transitionPriceId, setTransitionPriceId] = useState<string>(
+        trial
+            ? String(trial.transitionPrice.id)
+            : defaultTransitionPriceId
+              ? String(defaultTransitionPriceId)
+              : '',
+    );
+    const [repeat, setRepeat] = useState((trial?.durationIterations ?? 1) > 1);
+    const [iterations, setIterations] = useState(
+        String(trial?.durationIterations ?? 1),
+    );
 
     const formProps = trial
         ? update.form([currentTeamSlug, productId, trial.id])
-        : store.form([currentTeamSlug, productId, targetPriceId || 0]);
+        : store.form([currentTeamSlug, productId]);
 
-    const endDay =
-        unit === 'day'
-            ? Number(amount) || 0
-            : unit === 'week'
-              ? (Number(amount) || 0) * 7
-              : (Number(amount) || 0) * 30;
-
-    const canSubmit = trial || Boolean(targetPriceId);
+    const transitionPricesForOtherProduct =
+        otherProducts.find((p) => String(p.id) === transitionProductId)
+            ?.prices ?? [];
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetTrigger asChild>{children}</SheetTrigger>
-            <SheetContent className="h-auto w-full rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-md">
+            {children && <SheetTrigger asChild>{children}</SheetTrigger>}
+            <SheetContent className="h-auto w-full overflow-y-auto rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-md">
                 <Form
                     key={String(open)}
                     {...formProps}
                     transform={(data) => ({
                         ...data,
-                        duration_amount: Number(amount) || 1,
-                        duration_unit: unit,
+                        name,
+                        trial_price_id: Number(trialPriceId) || undefined,
+                        transition_to_different_product:
+                            transitionToDifferentProduct,
+                        transition_product_id: transitionToDifferentProduct
+                            ? Number(transitionProductId) || undefined
+                            : undefined,
+                        transition_price_id:
+                            Number(transitionPriceId) || undefined,
+                        duration_iterations: repeat
+                            ? Number(iterations) || 1
+                            : 1,
                     })}
                     className="flex h-full flex-col"
                     onSuccess={() => onOpenChange(false)}
                 >
-                    {({ processing }) => (
+                    {({ errors, processing }) => (
                         <>
                             <SheetHeader>
                                 <SheetTitle>
-                                    {trial ? 'Edit free trial' : 'Add a free trial'}
+                                    {trial ? 'Edit trial' : 'Create trial'}
                                 </SheetTitle>
                                 <SheetDescription>
-                                    Give new customers time to try{' '}
-                                    {productName} before they're charged.
+                                    Automatically attached to {productName}.
                                 </SheetDescription>
                             </SheetHeader>
 
                             <div className="flex flex-col gap-6 overflow-y-auto px-4">
-                                {needsPricePicker && (
-                                    <div className="grid gap-2">
-                                        <Label>Apply to price</Label>
-                                        {eligiblePrices &&
-                                        eligiblePrices.length > 0 ? (
-                                            <Select
-                                                value={selectedPriceId}
-                                                onValueChange={
-                                                    setSelectedPriceId
-                                                }
-                                            >
-                                                <SelectTrigger
-                                                    data-test="trial-drawer-price"
+                                <div className="grid gap-2">
+                                    <Label htmlFor="trial-name">Name</Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        This will appear on customers'
+                                        receipts and invoices.
+                                    </p>
+                                    <Input
+                                        id="trial-name"
+                                        value={name}
+                                        onChange={(e) =>
+                                            setName(e.target.value)
+                                        }
+                                        placeholder="Free trial offer"
+                                        data-test="trial-name"
+                                    />
+                                    <InputError message={errors.name} />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label>Trial price</Label>
+                                    <Select
+                                        value={trialPriceId}
+                                        onValueChange={setTrialPriceId}
+                                    >
+                                        <SelectTrigger
+                                            data-test="trial-price-select"
+                                        >
+                                            <SelectValue placeholder="Choose a price" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {prices.map((price) => (
+                                                <SelectItem
+                                                    key={price.id}
+                                                    value={String(price.id)}
                                                 >
-                                                    <SelectValue placeholder="Choose a price" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {eligiblePrices.map(
-                                                        (p) => (
-                                                            <SelectItem
-                                                                key={p.id}
-                                                                value={String(
-                                                                    p.id,
-                                                                )}
-                                                            >
-                                                                {p.label}
-                                                            </SelectItem>
-                                                        ),
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
-                                        ) : (
-                                            <p className="text-sm text-muted-foreground">
-                                                Every price already has a
-                                                trial.
-                                            </p>
-                                        )}
+                                                    {price.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-sm text-muted-foreground">
+                                        What customers pay during the trial —
+                                        a normal price, free or paid.
+                                    </p>
+                                    <InputError
+                                        message={errors.trial_price_id}
+                                    />
+                                </div>
+
+                                <label className="flex items-start gap-2 text-sm">
+                                    <Checkbox
+                                        checked={transitionToDifferentProduct}
+                                        onCheckedChange={(checked) => {
+                                            setTransitionToDifferentProduct(
+                                                checked === true,
+                                            );
+                                            setTransitionPriceId('');
+                                        }}
+                                        data-test="transition-product-toggle"
+                                    />
+                                    Transition to a different product when
+                                    trial ends
+                                </label>
+
+                                {transitionToDifferentProduct && (
+                                    <div className="grid gap-2 pl-6">
+                                        <Label>Product when trial ends</Label>
+                                        <Select
+                                            value={transitionProductId}
+                                            onValueChange={(value) => {
+                                                setTransitionProductId(value);
+                                                setTransitionPriceId('');
+                                            }}
+                                        >
+                                            <SelectTrigger
+                                                data-test="transition-product-select"
+                                            >
+                                                <SelectValue placeholder="Choose a product" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {otherProducts.map(
+                                                    (product) => (
+                                                        <SelectItem
+                                                            key={product.id}
+                                                            value={String(
+                                                                product.id,
+                                                            )}
+                                                        >
+                                                            {product.name}
+                                                        </SelectItem>
+                                                    ),
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                        <InputError
+                                            message={
+                                                errors.transition_product_id
+                                            }
+                                        />
                                     </div>
                                 )}
 
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm">
-                                        Trial customers for
-                                    </span>
-                                    <Input
-                                        type="number"
-                                        min={1}
-                                        className="w-20"
-                                        value={amount}
-                                        onChange={(e) =>
-                                            setAmount(e.target.value)
-                                        }
-                                        data-test="trial-drawer-amount"
-                                    />
+                                <div
+                                    className={
+                                        transitionToDifferentProduct
+                                            ? 'grid gap-2 pl-6'
+                                            : 'grid gap-2'
+                                    }
+                                >
+                                    <Label>Price when trial ends</Label>
                                     <Select
-                                        value={unit}
-                                        onValueChange={(value) =>
-                                            setUnit(value as TrialDurationUnit)
+                                        value={transitionPriceId}
+                                        onValueChange={setTransitionPriceId}
+                                        disabled={
+                                            transitionToDifferentProduct &&
+                                            !transitionProductId
                                         }
                                     >
-                                        <SelectTrigger className="w-32">
-                                            <SelectValue />
+                                        <SelectTrigger
+                                            data-test="transition-price-select"
+                                        >
+                                            <SelectValue placeholder="Choose a price" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="day">
-                                                days
-                                            </SelectItem>
-                                            <SelectItem value="week">
-                                                weeks
-                                            </SelectItem>
-                                            <SelectItem value="month">
-                                                months
-                                            </SelectItem>
+                                            {(transitionToDifferentProduct
+                                                ? transitionPricesForOtherProduct
+                                                : prices
+                                            ).map((price) => (
+                                                <SelectItem
+                                                    key={price.id}
+                                                    value={String(price.id)}
+                                                >
+                                                    {price.label}
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
+                                    <InputError
+                                        message={errors.transition_price_id}
+                                    />
                                 </div>
 
-                                <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-                                    <div className="flex items-center justify-between text-muted-foreground">
-                                        <span>Day 0</span>
-                                        <span>Day {endDay}</span>
-                                        <span>Ongoing</span>
-                                    </div>
-                                    <div className="mt-1 flex items-center justify-between font-medium">
-                                        <span>Trial starts</span>
-                                        <span>First charge</span>
-                                        <span>Continues</span>
-                                    </div>
+                                <div className="space-y-2 border-t pt-4">
+                                    <label className="flex items-start gap-2 text-sm">
+                                        <Checkbox
+                                            checked={repeat}
+                                            onCheckedChange={(checked) =>
+                                                setRepeat(checked === true)
+                                            }
+                                            data-test="repeat-toggle"
+                                        />
+                                        Repeat
+                                    </label>
+                                    {repeat && (
+                                        <div className="flex items-center gap-2 pl-6 text-sm">
+                                            <span>Repeat</span>
+                                            <Input
+                                                type="number"
+                                                min={1}
+                                                className="w-20"
+                                                value={iterations}
+                                                onChange={(e) =>
+                                                    setIterations(
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                data-test="repeat-iterations"
+                                            />
+                                            <span>times.</span>
+                                        </div>
+                                    )}
+                                    {!repeat && (
+                                        <p className="pl-6 text-sm text-muted-foreground">
+                                            Number of times the trial price
+                                            will repeat.
+                                        </p>
+                                    )}
                                 </div>
-
-                                <p className="text-sm text-muted-foreground">
-                                    Customers redeem this trial once — reusing
-                                    an account won't grant a second free
-                                    period.
-                                </p>
                             </div>
 
                             <SheetFooter className="flex-row justify-end gap-2">
@@ -206,11 +313,11 @@ export default function TrialDrawer({
                                 </SheetClose>
                                 <Button
                                     type="submit"
-                                    disabled={processing || !canSubmit}
+                                    disabled={processing}
                                     data-test="trial-drawer-submit"
                                 >
                                     {processing && <Spinner />}
-                                    {trial ? 'Save changes' : 'Add trial'}
+                                    {trial ? 'Save changes' : 'Create'}
                                 </Button>
                             </SheetFooter>
                         </>

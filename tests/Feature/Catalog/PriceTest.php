@@ -24,8 +24,8 @@ test('a price can be added to an existing product', function () {
         ])
         ->assertRedirect();
 
-    expect($product->prices()->customerFacing()->count())->toBe(1);
-    expect($product->prices()->customerFacing()->first()->unit_amount)->toBe(15000000);
+    expect($product->prices()->count())->toBe(1);
+    expect($product->prices()->first()->unit_amount)->toBe(15000000);
 });
 
 test('a graduated price requires tiers', function () {
@@ -49,7 +49,7 @@ test('a graduated price requires tiers', function () {
         ])
         ->assertRedirect();
 
-    $price = $product->prices()->customerFacing()->firstOrFail();
+    $price = $product->prices()->firstOrFail();
     expect($price->unit_amount)->toBeNull()
         ->and($price->tiers)->toHaveCount(2)
         ->and($price->tiers->first()->unit_amount)->toBe(1000)

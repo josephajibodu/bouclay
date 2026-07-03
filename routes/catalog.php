@@ -20,7 +20,7 @@ Route::prefix('{current_team}/catalog')
         Route::patch('products/{product}/prices/{price}', [PriceController::class, 'update'])->name('prices.update');
         Route::delete('products/{product}/prices/{price}', [PriceController::class, 'archive'])->name('prices.archive');
 
-        Route::post('products/{product}/prices/{price}/trial', [TrialOfferController::class, 'store'])->name('trials.store');
+        Route::post('products/{product}/trials', [TrialOfferController::class, 'store'])->name('trials.store');
         Route::patch('products/{product}/trials/{trial_offer}', [TrialOfferController::class, 'update'])->name('trials.update');
         Route::delete('products/{product}/trials/{trial_offer}', [TrialOfferController::class, 'destroy'])->name('trials.destroy');
     });

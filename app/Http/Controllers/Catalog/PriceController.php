@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Catalog;
 
 use App\Actions\Catalog\CreatePrice;
-use App\Actions\Catalog\CreateTrialOffer;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\StorePriceRequest;
 use App\Http\Requests\Catalog\UpdatePriceRequest;
@@ -17,10 +16,8 @@ use Inertia\Inertia;
 
 class PriceController extends Controller
 {
-    public function __construct(
-        private readonly CreatePrice $createPrice,
-        private readonly CreateTrialOffer $createTrialOffer,
-    ) {
+    public function __construct(private readonly CreatePrice $createPrice)
+    {
         //
     }
 
@@ -41,11 +38,7 @@ class PriceController extends Controller
         $data = $request->validated();
         $data['currency'] ??= $team->default_currency;
 
-        $price = $this->createPrice->handle($product, $data);
-
-        if ($trialData = $request->validated('trial')) {
-            $this->createTrialOffer->handle($price, $trialData);
-        }
+        $this->createPrice->handle($product, $data);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Price added to '.$product->name]);
 

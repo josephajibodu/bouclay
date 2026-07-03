@@ -4,7 +4,6 @@ namespace App\Http\Requests\Catalog;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class SaveTrialOfferRequest extends FormRequest
 {
@@ -16,8 +15,12 @@ class SaveTrialOfferRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'duration_amount' => ['required', 'integer', 'min:1'],
-            'duration_unit' => ['required', Rule::in(['day', 'week', 'month'])],
+            'name' => ['required', 'string', 'max:255'],
+            'trial_price_id' => ['required', 'integer', 'exists:prices,id'],
+            'transition_to_different_product' => ['required', 'boolean'],
+            'transition_product_id' => ['required_if:transition_to_different_product,true', 'nullable', 'integer', 'exists:products,id'],
+            'transition_price_id' => ['required', 'integer', 'exists:prices,id', 'different:trial_price_id'],
+            'duration_iterations' => ['required', 'integer', 'min:1'],
         ];
     }
 }

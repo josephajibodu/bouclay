@@ -35,7 +35,7 @@ These are the load-bearing decisions everything else derives from.
 4. **No dead-end empty states.** Every empty state teaches the concept before asking for the action. Nobody should hit "No products" and wonder what a product even is.
 5. **No draft status — confirmed.** A product is either `active` or `archived`. Full stop. No derived "needs a price" pseudo-state, no separate draft concept. A product with zero prices is simply an Active product that shows "0 prices" — the Product Detail page's empty Pricing tab is where that gets addressed, not a special index-level status. Simpler than the original proposal, and matches how the team actually thinks about it.
 6. **Prices lock only once they've actually been used.** `prices.version` exists in the schema to grandfather subscribers on change. The precise trigger: a price is freely editable in place — amount, currency, interval, anything — for as long as **no subscription has ever referenced it**. The moment a `subscription_item` exists against a price, it locks: further "edits" to amount/currency/interval must create a new Price (new `version`) and archive the old one. Cosmetic fields (name, metadata) stay editable in place always, regardless of usage. **Practical consequence for this phase:** since `subscriptions`/`subscription_items` don't exist until Phase 5, every price built in Phase 3 is unconditionally editable in place — there is nothing to lock yet. Phase 3 does not need to build the lock/version-bump UI at all; it only needs to leave the door open (i.e., don't hardcode assumptions that would make adding the Phase 5 check awkward). Document the rule now so Phase 5 doesn't have to invent it under time pressure.
-7. **Trials are a side-effect of a Price, not a sibling top-level object.** `trial_offers.product_id` + `trial_price_id` + `transition_price_id` mean a trial is always scoped to one specific regular price. So in the UI, trials are created *from* a Price row ("+ Add a free trial"), never from a standalone "New Trial" entry point floating in the nav.
+7. **Trials are scoped to a product, not a sibling top-level object — but the trial price is a real price.** `trial_offers.product_id` means a trial is always created *from* a specific product's page — never from a standalone "New Trial" entry point floating in the nav, and never with a Product picker in the form (see [§7](#7-trials)). But `trial_price_id` and `transition_price_id` are both ordinary, independently-visible catalog prices — nothing about a price is hidden because a trial happens to reference it.
 
 ---
 
@@ -120,14 +120,14 @@ Picking up right where Phase 2 leaves off (Nomba connected, API keys generated).
  New Product page
    │  Section 1: Name & description           (always visible)
    │  Section 2: Add a price                   (reveals after name entered)
-   │  Section 3: Free trial — optional          (reveals after price is valid, collapsed by default)
-   │  Section 4: Review & sticky summary card   (always visible, fills in live)
+   │  Section 3: Review & sticky summary card   (always visible, fills in live)
    ▼
  [Create product] → toast: "Pro Plan is live"
    ▼
  Product Detail page (Pro Plan)
    │  Overview / API identifiers visible immediately
    │  "Copy Product ID" + "View in API docs" nudge
+   │  Trials section: "+ Create trial" once at least one price exists
    ▼
  Dashboard checklist auto-ticks "Create your first product"
    │  Next suggested step surfaces: "Add a customer" (Phase 4, greyed/coming-soon until then)
@@ -136,7 +136,7 @@ Picking up right where Phase 2 leaves off (Nomba connected, API keys generated).
 Key journey decisions:
 
 - **Product creation is reachable from two places**: the dashboard onboarding checklist (first-run) and `Catalog > Products` directly (every time after). Same destination, same page — no separate "quickstart" version that diverges from the real flow.
-- **Trial is optional and collapsed by default**, never a forced step. A beginner who just wants "a product with a price" should be able to create one in under 30 seconds without ever seeing trial-duration fields.
+- **Trials are never part of product or price creation** — a trial needs a real trial price to reference (see [§7](#7-trials)), which doesn't exist until at least one price has been created. Trials are created afterward, from the product page's own Trials section, keeping the creation flow focused on "what am I selling" without front-loading a second concept.
 - **The Product Detail page immediately answers "how do I use this via the API?"** — Overview tab shows the Product ID with a copy button and a link to API reference, closing the loop the brief calls out ("Integrate using API").
 - No forced "Review" confirmation screen as a separate page — review happens in a persistent sticky summary card alongside the form (see [§5.2](#52-product-creation-flow)), so users see the shape of what they're creating as they build it, Stripe/Linear-style, rather than being surprised at the end.
 
@@ -180,7 +180,7 @@ Key journey decisions:
 **Decision: dedicated page, single scroll, progressive disclosure. Not a modal, not a multi-step wizard.**
 
 Rationale against the alternatives:
-- **Modal** — too small for "name + price + trial + review" without feeling cramped or requiring internal scrolling inside a scrolling page (the exact anti-pattern the brief calls out).
+- **Modal** — too small for "name + price + review" without feeling cramped or requiring internal scrolling inside a scrolling page (the exact anti-pattern the brief calls out).
 - **Hard multi-step wizard** (separate route per step) — adds forced back/forward navigation for an object users will *edit* constantly afterward; also means building two different layouts (creation wizard vs. edit page) that drift apart over time.
 - **Single page, progressive disclosure** — one layout serves both creation and (mostly) editing, sections reveal as earlier ones are satisfied, and the sticky summary gives the "review" step for free, continuously, instead of as a final gate.
 
@@ -193,7 +193,7 @@ Rationale against the alternatives:
 │  below to start billing for it.                │                     │
 │                                                 │  Pricing            │
 │  ── Product details ──────────────────────     │   ₦15,000 / month   │
-│  Name *              [ Pro Plan            ]   │   Free trial: 14d   │
+│  Name *              [ Pro Plan            ]   │                     │
 │  Description         [ For growing teams…  ]   │                     │
 │  Category             [ SaaS ▾ ]               │  Not created yet    │
 │                                                 │                     │
@@ -206,59 +206,68 @@ Rationale against the alternatives:
 │                                                 │                     │
 │  ▸ Advanced pricing (tiered, custom interval)   │                     │
 │                                                 │                     │
-│  ── Free trial (optional) ──────────────────    │                     │
-│  ☐ Give customers a free trial before billing  │                     │
-│     ⤷ expands duration picker when checked      │                     │
-│                                                 │                     │
 │                              [Create product] →│                     │
 └──────────────────────────────────────────────┴─────────────────────┘
 ```
 
 - **Name is the only hard requirement** to unlock the rest — Pricing section is visually present but visually quieted (lower contrast) until a name exists, then activates. This is the "reveals as satisfied" behavior without literally hiding/showing DOM, which avoids layout jank.
 - **A product *can* be created with zero prices** (user scrolls past Pricing without filling it) — it's still simply `Active` on the index, shown with "0 prices," and the Product Detail page's Pricing tab immediately prompts "Add your first price." Beginners are never blocked, but also never confused about why nothing bills yet.
-- **"Advanced pricing" is a collapsed disclosure**, not a separate mode — reveals `pricing_model` choice (`Standard` selected by default; `Tiered` is the one alternate model MVP ships per `IMPLEMENTATION.md`), keeping the default path free of a concept most users don't need on day one.
-- **Trial checkbox, not trial fields inline.** Keeping the checkbox as the only visible trial affordance during product creation avoids front-loading trial semantics (duration units, "what happens when it ends") into the *first* thing a new user does. The full trial experience lives properly in [§7](#7-trials), reachable here or later from the price row.
+- **"Advanced pricing" is a collapsed disclosure**, not a separate mode — reveals `pricing_model` choice (`Standard` selected by default; `Graduated` is the one alternate model MVP ships per `IMPLEMENTATION.md`), keeping the default path free of a concept most users don't need on day one.
+- **No trial step here at all.** Trials reference a real trial price (see [§7](#7-trials)), which can't exist before at least one price does. Bundling trial creation into product/price creation would mean either creating a throwaway placeholder price or blocking on a half-finished trial form — both worse than just making trial creation its own short, focused step immediately available on the product page once a price exists.
 
 ### 5.3 Product detail page — the hub
 
 This is the page the brief specifically asks to make rich rather than "just an edit form." Tabs, not one long page — a product accumulates real content over time (subscribers, activity) and tabs keep that scalable.
 
+**Revision**: this originally shipped as a `Tabs` layout (Overview / Pricing / Trials / Metadata as separate panels). It was rebuilt as a **single scrollable page** — sections stacked with dividers instead of tabs — so a user never loses the rest of the product while looking at one part of it, and every section is a search-engine/scan-friendly part of the same view rather than hidden behind a click. The wireframe and section list below reflect the current, built version.
+
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │  ← Products                                                      │
-│  🟪  Pro Plan                              [Active ▾] [Edit] [⋯] │
+│  🟪  Pro Plan                              [Active] [Edit] [⋯]   │
+│      prod_xxx  [Copy]                                            │
 │      For growing teams that need more headroom                  │
-│                                                                    │
-│  [ Overview ] [ Pricing ] [ Trials ] [ Activity ] [ Metadata ]   │
-│  ────────────────────────────────────────────────────────────   │
-│                                                                    │
-│  OVERVIEW TAB                                                     │
-│  ┌─────────────────────┐  ┌─────────────────────────────────┐   │
-│  │ API identifiers      │  │ At a glance                     │   │
-│  │ Product ID           │  │ 2 active prices                 │   │
-│  │ 01HZY3...  [Copy]     │  │ 1 free trial offer              │   │
-│  │                       │  │ 0 active subscribers  (Phase 5) │   │
-│  │ [View API reference]  │  │                                  │   │
-│  └─────────────────────┘  └─────────────────────────────────┘   │
-│                                                                    │
-│  Default price                                                   │
-│  ₦15,000 / month · used when no price is specified at checkout   │
+├────────────────────────────────────────────────────────────────┤
+│  Product information                                             │
+│  Category      Created        Active prices   Active subscribers│
+│  SaaS          Jul 3, 2026     2                0 (coming soon)  │
+├────────────────────────────────────────────────────────────────┤
+│  Pricing                                          [+ Add price] │
+│  Products are containers — prices define how customers bill.    │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ Monthly            Active      NGN 15,000/mo    Edit Archive│ │
+│  │  + Add trial                                               │ │
+│  ├──────────────────────────────────────────────────────────┤   │
+│  │ Annual             Active      NGN 150,000/yr   Edit Archive│ │
+│  │  Trial "Free trial offer" leads here                        │ │
+│  └──────────────────────────────────────────────────────────┘   │
+├────────────────────────────────────────────────────────────────┤
+│  Trials                                          [+ Create trial]│
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ 🎁 Free trial offer   Active     Edit  Remove               │ │
+│  │    Monthly → Annual                                         │ │
+│  └──────────────────────────────────────────────────────────┘   │
+├────────────────────────────────────────────────────────────────┤
+│  Metadata                                              [Edit]   │
+│  external_id                                        acme-987   │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-Tab-by-tab:
+Section-by-section:
 
-| Tab | Contents | Notes |
+| Section | Contents | Notes |
 |---|---|---|
-| **Overview** | Description, status control, Product ID + copy, link to API reference, at-a-glance counts, default price | The landing tab; answers "what is this and how do I use it" in one glance |
-| **Pricing** | Full list of Price rows (see [§6.3](#63-price-list-inside-product-detail)), "+ Add price" | Primary working tab after creation |
-| **Trials** | Trial offers on this product's prices, editable inline | Empty until a price has a trial attached |
-| **Activity** | Recent catalog changes: "Price archived," "Trial duration changed 7→14 days" | Audit trail — cheap to add now (append-only log of catalog mutations), pays off enormously once support/finance roles need to answer "why did this change" |
-| **Metadata** | Raw `custom_data` key/value editor | Power-user / integration escape hatch, kept out of the way |
+| **Header** | Name, status badge, `prod_xxx` public ID + copy, description, Edit / Archive actions | Answers "what is this" in the first glance |
+| **Product information** | Category, created date, active-price count, subscriber count (Phase 5 placeholder) | Compact stats row, not a full tab of its own |
+| **Pricing** | Full list of Price rows (see [§6.3](#63-price-list-inside-product-detail)), "+ Add price"; a price used as a trial's trial price shows a badge, a price a trial transitions into shows an inline note | The primary section — biggest visual weight, most-used |
+| **Trials** | Every `trial_offers` row on this product — name, trial price, → transition target, repeat count, Edit / Remove; "+ Create trial" opens the same drawer used from a price row (see [§7](#7-trials)) | Independent of Pricing's per-row "+ Add trial" shortcuts — this is the full list |
+| **Metadata** | `custom_data` key/value list, "Edit" opens a drawer with dynamic add/remove rows | Never hidden behind navigation — scrolls into view like everything else |
 
-Future tabs slot in without restructuring: **Subscribers** (Phase 5) and **Analytics** (later) simply become two more tab triggers in the same `Tabs` component.
+Future sections (Subscribers, Analytics, Audit history) slot in the same way: another `<section>` between dividers, no restructuring, no new nav.
 
-**Status control**: a dropdown next to the title (`Active` / `Archive product`), not a separate settings page. Archiving requires a confirmation dialog (matches the existing `revoke-api-key-modal.tsx` / `disconnect-nomba-modal.tsx` pattern) since it hides the product from checkout flows — the dialog explains: *"Archived products won't appear when creating new subscriptions. Existing subscribers are unaffected."*
+**Status control**: `Active`/`Archived` badge in the header, with Archive/Reactivate in the `⋯` dropdown next to "Edit" — not a separate settings page. Archiving requires a confirmation dialog (matches the existing `revoke-api-key-modal.tsx` / `disconnect-nomba-modal.tsx` pattern) since it hides the product from checkout flows — the dialog explains: *"Archived products won't appear when creating new subscriptions. Existing subscribers are unaffected."*
+
+**Every edit is a side drawer, never a navigation.** Edit Product, Edit Price, Create/Edit Trial, and Edit Metadata all open the same `Sheet`-based drawer used elsewhere in the app (matching `create-price-drawer.tsx`'s pattern) — the product page itself never navigates away or reloads. Only destructive confirmations (Archive, Remove) use a centered dialog, matching the existing `revoke-api-key-modal.tsx` convention for that category of action specifically.
 
 ---
 
@@ -339,45 +348,54 @@ Progressive disclosure inside the drawer, following the brief's suggested order 
 
 ## 7. Trials
 
-### 7.1 Simplifying `trial_offers` for the person filling out the form
+**Revision history**: §7.1 originally shipped a deliberately narrowed trial model — free-only, hidden auto-generated trial price, no product transition, no repeat — matching the "Defer" list in `IMPLEMENTATION.md`'s Phase 3 section. On review, that list was never actually scheduled for a later phase (the only other place it's mentioned is Phase 13, "Polish & defer bucket," which just restates it as "logic later" with no phase attached — see the Phase 3 discussion this section now reflects). Given trials are meant to mirror Stripe's Trial Offer model, and the schema already supports all of it with zero migrations, the simplification was pulled back out. What follows is the **current, full model**; the section below preserves why each field maps the way it does.
 
-The schema models a trial offer as its own catalog row referencing **two** prices (`trial_price_id` — a zero-amount recurring price — and `transition_price_id` — the regular price it becomes) plus duration fields. None of that should ever appear as raw fields to a user. The entire experience is one question:
+### 7.1 The full `trial_offers` shape, exposed directly
+
+A trial offer references **two real, independently-managed prices** — not a hidden one the system invents:
+
+- **Trial price** (`trial_price_id`) — what the customer pays *during* the trial. A normal catalog price, visible in the Pricing tab like any other. It is **not necessarily free** — `unit_amount = 0` is just one possible price, same as Stripe's "$1 for 3 months" intro-rate pattern.
+- **Transition price** (`transition_price_id`) — what the customer moves to once the trial period ends. Defaults to the price the trial was launched from (via a price row's "+ Add trial" shortcut), but can be any active price on the product.
+- **Transition product** (`transition_product_id` / `transition_to_different_product`) — optionally, the trial can hand the customer off to a **different product** entirely (an upsell/downsell pattern), in which case the transition price is picked from that other product's price list instead.
+- **Repeat** (`duration_iterations`) — the trial price's own billing interval defines the cadence (e.g. "$1/month"); `duration_iterations` says how many times that cadence repeats before transitioning (1 = a single period, 3 = "$1/month for 3 months"). `duration_type` stays `relative` for MVP — `timestamp` (an absolute end date instead of N periods) is the one piece still genuinely deferred, since it's a different UI shape entirely and wasn't part of this round's ask.
+- **Name** (`trial_offers.name`) — a real, user-edited field ("This will appear on customers' receipts and invoices"), not auto-generated.
 
 ```
-▾ Free trial (optional)
+Create trial
+────────────
+Name
+This will appear on customers' receipts and invoices.
+[ Free trial offer                              ]
 
-  Give customers this much time before you start billing:
-   [ 14 ] [ days ▾ ]
+Trial price
+[ Choose a price                              ▾ ]
+What customers pay during the trial — a normal price, free or paid.
 
-  Preview
-  ┌─────────────────────────────────────────────┐
-  │  Day 0            Day 14           Ongoing   │
-  │  Trial starts  →  First charge  →  ₦15,000/mo│
-  │  No card required to start the trial.        │  ← if trial_end_behavior allows it (Phase 5)
-  └─────────────────────────────────────────────┘
+☐ Transition to a different product when trial ends
 
-  Customers redeem this trial once — reusing an account
-  won't grant a second free period.
+  Product when trial ends           (shown only if checked)
+  [ Choose a product                            ▾ ]
+
+Price when trial ends
+[ Choose a price                               ▾ ]
+
+☐ Repeat
+  Repeat [ 1 ] times.                (shown only if checked)
+
+                                    [ Cancel ]  [ Create ]
 ```
 
-**Mapping to schema, handled entirely server-side:**
+Product is never a field in this form — a trial is always created **from** a specific product's page and is implicitly scoped to it (`trial_offers.product_id`). This is a deliberate divergence from Stripe's own modal, which shows Product as a top-level dropdown because Stripe's trial offers aren't page-scoped the way ours are; ours don't need that dropdown because the context already answers it.
 
-| What the user sees | What gets created |
-|---|---|
-| Duration `14` `days` | A hidden `trial_price` row: `unit_amount = 0`, `currency` = matching price's currency, `billing_interval = day`, `billing_frequency = 14` |
-| (implicit) | `trial_offers.duration_type = relative`, `duration_iterations = 1` — MVP always trials for exactly one period of the chosen length, never "repeat the trial N times" (that concept stays dormant in the schema for a future power-user surface) |
-| (implicit) | `transition_price_id` = the price this trial was added from; `transition_to_different_product = false`; `product_id` = that price's product |
-| `once_per_customer` | Always `true` for MVP — not exposed as a toggle; it's the safe default and the schema field exists for a future "allow repeat trials" power setting |
+**Picker scope**: "Trial price" and the same-product "Price when trial ends" only list the current product's own prices. The "Product when trial ends" dropdown searches the team's *other* active products; once one is picked, "Price when trial ends" repopulates from that product's prices instead.
 
-This keeps the form to a single duration input while using the schema exactly as designed — nothing here requires a schema change, it's purely an input simplification with sensible defaults filled in server-side.
-
-**Duration unit choices**: `days` / `weeks` / `months` — mapped directly to `billing_interval`. Defaulting the picker to `days` (not `month`) matches how most SaaS trials are actually communicated ("14-day free trial," rarely "1-month free trial") and avoids ambiguity around month-length.
+**A price is a price, full stop**: because the trial price is a normal row, the Pricing tab shows a small badge on any price currently serving as a trial price ("Trial price for {trial name}"), and a price a trial transitions *into* shows an inline note ("Trial '{trial name}' leads here"). Neither hides the price from the list or from being picked for anything else — a price can be a regular price, a trial price, and a transition target all at once if that's genuinely what the catalog looks like.
 
 ### 7.2 Editing and removing a trial
 
-- **Editing duration** on a trial with no redemptions yet: free edit, updates in place.
-- **Removing a trial**: confirmation dialog — *"New subscriptions to Pro Plan Monthly will no longer include a free trial. Customers currently mid-trial are unaffected."* (relies on `subscription_item_trials` snapshotting the offer at redemption time, per schema — safe to state confidently once Phase 5 exists, but worth designing the copy now so it doesn't need reworking later.)
-- **Once a trial has live redemptions** (Phase 5+), duration becomes locked for the same reason prices lock — edits would retroactively change a promise already made to a customer. UI disables the field with a tooltip: *"This trial has active customers — create a new trial offer instead of editing this one."* Not enforceable until subscriptions exist, but worth stating the rule now so Phase 5 doesn't have to invent it under time pressure.
+- **Editing** (name, trial price, transition target, repeat count) is a free, in-place edit for as long as the trial has no redemptions — same "no lock until used" posture as prices (Principle 6). No hidden price to reconcile: editing the trial price just repoints `trial_price_id` at a different existing price.
+- **Removing a trial** deletes the `trial_offers` row only — it **never** deletes the trial price or transition price, since both are real, independently-owned catalog prices that may be referenced elsewhere. Confirmation copy: *"New subscriptions to {product} will no longer include this trial. Customers currently mid-trial are unaffected."* (relies on `subscription_item_trials` snapshotting the offer at redemption time, per schema — safe to state confidently once Phase 5 exists.)
+- **Once a trial has live redemptions** (Phase 5+), the same fields lock for the same reason prices lock — edits would retroactively change a promise already made to a customer. Not enforceable until subscriptions exist, but worth stating the rule now so Phase 5 doesn't have to invent it under time pressure.
 
 ---
 
@@ -420,18 +438,15 @@ Every empty state follows the same beat: **what is this → why create one → w
               [ + Add a price ]
 ```
 
-### Product Detail → Trials tab (has prices, no trial)
+### Product Detail → Trials section (has prices, no trials)
 
 ```
-        No free trial on this product yet
+        No trials on this product yet
 
-   A free trial lets new customers use Pro Plan
-   before their card is charged. Add one from
-   any price below, or skip it — trials are
-   entirely optional.
+   Trials are entirely optional — create one
+   whenever you're ready.
 
-   [ Monthly — ₦15,000/mo    + Add trial ]
-   [ Annual  — ₦150,000/yr   + Add trial ]
+                              [ + Create trial ]
 ```
 
 ### "All prices" tab, filtered to zero results (search/filter, not true-empty)
@@ -453,7 +468,7 @@ Every empty state follows the same beat: **what is this → why create one → w
 **Success**:
 - Product created → toast: *"Pro Plan created"* with a "View product" action button in the toast itself (`sonner` supports action buttons), landing straight on the new Product Detail page anyway, so the toast action is a convenience if they navigated away.
 - Price added → toast: *"Monthly price added to Pro Plan"* + the new row animates in with a brief highlight fade (background flashes a soft accent color for ~600ms then settles) rather than just appearing — confirms *which* row is new without a jarring layout jump.
-- Trial enabled → inline confirmation, not a toast: the price row's "No trial" label morphs directly into "🎁 Free trial: 14 days" with a quick scale-in on the gift icon. Reserve toasts for actions whose result isn't already visible on screen; this one is.
+- Trial created → toast: *"Trial created"*, and the Trials section (already on-screen, since the drawer never navigates away) gains the new row directly.
 - Copy Product ID → button icon swaps to a checkmark for ~1.5s (standard copy-affordance pattern), no toast needed for something this low-stakes.
 
 **Errors**:
@@ -469,7 +484,7 @@ Every empty state follows the same beat: **what is this → why create one → w
 |---|---|
 | Product created | Toast w/ "View product" action; redirect to detail page |
 | Price added | Toast; new row highlight-fade animation |
-| Trial enabled | Inline icon/label morph, no toast |
+| Trial created | Toast; new row appears in the on-screen Trials section |
 | Copy Product ID / Price ID | Icon → checkmark, 1.5s, no toast |
 | Skeleton loading | Shape-matched skeletons for cards/rows, never bare spinners for lists |
 | Inline validation | Red helper text under field, shake animation on submit attempt with invalid required field |
@@ -482,34 +497,33 @@ Every empty state follows the same beat: **what is this → why create one → w
 ## 11. Copy deck
 
 **Buttons**
-- Primary creation: `Create product` / `Add price` / `Add a free trial`
+- Primary creation: `Create product` / `Add price` / `Create trial`
 - Secondary: `Cancel`, `Save changes`, `View product`, `Copy ID`
-- Destructive: `Archive product`, `Archive price`, `Remove trial` (never bare "Delete" — archiving is the real operation, and "remove" for trials since it detaches rather than destroys history)
+- Destructive: `Archive product`, `Archive price`, `Remove` (trials — never bare "Delete"; archiving/removing is the real operation, and "remove" for trials since it detaches the offer rather than destroying the prices it references)
 
 **Tooltips**
 - Price count on a product with zero prices: *"This product has no price yet — customers can't subscribe to it until you add one."*
 - Currency field: *"Prices are billed in one currency. To offer another currency, create a separate price."*
-- Locked price amount: *"This price is live. Change the amount to create a new price and keep this one for existing customers."*
-- `once_per_customer` (if ever surfaced): *"A customer can only redeem this trial once, even across multiple subscriptions."*
+- Locked price amount: *"This price has active subscribers. Change the amount to create a new price and keep this one for existing customers."* (Phase 5+, once subscriptions exist — see Principle 6)
+- Trial price picker: *"What customers pay during the trial — a normal price, free or paid."*
 
 **Descriptions (page subtitles)**
 - Products index: *"What you sell. Add pricing to a product to start billing for it."*
 - Product creation: *"Products are what you sell — add pricing below to start billing for it."*
 - Price drawer: *"Prices define how customers pay for {product name}."*
-- Trials section: *"Give new customers time to try {product name} before they're charged."*
+- Trial drawer: *"Automatically attached to {product name}."*
 
 **Validation**
 - Empty product name: *"Give your product a name — customers will see this on their invoice."*
 - Amount ≤ 0: *"Enter an amount greater than zero."*
 - No interval selected on recurring: *"Choose how often this price bills."*
+- Trial and transition price the same: *"Choose a different price for when the trial ends."*
 
 **Success toasts**
 - *"{Product} created"*
 - *"{Interval} price added to {Product}"*
 - *"{Product} archived"*
-
-**Trial explainer (used in both creation and detail views)**
-> *"During the trial, {Product} is free. On day {N}, the customer is automatically charged {price} and billing continues on the normal schedule. No separate action needed from you."*
+- *"Trial created"* / *"Trial updated"* / *"Trial removed"*
 
 ---
 
@@ -540,10 +554,10 @@ Settled during review. None require edits to `schema.md`/`IMPLEMENTATION.md` (ke
 Mapped to `IMPLEMENTATION.md`'s Phase 3 exit criteria ("Team creates 'Pro' product with monthly price and optional free trial offer"), in the order that produces a demoable increment fastest:
 
 1. **Migrations/models** — `products`, `prices`, `price_tiers` (standard only functioning first; graduated tiers can land as a fast-follow within the phase), `trial_offers`.
-2. **Products index + creation page** ([§5.1](#51-products-index), [§5.2](#52-product-creation-flow)) — without pricing/trial sections wired yet, just Name/Description/Category → gets a Product row persisting end-to-end first.
-3. **Product Detail (Overview + Pricing tabs)** ([§5.3](#53-product-detail-page--the-hub)) — hub page navigable, even with an empty Pricing tab.
-4. **Price creation drawer** ([§6.2](#62-price-creation-drawer)) — standard pricing model only first; wire into both the Product creation page's Pricing section and the Product Detail Pricing tab (same underlying component).
-5. **Trial creation** ([§7.1](#71-simplifying-trial_offers-for-the-person-filling-out-the-form)) — the duration-only form + server-side mapping to `trial_offers`/hidden trial price.
+2. **Products index + creation page** ([§5.1](#51-products-index), [§5.2](#52-product-creation-flow)) — without a pricing section wired yet, just Name/Description/Category → gets a Product row persisting end-to-end first.
+3. **Product Detail page** ([§5.3](#53-product-detail-page--the-hub)) — single-scroll hub navigable, even with an empty Pricing section.
+4. **Price creation drawer** ([§6.2](#62-price-creation-drawer)) — standard pricing model only first; wire into both the Product creation page's Pricing section and the Product Detail Pricing section (same underlying component).
+5. **Trial creation** ([§7.1](#71-the-full-trial_offers-shape-exposed-directly)) — name, trial-price picker, transition-to-different-product, repeat; server-side mapping straight onto `trial_offers` (no hidden price to synthesize).
 6. **Empty states across all three** ([§8](#8-empty-states)) — cheap once the pages exist, disproportionately important for the demo narrative.
 7. **Graduated pricing model + "Advanced pricing" disclosure** — last, since it's explicitly the harder/optional half of the tiered requirement.
-8. **Activity tab, "All prices" tab** — nice-to-haves that don't block the Phase 3 exit criteria; sequence after if time allows, otherwise carry into Phase 13 polish.
+8. **Metadata editor, "All prices" tab** — nice-to-haves that don't block the Phase 3 exit criteria; sequence after if time allows, otherwise carry into Phase 13 polish.

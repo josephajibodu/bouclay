@@ -2,7 +2,6 @@ export type CatalogStatus = 'active' | 'archived';
 export type PriceType = 'recurring' | 'one_time';
 export type PricingModel = 'standard' | 'graduated';
 export type BillingInterval = 'day' | 'week' | 'month' | 'year';
-export type TrialDurationUnit = 'day' | 'week' | 'month';
 
 export type PriceTier = {
     id: number;
@@ -10,13 +9,6 @@ export type PriceTier = {
     upTo: number | null;
     unitAmount: number;
     flatAmount: number | null;
-};
-
-export type PriceTrial = {
-    id: number;
-    durationAmount: number;
-    durationUnit: TrialDurationUnit;
-    oncePerCustomer: boolean;
 };
 
 export type Price = {
@@ -31,7 +23,25 @@ export type Price = {
     billingFrequency: number;
     status: CatalogStatus;
     tiers: PriceTier[];
-    trial: PriceTrial | null;
+};
+
+export type PriceRef = { id: number; label: string };
+
+export type TrialOffer = {
+    id: number;
+    name: string;
+    trialPrice: PriceRef;
+    transitionToDifferentProduct: boolean;
+    transitionProduct: { id: number; name: string } | null;
+    transitionPrice: PriceRef;
+    durationIterations: number;
+    active: boolean;
+};
+
+export type OtherProduct = {
+    id: number;
+    name: string;
+    prices: PriceRef[];
 };
 
 export type CatalogProduct = {

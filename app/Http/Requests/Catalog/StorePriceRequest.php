@@ -4,7 +4,6 @@ namespace App\Http\Requests\Catalog;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StorePriceRequest extends FormRequest
 {
@@ -27,10 +26,6 @@ class StorePriceRequest extends FormRequest
             'tiers.*.up_to' => ['nullable', 'integer', 'min:1'],
             'tiers.*.unit_amount' => ['required', 'numeric', 'min:0'],
             'tiers.*.flat_amount' => ['nullable', 'numeric', 'min:0'],
-
-            'trial' => ['nullable', 'array'],
-            'trial.duration_amount' => ['required_with:trial', 'integer', 'min:1'],
-            'trial.duration_unit' => ['required_with:trial', Rule::in(['day', 'week', 'month'])],
         ];
     }
 }

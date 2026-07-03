@@ -5,7 +5,6 @@ import { useState } from 'react';
 import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
     Collapsible,
     CollapsibleContent,
@@ -34,7 +33,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { formatPriceInterval, formatTierSummary } from '@/lib/utils';
 import { store } from '@/routes/catalog/prices';
-import type { BillingInterval, PriceType, PricingModel, TrialDurationUnit } from '@/types';
+import type { BillingInterval, PriceType, PricingModel } from '@/types';
 
 type Tier = { upTo: string; unitAmount: string; flatAmount: string };
 
@@ -67,9 +66,6 @@ export default function CreatePriceDrawer({
         { upTo: '', unitAmount: '', flatAmount: '' },
         { upTo: '', unitAmount: '', flatAmount: '' },
     ]);
-    const [trialEnabled, setTrialEnabled] = useState(false);
-    const [trialAmount, setTrialAmount] = useState('14');
-    const [trialUnit, setTrialUnit] = useState<TrialDurationUnit>('day');
 
     const reset = () => {
         setType('recurring');
@@ -82,9 +78,6 @@ export default function CreatePriceDrawer({
             { upTo: '', unitAmount: '', flatAmount: '' },
             { upTo: '', unitAmount: '', flatAmount: '' },
         ]);
-        setTrialEnabled(false);
-        setTrialAmount('14');
-        setTrialUnit('day');
     };
 
     const handleOpenChange = (nextOpen: boolean) => {
@@ -142,12 +135,6 @@ export default function CreatePriceDrawer({
                                               : null,
                                       }))
                                 : undefined,
-                        trial: trialEnabled
-                            ? {
-                                  duration_amount: Number(trialAmount) || 1,
-                                  duration_unit: trialUnit,
-                              }
-                            : undefined,
                     })}
                     className="flex h-full flex-col"
                     onSuccess={() => handleOpenChange(false)}
@@ -459,59 +446,6 @@ export default function CreatePriceDrawer({
                                         )}
                                     </CollapsibleContent>
                                 </Collapsible>
-
-                                <div className="space-y-3 border-t pt-4">
-                                    <label className="flex items-start gap-2 text-sm">
-                                        <Checkbox
-                                            checked={trialEnabled}
-                                            onCheckedChange={(checked) =>
-                                                setTrialEnabled(
-                                                    checked === true,
-                                                )
-                                            }
-                                            data-test="drawer-trial-toggle"
-                                        />
-                                        Add a free trial
-                                    </label>
-                                    {trialEnabled && (
-                                        <div className="flex items-center gap-2 pl-6">
-                                            <Input
-                                                type="number"
-                                                min={1}
-                                                className="w-20"
-                                                value={trialAmount}
-                                                onChange={(e) =>
-                                                    setTrialAmount(
-                                                        e.target.value,
-                                                    )
-                                                }
-                                            />
-                                            <Select
-                                                value={trialUnit}
-                                                onValueChange={(value) =>
-                                                    setTrialUnit(
-                                                        value as TrialDurationUnit,
-                                                    )
-                                                }
-                                            >
-                                                <SelectTrigger className="w-32">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="day">
-                                                        days
-                                                    </SelectItem>
-                                                    <SelectItem value="week">
-                                                        weeks
-                                                    </SelectItem>
-                                                    <SelectItem value="month">
-                                                        months
-                                                    </SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    )}
-                                </div>
 
                                 {pricingModel === 'standard' && (
                                     <div

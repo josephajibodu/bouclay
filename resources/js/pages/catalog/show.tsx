@@ -33,11 +33,13 @@ import {
     toMonthlyEquivalent,
 } from '@/lib/utils';
 import { index as productsIndex } from '@/routes/catalog/products';
-import type { Price, ProductDetail } from '@/types';
+import type { OtherProduct, Price, ProductDetail, TrialOffer } from '@/types';
 
 type Props = {
     product: ProductDetail;
     prices: Price[];
+    trials: TrialOffer[];
+    otherProducts: OtherProduct[];
     permissions: {
         canManageProducts: boolean;
         canManagePrices: boolean;
@@ -66,7 +68,13 @@ function priceLabel(price: Price): string {
     return 'Price';
 }
 
-export default function ProductShow({ product, prices, permissions }: Props) {
+export default function ProductShow({
+    product,
+    prices,
+    trials,
+    otherProducts,
+    permissions,
+}: Props) {
     const { currentTeam } = usePage().props;
 
     const [copied, setCopied] = useState(false);
@@ -79,22 +87,19 @@ export default function ProductShow({ product, prices, permissions }: Props) {
     const [archivePriceTarget, setArchivePriceTarget] = useState<Price | null>(
         null,
     );
-    const [trialDrawerPrice, setTrialDrawerPrice] = useState<Price | null>(
+    const [trialRowTarget, setTrialRowTarget] = useState<number | null>(null);
+    const [editTrialTarget, setEditTrialTarget] = useState<TrialOffer | null>(
         null,
     );
-    const [removeTrialTarget, setRemoveTrialTarget] = useState<Price | null>(
-        null,
-    );
+    const [removeTrialTarget, setRemoveTrialTarget] =
+        useState<TrialOffer | null>(null);
 
     if (!currentTeam) {
         return null;
     }
 
     const activePrices = prices.filter((p) => p.status === 'active');
-    const pricesWithTrial = activePrices.filter((p) => p.trial !== null);
-    const eligibleForTrial = activePrices
-        .filter((p) => p.trial === null)
-        .map((p) => ({ id: p.id, label: priceLabel(p) }));
+    const priceRefs = prices.map((p) => ({ id: p.id, label: priceLabel(p) }));
     const metadataEntries = Object.entries(product.customData ?? {});
 
     const copyId = async () => {
@@ -304,9 +309,12 @@ export default function ProductShow({ product, prices, permissions }: Props) {
                             <PriceRow
                                 key={price.id}
                                 price={price}
+                                trials={trials}
                                 currentTeamSlug={currentTeam.slug}
                                 productId={product.id}
                                 productName={product.name}
+                                priceRefs={priceRefs}
+                                otherProducts={otherProducts}
                                 canManagePrices={permissions.canManagePrices}
                                 canManageTrials={
                                     permissions.canManageTrialOffers
@@ -316,9 +324,9 @@ export default function ProductShow({ product, prices, permissions }: Props) {
                                     setEditPriceTarget(open ? price : null)
                                 }
                                 onArchive={() => setArchivePriceTarget(price)}
-                                trialOpen={trialDrawerPrice?.id === price.id}
+                                trialOpen={trialRowTarget === price.id}
                                 onTrialOpenChange={(open) =>
-                                    setTrialDrawerPrice(open ? price : null)
+                                    setTrialRowTarget(open ? price.id : null)
                                 }
                             />
                         ))}
@@ -335,38 +343,38 @@ export default function ProductShow({ product, prices, permissions }: Props) {
                         <h2 className="text-lg font-semibold">Trials</h2>
                         <p className="text-sm text-muted-foreground">
                             Let new customers try {product.name} before
-                            they're charged.
+                            transitioning to a regular price.
                         </p>
                     </div>
-                    {permissions.canManageTrialOffers &&
-                        activePrices.length > 0 && (
-                            <TrialDrawer
-                                currentTeamSlug={currentTeam.slug}
-                                productId={product.id}
-                                productName={product.name}
-                                eligiblePrices={eligibleForTrial}
-                                open={createTrialOpen}
-                                onOpenChange={setCreateTrialOpen}
+                    {permissions.canManageTrialOffers && (
+                        <TrialDrawer
+                            currentTeamSlug={currentTeam.slug}
+                            productId={product.id}
+                            productName={product.name}
+                            prices={priceRefs}
+                            otherProducts={otherProducts}
+                            open={createTrialOpen}
+                            onOpenChange={setCreateTrialOpen}
+                        >
+                            <Button
+                                data-test="create-trial-trigger"
+                                disabled={prices.length === 0}
                             >
-                                <Button
-                                    data-test="create-trial-trigger"
-                                    disabled={eligibleForTrial.length === 0}
-                                >
-                                    <Plus /> Create trial
-                                </Button>
-                            </TrialDrawer>
-                        )}
+                                <Plus /> Create trial
+                            </Button>
+                        </TrialDrawer>
+                    )}
                 </div>
 
-                {activePrices.length === 0 ? (
+                {prices.length === 0 ? (
                     <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                        Add a price first — trials attach to a specific
-                        price.
+                        Add a price first — a trial needs at least one price
+                        to reference.
                     </div>
-                ) : pricesWithTrial.length === 0 ? (
+                ) : trials.length === 0 ? (
                     <div className="space-y-1 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
                         <p className="font-medium text-foreground">
-                            No free trial on this product yet
+                            No trials on this product yet
                         </p>
                         <p>
                             Trials are entirely optional — create one
@@ -375,59 +383,58 @@ export default function ProductShow({ product, prices, permissions }: Props) {
                     </div>
                 ) : (
                     <div className="divide-y rounded-lg border">
-                        {pricesWithTrial.map((price) => (
+                        {trials.map((trial) => (
                             <div
-                                key={price.id}
+                                key={trial.id}
                                 className="flex items-center justify-between gap-4 p-4"
                             >
-                                <div className="flex items-center gap-2 text-sm">
-                                    <Gift className="size-4 text-muted-foreground" />
-                                    <span className="font-medium">
-                                        {price.trial!.durationAmount}{' '}
-                                        {price.trial!.durationUnit}
-                                        {price.trial!.durationAmount === 1
-                                            ? ''
-                                            : 's'}{' '}
-                                        free trial
-                                    </span>
-                                    <span className="text-muted-foreground">
-                                        on {priceLabel(price)}
-                                    </span>
-                                    <Badge variant="secondary">Active</Badge>
-                                </div>
-                                {permissions.canManageTrialOffers && (
+                                <div className="min-w-0 space-y-1">
                                     <div className="flex items-center gap-2">
-                                        <TrialDrawer
-                                            currentTeamSlug={
-                                                currentTeam.slug
-                                            }
-                                            productId={product.id}
-                                            productName={product.name}
-                                            priceId={price.id}
-                                            trial={price.trial}
-                                            open={
-                                                trialDrawerPrice?.id ===
-                                                price.id
-                                            }
-                                            onOpenChange={(open) =>
-                                                setTrialDrawerPrice(
-                                                    open ? price : null,
-                                                )
+                                        <Gift className="size-4 shrink-0 text-muted-foreground" />
+                                        <span className="font-medium">
+                                            {trial.name}
+                                        </span>
+                                        <Badge
+                                            variant={
+                                                trial.active
+                                                    ? 'secondary'
+                                                    : 'outline'
                                             }
                                         >
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                            >
-                                                Edit
-                                            </Button>
-                                        </TrialDrawer>
+                                            {trial.active
+                                                ? 'Active'
+                                                : 'Inactive'}
+                                        </Badge>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                        {trial.trialPrice.label}
+                                        {trial.durationIterations > 1 &&
+                                            ` × ${trial.durationIterations}`}
+                                        {' → '}
+                                        {trial.transitionToDifferentProduct &&
+                                        trial.transitionProduct
+                                            ? `${trial.transitionProduct.name}: `
+                                            : ''}
+                                        {trial.transitionPrice.label}
+                                    </p>
+                                </div>
+                                {permissions.canManageTrialOffers && (
+                                    <div className="flex shrink-0 items-center gap-2">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() =>
+                                                setEditTrialTarget(trial)
+                                            }
+                                        >
+                                            Edit
+                                        </Button>
                                         <Button
                                             variant="ghost"
                                             size="sm"
                                             className="text-destructive hover:text-destructive"
                                             onClick={() =>
-                                                setRemoveTrialTarget(price)
+                                                setRemoveTrialTarget(trial)
                                             }
                                         >
                                             Remove
@@ -517,12 +524,24 @@ export default function ProductShow({ product, prices, permissions }: Props) {
                     }
                 />
             )}
-            {removeTrialTarget?.trial && (
+            {editTrialTarget && (
+                <TrialDrawer
+                    currentTeamSlug={currentTeam.slug}
+                    productId={product.id}
+                    productName={product.name}
+                    prices={priceRefs}
+                    otherProducts={otherProducts}
+                    trial={editTrialTarget}
+                    open={editTrialTarget !== null}
+                    onOpenChange={(open) => !open && setEditTrialTarget(null)}
+                />
+            )}
+            {removeTrialTarget && (
                 <RemoveTrialModal
                     currentTeamSlug={currentTeam.slug}
                     productId={product.id}
                     productName={product.name}
-                    trialId={removeTrialTarget.trial.id}
+                    trialId={removeTrialTarget.id}
                     open={removeTrialTarget !== null}
                     onOpenChange={(open) =>
                         !open && setRemoveTrialTarget(null)
@@ -535,9 +554,12 @@ export default function ProductShow({ product, prices, permissions }: Props) {
 
 function PriceRow({
     price,
+    trials,
     currentTeamSlug,
     productId,
     productName,
+    priceRefs,
+    otherProducts,
     canManagePrices,
     canManageTrials,
     editOpen,
@@ -547,9 +569,12 @@ function PriceRow({
     onTrialOpenChange,
 }: {
     price: Price;
+    trials: TrialOffer[];
     currentTeamSlug: string;
     productId: number;
     productName: string;
+    priceRefs: { id: number; label: string }[];
+    otherProducts: OtherProduct[];
     canManagePrices: boolean;
     canManageTrials: boolean;
     editOpen: boolean;
@@ -569,6 +594,11 @@ function PriceRow({
               )
             : null;
 
+    const leadsToThisPrice = trials.find(
+        (t) => t.transitionPrice.id === price.id,
+    );
+    const isTrialPriceFor = trials.find((t) => t.trialPrice.id === price.id);
+
     return (
         <div className="flex items-center justify-between gap-4 p-4">
             <div className="min-w-0 space-y-1">
@@ -584,6 +614,11 @@ function PriceRow({
                     >
                         {price.status}
                     </Badge>
+                    {isTrialPriceFor && (
+                        <Badge variant="outline">
+                            Trial price for {isTrialPriceFor.name}
+                        </Badge>
+                    )}
                 </div>
                 <p className="text-sm text-muted-foreground">
                     {price.pricingModel === 'graduated' ? (
@@ -613,11 +648,10 @@ function PriceRow({
                         'One-time'
                     )}
                 </p>
-                {price.trial ? (
+                {leadsToThisPrice ? (
                     <p className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Gift className="size-3.5" /> Free trial:{' '}
-                        {price.trial.durationAmount} {price.trial.durationUnit}
-                        {price.trial.durationAmount === 1 ? '' : 's'}
+                        <Gift className="size-3.5" /> Trial "
+                        {leadsToThisPrice.name}" leads here
                     </p>
                 ) : (
                     canManageTrials &&
@@ -626,7 +660,9 @@ function PriceRow({
                             currentTeamSlug={currentTeamSlug}
                             productId={productId}
                             productName={productName}
-                            priceId={price.id}
+                            prices={priceRefs}
+                            otherProducts={otherProducts}
+                            defaultTransitionPriceId={price.id}
                             open={trialOpen}
                             onOpenChange={onTrialOpenChange}
                         >

@@ -5,7 +5,6 @@ import { ProductMonogram } from '@/components/catalog/product-monogram';
 import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
     Collapsible,
     CollapsibleContent,
@@ -25,7 +24,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { formatPriceInterval, formatTierSummary } from '@/lib/utils';
 import { index as productsIndex, store } from '@/routes/catalog/products';
-import type { BillingInterval, PriceType, PricingModel, TrialDurationUnit } from '@/types';
+import type { BillingInterval, PriceType, PricingModel } from '@/types';
 
 type Props = {
     defaultCurrency: string;
@@ -48,10 +47,6 @@ export default function CreateProduct({ defaultCurrency }: Props) {
         { upTo: '', unitAmount: '', flatAmount: '' },
         { upTo: '', unitAmount: '', flatAmount: '' },
     ]);
-
-    const [trialEnabled, setTrialEnabled] = useState(false);
-    const [trialAmount, setTrialAmount] = useState('14');
-    const [trialUnit, setTrialUnit] = useState<TrialDurationUnit>('day');
 
     if (!currentTeam) {
         return null;
@@ -122,13 +117,6 @@ export default function CreateProduct({ defaultCurrency }: Props) {
                                       : undefined,
                           }
                         : null,
-                    trial:
-                        hasPrice && trialEnabled
-                            ? {
-                                  duration_amount: Number(trialAmount) || 1,
-                                  duration_unit: trialUnit,
-                              }
-                            : null,
                 })}
                 className="flex flex-col gap-8"
             >
@@ -504,72 +492,6 @@ export default function CreateProduct({ defaultCurrency }: Props) {
                             )}
                         </section>
 
-                        <section
-                            className={`space-y-3 ${hasPrice ? '' : 'pointer-events-none opacity-50'}`}
-                        >
-                            <h2 className="text-sm font-medium text-muted-foreground uppercase">
-                                Free trial (optional)
-                            </h2>
-
-                            <label className="flex items-start gap-2 text-sm">
-                                <Checkbox
-                                    checked={trialEnabled}
-                                    onCheckedChange={(checked) =>
-                                        setTrialEnabled(checked === true)
-                                    }
-                                    data-test="trial-toggle"
-                                />
-                                Give customers a free trial before billing
-                            </label>
-
-                            {trialEnabled && (
-                                <div className="flex items-center gap-2 pl-6">
-                                    <span className="text-sm">
-                                        Trial customers for
-                                    </span>
-                                    <Input
-                                        type="number"
-                                        min={1}
-                                        className="w-20"
-                                        value={trialAmount}
-                                        onChange={(e) =>
-                                            setTrialAmount(e.target.value)
-                                        }
-                                        data-test="trial-amount"
-                                    />
-                                    <Select
-                                        value={trialUnit}
-                                        onValueChange={(value) =>
-                                            setTrialUnit(
-                                                value as TrialDurationUnit,
-                                            )
-                                        }
-                                    >
-                                        <SelectTrigger
-                                            className="w-32"
-                                            data-test="trial-unit"
-                                        >
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="day">
-                                                days
-                                            </SelectItem>
-                                            <SelectItem value="week">
-                                                weeks
-                                            </SelectItem>
-                                            <SelectItem value="month">
-                                                months
-                                            </SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <span className="text-sm text-muted-foreground">
-                                        before their first charge.
-                                    </span>
-                                </div>
-                            )}
-                        </section>
-
                         <div className="flex justify-end">
                             <Button
                                 type="submit"
@@ -612,12 +534,6 @@ export default function CreateProduct({ defaultCurrency }: Props) {
                         ) : (
                             <p className="text-muted-foreground">
                                 No price yet
-                            </p>
-                        )}
-                        {hasPrice && trialEnabled && (
-                            <p className="text-muted-foreground">
-                                Free trial: {trialAmount || 0} {trialUnit}
-                                {Number(trialAmount) === 1 ? '' : 's'}
                             </p>
                         )}
                     </div>

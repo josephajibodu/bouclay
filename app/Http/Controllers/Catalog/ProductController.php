@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Catalog;
 
 use App\Actions\Catalog\CreatePrice;
-use App\Actions\Catalog\CreateTrialOffer;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\StoreProductRequest;
 use App\Http\Requests\Catalog\UpdateProductRequest;
@@ -11,17 +10,14 @@ use App\Models\Product;
 use App\Models\TrialOffer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ProductController extends Controller
 {
-    public function __construct(
-        private readonly CreatePrice $createPrice,
-        private readonly CreateTrialOffer $createTrialOffer,
-    ) {
+    public function __construct(private readonly CreatePrice $createPrice)
+    {
         //
     }
 
@@ -35,7 +31,7 @@ class ProductController extends Controller
         Gate::authorize('viewProducts', $team);
 
         $products = $team->products()
-            ->with(['prices' => fn ($query) => $query->customerFacing()->where('status', 'active')])
+            ->with(['prices' => fn ($query) => $query->where('status', 'active')])
             ->orderByDesc('created_at')
             ->get()
             ->map(fn (Product $product) => [
@@ -69,7 +65,10 @@ class ProductController extends Controller
     }
 
     /**
-     * Create a product, optionally with its first price and a free trial.
+     * Create a product, optionally with its first price. Trials are
+     * created afterward, from the product page — see CATALOG_DESIGN.md
+     * §7.1 (revised): a trial needs a real trial price to reference, which
+     * doesn't exist until at least one price has been created.
      */
     public function store(StoreProductRequest $request): RedirectResponse
     {
@@ -77,29 +76,19 @@ class ProductController extends Controller
 
         Gate::authorize('manageProducts', $team);
 
-        $product = DB::transaction(function () use ($team, $request) {
-            $product = $team->products()->create([
-                'name' => $request->validated('name'),
-                'description' => $request->validated('description'),
-                'category' => $request->validated('category'),
-            ]);
+        $product = $team->products()->create([
+            'name' => $request->validated('name'),
+            'description' => $request->validated('description'),
+            'category' => $request->validated('category'),
+        ]);
 
-            $priceData = $request->validated('price');
+        $priceData = $request->validated('price');
 
-            if ($priceData) {
-                $priceData['currency'] ??= $team->default_currency;
+        if ($priceData) {
+            $priceData['currency'] ??= $team->default_currency;
 
-                $price = $this->createPrice->handle($product, $priceData);
-
-                $trialData = $request->validated('trial');
-
-                if ($trialData) {
-                    $this->createTrialOffer->handle($price, $trialData);
-                }
-            }
-
-            return $product;
-        });
+            $this->createPrice->handle($product, $priceData);
+        }
 
         Inertia::flash('toast', ['type' => 'success', 'message' => "{$product->name} created"]);
 
@@ -107,7 +96,8 @@ class ProductController extends Controller
     }
 
     /**
-     * Show the product detail hub — overview, pricing, and trials.
+     * Show the product detail hub — info, pricing, trials, and metadata
+     * on one scrollable page.
      *
      * `$current_team` isn't used directly — see the same note on
      * ApiKeyController::destroy for why it must stay in the signature.
@@ -120,13 +110,29 @@ class ProductController extends Controller
 
         Gate::authorize('viewProducts', $team);
 
-        $product->load(['prices' => fn ($query) => $query->customerFacing()->with('tiers')->orderBy('created_at')]);
+        $product->load(['prices' => fn ($query) => $query->with('tiers')->orderBy('created_at')]);
 
-        $trialsByPrice = TrialOffer::query()
+        $trials = TrialOffer::query()
             ->where('product_id', $product->id)
-            ->with('trialPrice')
+            ->with(['trialPrice', 'transitionPrice', 'transitionProduct'])
+            ->get();
+
+        // Other active products (with their active prices) — populates the
+        // "transition to a different product" picker in the trial drawer.
+        $otherProducts = $team->products()
+            ->where('id', '!=', $product->id)
+            ->where('status', 'active')
+            ->with(['prices' => fn ($query) => $query->where('status', 'active')])
+            ->orderBy('name')
             ->get()
-            ->keyBy('transition_price_id');
+            ->map(fn (Product $other) => [
+                'id' => $other->id,
+                'name' => $other->name,
+                'prices' => $other->prices->map(fn ($price) => [
+                    'id' => $price->id,
+                    'label' => $price->toPickerLabel(),
+                ])->all(),
+            ]);
 
         return Inertia::render('catalog/show', [
             'product' => [
@@ -139,9 +145,9 @@ class ProductController extends Controller
                 'customData' => $product->custom_data,
                 'createdAt' => $product->created_at?->toISOString(),
             ],
-            'prices' => $product->prices
-                ->map(fn ($price) => $price->toCatalogArray($trialsByPrice->get($price->id)))
-                ->all(),
+            'prices' => $product->prices->map(fn ($price) => $price->toCatalogArray())->all(),
+            'trials' => $trials->map(fn (TrialOffer $trial) => $trial->toCatalogArray())->all(),
+            'otherProducts' => $otherProducts,
             'permissions' => [
                 'canManageProducts' => $request->user()->toTeamPermissions($team)->canManageProducts,
                 'canManagePrices' => $request->user()->toTeamPermissions($team)->canManagePrices,

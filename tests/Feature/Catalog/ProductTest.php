@@ -2,7 +2,6 @@
 
 use App\Models\Product;
 use App\Models\Team;
-use App\Models\TrialOffer;
 use App\Models\User;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -44,7 +43,7 @@ test('members without products permission cannot view the page', function () {
     $response->assertForbidden();
 });
 
-test('a product can be created with a price and a free trial in one request', function () {
+test('a product can be created with a price in one request', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create(['default_currency' => 'NGN']);
 
@@ -64,32 +63,18 @@ test('a product can be created with a price and a free trial in one request', fu
                 'billing_interval' => 'month',
                 'billing_frequency' => 1,
             ],
-            'trial' => [
-                'duration_amount' => 14,
-                'duration_unit' => 'day',
-            ],
         ]);
 
     $product = Product::query()->where('name', 'Pro Plan')->firstOrFail();
 
     $response->assertRedirect(route('catalog.products.show', [$team, $product]));
 
-    expect($product->prices()->customerFacing()->count())->toBe(1);
+    expect($product->prices()->count())->toBe(1);
 
-    $price = $product->prices()->customerFacing()->firstOrFail();
+    $price = $product->prices()->firstOrFail();
     expect($price->unit_amount)->toBe(1500000)
         ->and($price->currency)->toBe('NGN')
         ->and($price->billing_interval->value)->toBe('month');
-
-    $trial = TrialOffer::query()->where('product_id', $product->id)->firstOrFail();
-    expect($trial->transition_price_id)->toBe($price->id)
-        ->and($trial->trialPrice->unit_amount)->toBe(0)
-        ->and($trial->trialPrice->billing_interval->value)->toBe('day')
-        ->and($trial->trialPrice->billing_frequency)->toBe(14)
-        ->and($trial->duration_iterations)->toBe(1);
-
-    // The hidden trial price never shows up as something a customer picks.
-    expect($product->prices()->customerFacing()->pluck('id'))->not->toContain($trial->trialPrice->id);
 });
 
 test('a product can be created without a price', function () {

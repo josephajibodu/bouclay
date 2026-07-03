@@ -12,7 +12,6 @@ use Database\Factories\PriceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -90,26 +89,16 @@ class Price extends Model
     }
 
     /**
-     * Scope to prices a customer would actually choose at checkout —
-     * excludes the hidden zero-amount prices trial offers create for
-     * themselves (see CATALOG_DESIGN.md §7.1). No schema flag needed: a
-     * price is a "trial price" purely by being referenced as one.
-     *
-     * @param  Builder<Price>  $query
-     * @return Builder<Price>
-     */
-    public function scopeCustomerFacing(Builder $query): Builder
-    {
-        return $query->whereNotIn('id', TrialOffer::query()->select('trial_price_id'));
-    }
-
-    /**
      * Format this price for the frontend — amounts converted back to major
      * currency units (see App\Actions\Catalog\CreatePrice for the reverse).
+     * Trial involvement is no longer embedded here — a price is a normal,
+     * visible catalog price whether or not a trial references it (see
+     * CATALOG_DESIGN.md §7.1, revised); the frontend cross-references the
+     * separate `trials` list against price ids when it needs to show that.
      *
      * @return array<string, mixed>
      */
-    public function toCatalogArray(?TrialOffer $trial = null): array
+    public function toCatalogArray(): array
     {
         return [
             'id' => $this->id,
@@ -131,13 +120,27 @@ class Price extends Model
                     'flatAmount' => $tier->flat_amount !== null ? $tier->flat_amount / 100 : null,
                 ])->all()
                 : [],
-            'trial' => $trial ? [
-                'id' => $trial->id,
-                'durationAmount' => $trial->trialPrice->billing_frequency,
-                'durationUnit' => $trial->trialPrice->billing_interval,
-                'oncePerCustomer' => $trial->once_per_customer,
-            ] : null,
         ];
+    }
+
+    /**
+     * Format this price as a short label for pickers (trial price /
+     * transition price dropdowns), e.g. "Monthly — NGN 15,000/mo".
+     */
+    public function toPickerLabel(): string
+    {
+        if ($this->name) {
+            return $this->name;
+        }
+
+        if ($this->unit_amount === null || $this->billing_interval === null) {
+            return 'Custom pricing';
+        }
+
+        $amount = number_format($this->unit_amount / 100, 2);
+        $frequency = $this->billing_frequency > 1 ? "{$this->billing_frequency} " : '';
+
+        return "{$this->currency} {$amount} / every {$frequency}{$this->billing_interval->value}";
     }
 
     /**

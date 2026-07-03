@@ -65,7 +65,8 @@ class TrialOffer extends Model
     }
 
     /**
-     * Get the zero-amount price charged during the trial.
+     * Get the price charged during the trial — a real catalog price, not
+     * necessarily free (see CATALOG_DESIGN.md §7.1, revised).
      *
      * @return BelongsTo<Price, $this>
      */
@@ -75,7 +76,8 @@ class TrialOffer extends Model
     }
 
     /**
-     * Get the product the item transitions to when the trial ends (future — see Principle 8 / defer list).
+     * Get the product the item transitions to when the trial ends, when
+     * `transition_to_different_product` is set — otherwise equal to `product`.
      *
      * @return BelongsTo<Product, $this>
      */
@@ -92,6 +94,34 @@ class TrialOffer extends Model
     public function transitionPrice(): BelongsTo
     {
         return $this->belongsTo(Price::class, 'transition_price_id');
+    }
+
+    /**
+     * Format this trial offer for the frontend.
+     *
+     * @return array<string, mixed>
+     */
+    public function toCatalogArray(): array
+    {
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            'trialPrice' => [
+                'id' => $this->trialPrice->id,
+                'label' => $this->trialPrice->toPickerLabel(),
+            ],
+            'transitionToDifferentProduct' => $this->transition_to_different_product,
+            'transitionProduct' => $this->transition_to_different_product ? [
+                'id' => $this->transitionProduct->id,
+                'name' => $this->transitionProduct->name,
+            ] : null,
+            'transitionPrice' => [
+                'id' => $this->transitionPrice->id,
+                'label' => $this->transitionPrice->toPickerLabel(),
+            ],
+            'durationIterations' => $this->duration_iterations,
+            'active' => $this->active,
+        ];
     }
 
     /**
