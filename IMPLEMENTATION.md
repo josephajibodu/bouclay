@@ -61,20 +61,21 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 3 — Catalog (products, prices, trials)
+## Phase 3 — Catalog (products, prices, trials) ✅ (done)
 
 **Goal:** Integrators define what they sell.
 
 **Build:**
 
-- Migrations/models: `products`, `prices`, `price_tiers` (standard + one tiered model)
+- Migrations/models: `products`, `prices`, `price_tiers` (standard + graduated)
 - Dashboard CRUD for products and prices (recurring: monthly, annual, custom interval)
-- `trial_offers` + catalog UI (free trial only for MVP — `trial_price.unit_amount = 0`, relative duration)
+- `trial_offers` + catalog UI, built to the full model — trial price is a real, independently-visible catalog price (free or paid), transitions to a regular price on the same product or a different one (`transition_to_different_product`), and can repeat for N iterations (`duration_iterations`). See [`CATALOG_DESIGN.md`](CATALOG_DESIGN.md) §7 for the UX rationale.
+- Product detail is a single scrollable page (info, pricing, trials, metadata), not tabs — every create/edit action opens a side drawer, never a navigation
 - All queries scoped by `team_id`
 
-**Defer:** paid trials, product-transition trials, timestamp-duration trials, volume + graduated (ship one tiered model only), **payment links** (a shareable, hosted checkout URL generated per price — the "Create payment link" action on a price row is a Phase 11 self-service-portal companion, since it needs the same hosted-checkout building block).
+**Defer:** timestamp-duration trials (`duration_type: timestamp` — ship `relative` only), volume pricing model (ship graduated only), **payment links** (a shareable, hosted checkout URL generated per price — the "Create payment link" action on a price row is a Phase 11 self-service-portal companion, since it needs the same hosted-checkout building block).
 
-**Exit criteria:** Team creates “Pro” product with monthly price and optional free trial offer.
+**Exit criteria:** Team creates “Pro” product with monthly price and optional trial offer. ✅
 
 ---
 
