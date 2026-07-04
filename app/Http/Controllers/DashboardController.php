@@ -58,7 +58,7 @@ class DashboardController extends Controller
                 'nomba' => route('developers.nomba.show'),
                 'apiKeys' => route('developers.api-keys.index'),
                 'webhooks' => route('developers.webhooks.show'),
-                'products' => route('catalog.products.index', $team),
+                'products' => route('catalog.products.index'),
             ],
         ];
     }

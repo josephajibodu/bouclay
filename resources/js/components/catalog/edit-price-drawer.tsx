@@ -38,7 +38,6 @@ import type { BillingInterval, Price, PriceType, PricingModel } from '@/types';
 type Tier = { upTo: string; unitAmount: string; flatAmount: string };
 
 type Props = PropsWithChildren<{
-    currentTeamSlug: string;
     productId: number;
     price: Price;
     open: boolean;
@@ -62,7 +61,6 @@ function tiersFromPrice(price: Price): Tier[] {
 
 export default function EditPriceDrawer({
     children,
-    currentTeamSlug,
     productId,
     price,
     open,
@@ -119,7 +117,7 @@ export default function EditPriceDrawer({
             <SheetContent className="h-auto w-full overflow-y-auto rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-xl">
                 <Form
                     key={`${price.id}-${String(open)}`}
-                    {...update.form([currentTeamSlug, productId, price.id])}
+                    {...update.form([productId, price.id])}
                     transform={(data) =>
                         locked
                             ? { name: data.name }

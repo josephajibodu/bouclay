@@ -92,17 +92,14 @@ class ProductController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => "{$product->name} created"]);
 
-        return to_route('catalog.products.show', [$team, $product]);
+        return to_route('catalog.products.show', $product);
     }
 
     /**
      * Show the product detail hub — info, pricing, trials, and metadata
      * on one scrollable page.
-     *
-     * `$current_team` isn't used directly — see the same note on
-     * ApiKeyController::destroy for why it must stay in the signature.
      */
-    public function show(Request $request, string $current_team, Product $product): Response
+    public function show(Request $request, Product $product): Response
     {
         abort_unless($product->team_id === $request->user()->currentTeam->id, 404);
 
@@ -158,11 +155,8 @@ class ProductController extends Controller
 
     /**
      * Update a product's details or status.
-     *
-     * `$current_team` isn't used directly — see the same note on
-     * ApiKeyController::destroy for why it must stay in the signature.
      */
-    public function update(UpdateProductRequest $request, string $current_team, Product $product): RedirectResponse
+    public function update(UpdateProductRequest $request, Product $product): RedirectResponse
     {
         abort_unless($product->team_id === $request->user()->currentTeam->id, 404);
 

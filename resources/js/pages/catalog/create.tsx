@@ -1,4 +1,4 @@
-import { Form, Head, usePage } from '@inertiajs/react';
+import { Form, Head } from '@inertiajs/react';
 import { ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { ProductMonogram } from '@/components/catalog/product-monogram';
@@ -33,8 +33,6 @@ type Props = {
 type Tier = { upTo: string; unitAmount: string; flatAmount: string };
 
 export default function CreateProduct({ defaultCurrency }: Props) {
-    const { currentTeam } = usePage().props;
-
     const [name, setName] = useState('');
     const [type, setType] = useState<PriceType>('recurring');
     const [pricingModel, setPricingModel] = useState<PricingModel>('standard');
@@ -47,10 +45,6 @@ export default function CreateProduct({ defaultCurrency }: Props) {
         { upTo: '', unitAmount: '', flatAmount: '' },
         { upTo: '', unitAmount: '', flatAmount: '' },
     ]);
-
-    if (!currentTeam) {
-        return null;
-    }
 
     const hasPrice =
         pricingModel === 'graduated'
@@ -79,7 +73,7 @@ export default function CreateProduct({ defaultCurrency }: Props) {
             <Head title="Create product" />
 
             <Form
-                {...store.form(currentTeam.slug)}
+                {...store.form()}
                 transform={(data) => ({
                     ...data,
                     price: hasPrice
@@ -547,15 +541,9 @@ export default function CreateProduct({ defaultCurrency }: Props) {
     );
 }
 
-CreateProduct.layout = (props: { currentTeam?: { slug: string } | null }) => ({
+CreateProduct.layout = () => ({
     breadcrumbs: [
-        {
-            title: 'Products',
-            href: props.currentTeam ? productsIndex(props.currentTeam.slug) : '/',
-        },
-        {
-            title: 'Create',
-            href: '#',
-        },
+        { title: 'Products', href: productsIndex() },
+        { title: 'Create', href: '#' },
     ],
 });

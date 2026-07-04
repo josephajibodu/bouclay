@@ -33,7 +33,6 @@ import type { OtherProduct, PriceRef, TrialOffer } from '@/types';
  * button that isn't rendered inside this component.
  */
 type Props = PropsWithChildren<{
-    currentTeamSlug: string;
     productId: number;
     productName: string;
     /** This product's own prices — the trial price and same-product transition price are picked from here. */
@@ -49,7 +48,6 @@ type Props = PropsWithChildren<{
 
 export default function TrialDrawer({
     children,
-    currentTeamSlug,
     productId,
     productName,
     prices,
@@ -81,8 +79,8 @@ export default function TrialDrawer({
     );
 
     const formProps = trial
-        ? update.form([currentTeamSlug, productId, trial.id])
-        : store.form([currentTeamSlug, productId]);
+        ? update.form([productId, trial.id])
+        : store.form(productId);
 
     const transitionPricesForOtherProduct =
         otherProducts.find((p) => String(p.id) === transitionProductId)

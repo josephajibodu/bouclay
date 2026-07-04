@@ -13,7 +13,6 @@ import {
 import { archive } from '@/routes/catalog/prices';
 
 type Props = {
-    currentTeamSlug: string;
     productId: number;
     priceId: number;
     priceLabel: string;
@@ -23,7 +22,6 @@ type Props = {
 };
 
 export default function ArchivePriceModal({
-    currentTeamSlug,
     productId,
     priceId,
     priceLabel,
@@ -34,7 +32,7 @@ export default function ArchivePriceModal({
     const [processing, setProcessing] = useState(false);
 
     const confirmArchive = () => {
-        router.visit(archive.url([currentTeamSlug, productId, priceId]), {
+        router.visit(archive.url([productId, priceId]), {
             method: 'delete',
             onStart: () => setProcessing(true),
             onFinish: () => setProcessing(false),

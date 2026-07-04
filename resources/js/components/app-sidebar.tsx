@@ -27,7 +27,7 @@ export function AppSidebar() {
     const catalogItems: NavItem[] = currentTeam
         ? [
               ...(teamPermissions?.canViewProducts
-                  ? [{ title: 'Products', href: products(currentTeam.slug) }]
+                  ? [{ title: 'Products', href: products() }]
                   : []),
           ]
         : [];

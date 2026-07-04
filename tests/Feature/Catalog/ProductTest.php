@@ -15,7 +15,7 @@ test('the products index page can be rendered', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->get(route('catalog.products.index', $team));
+        ->get(route('catalog.products.index'));
 
     $response
         ->assertOk()
@@ -38,7 +38,7 @@ test('members without products permission cannot view the page', function () {
 
     $response = $this
         ->actingAs($member)
-        ->get(route('catalog.products.index', $team));
+        ->get(route('catalog.products.index'));
 
     $response->assertForbidden();
 });
@@ -52,7 +52,7 @@ test('a product can be created with a price in one request', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('catalog.products.store', $team), [
+        ->post(route('catalog.products.store'), [
             'name' => 'Pro Plan',
             'description' => 'For growing teams',
             'category' => 'SaaS',
@@ -67,7 +67,7 @@ test('a product can be created with a price in one request', function () {
 
     $product = Product::query()->where('name', 'Pro Plan')->firstOrFail();
 
-    $response->assertRedirect(route('catalog.products.show', [$team, $product]));
+    $response->assertRedirect(route('catalog.products.show', $product));
 
     expect($product->prices()->count())->toBe(1);
 
@@ -86,13 +86,13 @@ test('a product can be created without a price', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('catalog.products.store', $team), [
+        ->post(route('catalog.products.store'), [
             'name' => 'Enterprise',
         ]);
 
     $product = Product::query()->where('name', 'Enterprise')->firstOrFail();
 
-    $response->assertRedirect(route('catalog.products.show', [$team, $product]));
+    $response->assertRedirect(route('catalog.products.show', $product));
     expect($product->status->value)->toBe('active')
         ->and($product->prices()->count())->toBe(0);
 });
@@ -107,7 +107,7 @@ test('a product can be archived', function () {
 
     $this
         ->actingAs($owner)
-        ->patch(route('catalog.products.update', [$team, $product]), ['status' => 'archived'])
+        ->patch(route('catalog.products.update', $product), ['status' => 'archived'])
         ->assertRedirect();
 
     expect($product->fresh()->status->value)->toBe('archived');
@@ -123,7 +123,7 @@ test('product metadata can be updated', function () {
 
     $this
         ->actingAs($owner)
-        ->patch(route('catalog.products.update', [$team, $product]), [
+        ->patch(route('catalog.products.update', $product), [
             'custom_data' => ['external_id' => 'acme-987'],
         ])
         ->assertRedirect();

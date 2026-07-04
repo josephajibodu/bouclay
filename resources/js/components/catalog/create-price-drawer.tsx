@@ -38,7 +38,6 @@ import type { BillingInterval, PriceType, PricingModel } from '@/types';
 type Tier = { upTo: string; unitAmount: string; flatAmount: string };
 
 type Props = PropsWithChildren<{
-    currentTeamSlug: string;
     productId: number;
     productName: string;
     defaultCurrency: string;
@@ -48,7 +47,6 @@ type Props = PropsWithChildren<{
 
 export default function CreatePriceDrawer({
     children,
-    currentTeamSlug,
     productId,
     productName,
     defaultCurrency,
@@ -111,7 +109,7 @@ export default function CreatePriceDrawer({
             <SheetContent className="h-auto w-full overflow-y-auto rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-md">
                 <Form
                     key={String(open)}
-                    {...store.form([currentTeamSlug, productId])}
+                    {...store.form(productId)}
                     transform={(data) => ({
                         ...data,
                         type,

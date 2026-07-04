@@ -23,11 +23,8 @@ class TrialOfferController extends Controller
 
     /**
      * Create a trial offer on this product.
-     *
-     * `$current_team` isn't used directly — see the same note on
-     * ApiKeyController::destroy for why it must stay in the signature.
      */
-    public function store(SaveTrialOfferRequest $request, string $current_team, Product $product): RedirectResponse
+    public function store(SaveTrialOfferRequest $request, Product $product): RedirectResponse
     {
         $team = $request->user()->currentTeam;
 
@@ -52,7 +49,7 @@ class TrialOfferController extends Controller
      * the future rule (locked once a trial has live redemptions) for
      * Phase 5 to pick up once subscription_item_trials exists.
      */
-    public function update(SaveTrialOfferRequest $request, string $current_team, Product $product, TrialOffer $trial_offer): RedirectResponse
+    public function update(SaveTrialOfferRequest $request, Product $product, TrialOffer $trial_offer): RedirectResponse
     {
         $team = $request->user()->currentTeam;
 
@@ -84,7 +81,7 @@ class TrialOfferController extends Controller
      * Remove a trial offer. The trial and transition prices are real
      * catalog prices — removing the trial never deletes them.
      */
-    public function destroy(Request $request, string $current_team, Product $product, TrialOffer $trial_offer): RedirectResponse
+    public function destroy(Request $request, Product $product, TrialOffer $trial_offer): RedirectResponse
     {
         $team = $request->user()->currentTeam;
 

@@ -1,4 +1,4 @@
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { Package, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ProductMonogram } from '@/components/catalog/product-monogram';
@@ -18,7 +18,6 @@ type Props = {
 };
 
 export default function Products({ products, categories, canManage }: Props) {
-    const { currentTeam } = usePage().props;
     const [search, setSearch] = useState('');
     const [status, setStatus] = useState<'all' | CatalogStatus>('all');
     const [category, setCategory] = useState<string | null>(null);
@@ -44,10 +43,6 @@ export default function Products({ products, categories, canManage }: Props) {
         });
     }, [products, search, status, category]);
 
-    if (!currentTeam) {
-        return null;
-    }
-
     const hasAnyProducts = products.length > 0;
     const hasActiveFilters = search.trim() !== '' || status !== 'all' || category !== null;
 
@@ -66,7 +61,7 @@ export default function Products({ products, categories, canManage }: Props) {
 
                 {canManage && hasAnyProducts && (
                     <Button asChild data-test="create-product-trigger">
-                        <Link href={create(currentTeam.slug)}>
+                        <Link href={create()}>
                             <Plus /> Create product
                         </Link>
                     </Button>
@@ -74,7 +69,7 @@ export default function Products({ products, categories, canManage }: Props) {
             </div>
 
             {!hasAnyProducts ? (
-                <EmptyState canManage={canManage} teamSlug={currentTeam.slug} />
+                <EmptyState canManage={canManage} />
             ) : (
                 <>
                     <div className="flex flex-wrap items-center gap-3">
@@ -168,7 +163,6 @@ export default function Products({ products, categories, canManage }: Props) {
                                 <ProductCard
                                     key={product.id}
                                     product={product}
-                                    teamSlug={currentTeam.slug}
                                 />
                             ))}
                         </div>
@@ -179,18 +173,12 @@ export default function Products({ products, categories, canManage }: Props) {
     );
 }
 
-function ProductCard({
-    product,
-    teamSlug,
-}: {
-    product: CatalogProduct;
-    teamSlug: string;
-}) {
+function ProductCard({ product }: { product: CatalogProduct }) {
     const activePrices = product.prices.filter((p) => p.status === 'active');
     const [firstPrice, ...rest] = activePrices;
 
     return (
-        <Link href={show([teamSlug, product.id])} data-test="product-card">
+        <Link href={show(product.id)} data-test="product-card">
             <Card className="h-full gap-3 p-4 transition-colors hover:border-foreground/20">
                 <div className="flex items-start gap-3">
                     <ProductMonogram id={product.id} name={product.name} />
@@ -249,13 +237,7 @@ function ProductCard({
     );
 }
 
-function EmptyState({
-    canManage,
-    teamSlug,
-}: {
-    canManage: boolean;
-    teamSlug: string;
-}) {
+function EmptyState({ canManage }: { canManage: boolean }) {
     return (
         <div className="space-y-4 rounded-lg border border-dashed p-8 text-center">
             <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-muted">
@@ -277,7 +259,7 @@ function EmptyState({
 
             {canManage && (
                 <Button asChild data-test="create-first-product">
-                    <Link href={create(teamSlug)}>
+                    <Link href={create()}>
                         <Plus /> Create your first product
                     </Link>
                 </Button>
@@ -291,11 +273,6 @@ function EmptyState({
     );
 }
 
-Products.layout = (props: { currentTeam?: { slug: string } | null }) => ({
-    breadcrumbs: [
-        {
-            title: 'Products',
-            href: props.currentTeam ? productsIndex(props.currentTeam.slug) : '/',
-        },
-    ],
+Products.layout = () => ({
+    breadcrumbs: [{ title: 'Products', href: productsIndex() }],
 });

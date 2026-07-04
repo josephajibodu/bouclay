@@ -20,7 +20,6 @@ import { update } from '@/routes/catalog/products';
 import type { ProductDetail } from '@/types';
 
 type Props = PropsWithChildren<{
-    currentTeamSlug: string;
     product: ProductDetail;
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -28,7 +27,6 @@ type Props = PropsWithChildren<{
 
 export default function EditProductDrawer({
     children,
-    currentTeamSlug,
     product,
     open,
     onOpenChange,
@@ -39,7 +37,7 @@ export default function EditProductDrawer({
             <SheetContent className="h-auto w-full rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-md">
                 <Form
                     key={product.id}
-                    {...update.form([currentTeamSlug, product.id])}
+                    {...update.form(product.id)}
                     className="flex h-full flex-col"
                     onSuccess={() => onOpenChange(false)}
                 >

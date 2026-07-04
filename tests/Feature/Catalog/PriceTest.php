@@ -15,7 +15,7 @@ test('a price can be added to an existing product', function () {
 
     $this
         ->actingAs($owner)
-        ->post(route('catalog.prices.store', [$team, $product]), [
+        ->post(route('catalog.prices.store', $product), [
             'type' => 'recurring',
             'pricing_model' => 'standard',
             'unit_amount' => 150000,
@@ -38,7 +38,7 @@ test('a graduated price requires tiers', function () {
 
     $this
         ->actingAs($owner)
-        ->post(route('catalog.prices.store', [$team, $product]), [
+        ->post(route('catalog.prices.store', $product), [
             'type' => 'recurring',
             'pricing_model' => 'graduated',
             'billing_interval' => 'month',
@@ -71,7 +71,7 @@ test('an unused price can have its full shape edited, not just its name', functi
 
     $this
         ->actingAs($owner)
-        ->patch(route('catalog.prices.update', [$team, $product, $price]), [
+        ->patch(route('catalog.prices.update', [$product, $price]), [
             'name' => 'Annual plan',
             'unit_amount' => 300000,
             'currency' => 'USD',
@@ -100,7 +100,7 @@ test('editing a price to graduated pricing replaces its tiers', function () {
 
     $this
         ->actingAs($owner)
-        ->patch(route('catalog.prices.update', [$team, $product, $price]), [
+        ->patch(route('catalog.prices.update', [$product, $price]), [
             'pricing_model' => 'graduated',
             'unit_amount' => null,
             'tiers' => [
@@ -127,7 +127,7 @@ test('a price can be archived', function () {
 
     $this
         ->actingAs($owner)
-        ->delete(route('catalog.prices.archive', [$team, $product, $price]))
+        ->delete(route('catalog.prices.archive', [$product, $price]))
         ->assertRedirect();
 
     expect($price->fresh()->status->value)->toBe('archived');

@@ -21,7 +21,6 @@ import { update } from '@/routes/catalog/products';
 type Row = { key: string; value: string };
 
 type Props = PropsWithChildren<{
-    currentTeamSlug: string;
     productId: number;
     customData: Record<string, string> | null;
     open: boolean;
@@ -30,7 +29,6 @@ type Props = PropsWithChildren<{
 
 export default function EditMetadataDrawer({
     children,
-    currentTeamSlug,
     productId,
     customData,
     open,
@@ -60,7 +58,7 @@ export default function EditMetadataDrawer({
             <SheetContent className="h-auto w-full rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-md">
                 <Form
                     key={String(open)}
-                    {...update.form([currentTeamSlug, productId])}
+                    {...update.form(productId)}
                     transform={(data) => ({
                         ...data,
                         custom_data: rows.reduce<Record<string, string>>(

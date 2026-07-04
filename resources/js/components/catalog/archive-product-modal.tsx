@@ -13,7 +13,6 @@ import {
 import { update } from '@/routes/catalog/products';
 
 type Props = {
-    currentTeamSlug: string;
     productId: number;
     productName: string;
     open: boolean;
@@ -21,7 +20,6 @@ type Props = {
 };
 
 export default function ArchiveProductModal({
-    currentTeamSlug,
     productId,
     productName,
     open,
@@ -31,7 +29,7 @@ export default function ArchiveProductModal({
 
     const archive = () => {
         router.patch(
-            update.url([currentTeamSlug, productId]),
+            update.url(productId),
             { status: 'archived' },
             {
                 onStart: () => setProcessing(true),

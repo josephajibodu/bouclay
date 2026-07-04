@@ -25,11 +25,8 @@ class PriceController extends Controller
 
     /**
      * Add a price to an existing product.
-     *
-     * `$current_team` isn't used directly — see the same note on
-     * ApiKeyController::destroy for why it must stay in the signature.
      */
-    public function store(StorePriceRequest $request, string $current_team, Product $product): RedirectResponse
+    public function store(StorePriceRequest $request, Product $product): RedirectResponse
     {
         $team = $request->user()->currentTeam;
 
@@ -63,7 +60,7 @@ class PriceController extends Controller
      * (Price::hasBeenUsed()) only activates once subscriptions exist
      * (Phase 5), at which point only name/custom_data may still change.
      */
-    public function update(UpdatePriceRequest $request, string $current_team, Product $product, Price $price): RedirectResponse
+    public function update(UpdatePriceRequest $request, Product $product, Price $price): RedirectResponse
     {
         $team = $request->user()->currentTeam;
 
@@ -114,7 +111,7 @@ class PriceController extends Controller
     /**
      * Archive a price — hides it from checkout without deleting history.
      */
-    public function archive(Request $request, string $current_team, Product $product, Price $price): RedirectResponse
+    public function archive(Request $request, Product $product, Price $price): RedirectResponse
     {
         $team = $request->user()->currentTeam;
 

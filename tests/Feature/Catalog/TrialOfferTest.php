@@ -18,7 +18,7 @@ test('a trial can be created from two existing prices on the same product', func
 
     $this
         ->actingAs($owner)
-        ->post(route('catalog.trials.store', [$team, $product]), [
+        ->post(route('catalog.trials.store', $product), [
             'name' => 'Free trial offer',
             'trial_price_id' => $trialPrice->id,
             'transition_to_different_product' => false,
@@ -54,7 +54,7 @@ test('a trial can transition to a different product', function () {
 
     $this
         ->actingAs($owner)
-        ->post(route('catalog.trials.store', [$team, $product]), [
+        ->post(route('catalog.trials.store', $product), [
             'name' => 'Upsell trial',
             'trial_price_id' => $trialPrice->id,
             'transition_to_different_product' => true,
@@ -84,7 +84,7 @@ test('a trial rejects transitioning to a price from the wrong product', function
     // transition_to_different_product is false, but the price belongs to otherProduct.
     $this
         ->actingAs($owner)
-        ->post(route('catalog.trials.store', [$team, $product]), [
+        ->post(route('catalog.trials.store', $product), [
             'name' => 'Invalid trial',
             'trial_price_id' => $trialPrice->id,
             'transition_to_different_product' => false,
@@ -105,7 +105,7 @@ test('a trial requires the trial price and transition price to differ', function
 
     $this
         ->actingAs($owner)
-        ->post(route('catalog.trials.store', [$team, $product]), [
+        ->post(route('catalog.trials.store', $product), [
             'name' => 'Same price trial',
             'trial_price_id' => $price->id,
             'transition_to_different_product' => false,
@@ -127,7 +127,7 @@ test('a trial can repeat for multiple iterations', function () {
 
     $this
         ->actingAs($owner)
-        ->post(route('catalog.trials.store', [$team, $product]), [
+        ->post(route('catalog.trials.store', $product), [
             'name' => '3-month intro rate',
             'trial_price_id' => $trialPrice->id,
             'transition_to_different_product' => false,
@@ -151,7 +151,7 @@ test('a trial can be edited in place', function () {
 
     $this
         ->actingAs($owner)
-        ->patch(route('catalog.trials.update', [$team, $product, $trial]), [
+        ->patch(route('catalog.trials.update', [$product, $trial]), [
             'name' => 'Updated trial',
             'trial_price_id' => $newTrialPrice->id,
             'transition_to_different_product' => false,
@@ -179,7 +179,7 @@ test('removing a trial does not delete its prices', function () {
 
     $this
         ->actingAs($owner)
-        ->delete(route('catalog.trials.destroy', [$team, $product, $trial]))
+        ->delete(route('catalog.trials.destroy', [$product, $trial]))
         ->assertRedirect();
 
     expect(TrialOffer::find($trial->id))->toBeNull();

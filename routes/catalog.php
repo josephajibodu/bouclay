@@ -3,11 +3,11 @@
 use App\Http\Controllers\Catalog\PriceController;
 use App\Http\Controllers\Catalog\ProductController;
 use App\Http\Controllers\Catalog\TrialOfferController;
-use App\Http\Middleware\EnsureTeamMembership;
+use App\Http\Middleware\EnsureCurrentTeam;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('{current_team}/catalog')
-    ->middleware(['auth', 'verified', EnsureTeamMembership::class])
+Route::prefix('catalog')
+    ->middleware(['auth', 'verified', EnsureCurrentTeam::class])
     ->name('catalog.')
     ->group(function () {
         Route::get('products', [ProductController::class, 'index'])->name('products.index');

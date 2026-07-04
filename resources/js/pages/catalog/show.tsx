@@ -1,4 +1,4 @@
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import {
     Check,
     ChevronLeft,
@@ -83,8 +83,6 @@ export default function ProductShow({
     otherProducts,
     permissions,
 }: Props) {
-    const { currentTeam } = usePage().props;
-
     const [copied, setCopied] = useState(false);
     const [editProductOpen, setEditProductOpen] = useState(false);
     const [archiveProductOpen, setArchiveProductOpen] = useState(false);
@@ -105,10 +103,6 @@ export default function ProductShow({
     const [removeTrialTarget, setRemoveTrialTarget] =
         useState<TrialOffer | null>(null);
 
-    if (!currentTeam) {
-        return null;
-    }
-
     const activePrices = prices.filter((p) => p.status === 'active');
     const priceRefs = prices.map((p) => ({ id: p.id, label: priceLabel(p) }));
     const metadataEntries = Object.entries(product.customData ?? {});
@@ -125,7 +119,7 @@ export default function ProductShow({
 
             <div>
                 <Link
-                    href={productsIndex(currentTeam.slug)}
+                    href={productsIndex()}
                     className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
                 >
                     <ChevronLeft className="size-4" /> Products
@@ -176,7 +170,6 @@ export default function ProductShow({
                 {permissions.canManageProducts && (
                     <div className="flex items-center gap-2">
                         <EditProductDrawer
-                            currentTeamSlug={currentTeam.slug}
                             product={product}
                             open={editProductOpen}
                             onOpenChange={setEditProductOpen}
@@ -287,7 +280,6 @@ export default function ProductShow({
                     </div>
                     {permissions.canManagePrices && (
                         <CreatePriceDrawer
-                            currentTeamSlug={currentTeam.slug}
                             productId={product.id}
                             productName={product.name}
                             defaultCurrency={
@@ -321,7 +313,6 @@ export default function ProductShow({
                                 key={price.id}
                                 price={price}
                                 trials={trials}
-                                currentTeamSlug={currentTeam.slug}
                                 productId={product.id}
                                 productName={product.name}
                                 priceRefs={priceRefs}
@@ -359,7 +350,6 @@ export default function ProductShow({
                     </div>
                     {permissions.canManageTrialOffers && (
                         <TrialDrawer
-                            currentTeamSlug={currentTeam.slug}
                             productId={product.id}
                             productName={product.name}
                             prices={priceRefs}
@@ -497,7 +487,6 @@ export default function ProductShow({
                     </div>
                     {permissions.canManageProducts && (
                         <EditMetadataDrawer
-                            currentTeamSlug={currentTeam.slug}
                             productId={product.id}
                             customData={product.customData}
                             open={editMetadataOpen}
@@ -539,7 +528,6 @@ export default function ProductShow({
             </section>
 
             <ArchiveProductModal
-                currentTeamSlug={currentTeam.slug}
                 productId={product.id}
                 productName={product.name}
                 open={archiveProductOpen}
@@ -567,7 +555,6 @@ export default function ProductShow({
             )}
             {archivePriceTarget && (
                 <ArchivePriceModal
-                    currentTeamSlug={currentTeam.slug}
                     productId={product.id}
                     priceId={archivePriceTarget.id}
                     priceLabel={priceLabel(archivePriceTarget)}
@@ -583,7 +570,6 @@ export default function ProductShow({
             )}
             {editPriceTarget && (
                 <EditPriceDrawer
-                    currentTeamSlug={currentTeam.slug}
                     productId={product.id}
                     price={editPriceTarget}
                     open={editPriceTarget !== null}
@@ -592,7 +578,6 @@ export default function ProductShow({
             )}
             {editTrialTarget && (
                 <TrialDrawer
-                    currentTeamSlug={currentTeam.slug}
                     productId={product.id}
                     productName={product.name}
                     prices={priceRefs}
@@ -604,7 +589,6 @@ export default function ProductShow({
             )}
             {removeTrialTarget && (
                 <RemoveTrialModal
-                    currentTeamSlug={currentTeam.slug}
                     productId={product.id}
                     productName={product.name}
                     trialId={removeTrialTarget.id}
@@ -621,7 +605,6 @@ export default function ProductShow({
 function PriceRow({
     price,
     trials,
-    currentTeamSlug,
     productId,
     productName,
     priceRefs,
@@ -636,7 +619,6 @@ function PriceRow({
 }: {
     price: Price;
     trials: TrialOffer[];
-    currentTeamSlug: string;
     productId: number;
     productName: string;
     priceRefs: { id: number; label: string }[];
@@ -728,7 +710,6 @@ function PriceRow({
                     canManageTrials &&
                     price.status === 'active' && (
                         <TrialDrawer
-                            currentTeamSlug={currentTeamSlug}
                             productId={productId}
                             productName={productName}
                             prices={priceRefs}
@@ -792,14 +773,6 @@ function PriceRow({
     );
 }
 
-ProductShow.layout = (props: {
-    currentTeam?: { slug: string } | null;
-    product?: ProductDetail;
-}) => ({
-    breadcrumbs: [
-        {
-            title: 'Products',
-            href: props.currentTeam ? productsIndex(props.currentTeam.slug) : '/',
-        },
-    ],
+ProductShow.layout = () => ({
+    breadcrumbs: [{ title: 'Products', href: productsIndex() }],
 });

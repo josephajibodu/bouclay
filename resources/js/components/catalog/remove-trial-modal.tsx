@@ -13,7 +13,6 @@ import {
 import { destroy } from '@/routes/catalog/trials';
 
 type Props = {
-    currentTeamSlug: string;
     productId: number;
     productName: string;
     trialId: number;
@@ -22,7 +21,6 @@ type Props = {
 };
 
 export default function RemoveTrialModal({
-    currentTeamSlug,
     productId,
     productName,
     trialId,
@@ -32,7 +30,7 @@ export default function RemoveTrialModal({
     const [processing, setProcessing] = useState(false);
 
     const remove = () => {
-        router.visit(destroy.url([currentTeamSlug, productId, trialId]), {
+        router.visit(destroy.url([productId, trialId]), {
             method: 'delete',
             onStart: () => setProcessing(true),
             onFinish: () => setProcessing(false),
