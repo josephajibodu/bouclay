@@ -1,12 +1,25 @@
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { Package, Plus, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ProductMonogram } from '@/components/catalog/product-monogram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
 import { formatPriceInterval } from '@/lib/utils';
 import { create, index as productsIndex, show } from '@/routes/catalog/products';
 import type { CatalogProduct, CatalogStatus } from '@/types';
@@ -17,10 +30,47 @@ type Props = {
     canManage: boolean;
 };
 
+function pricingSummary(product: CatalogProduct): string {
+    const activePrices = product.prices.filter((p) => p.status === 'active');
+
+    if (activePrices.length === 0) {
+        return 'No price';
+    }
+
+    if (activePrices.length > 1) {
+        return `${activePrices.length} prices`;
+    }
+
+    const [price] = activePrices;
+
+    if (price.unitAmount !== null && price.billingInterval) {
+        return formatPriceInterval(
+            price.unitAmount,
+            price.currency,
+            price.billingInterval,
+            price.billingFrequency,
+        );
+    }
+
+    return 'Custom pricing';
+}
+
+function formatDate(iso: string | null): string {
+    if (!iso) {
+        return '—';
+    }
+
+    return new Date(iso).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    });
+}
+
 export default function Products({ products, categories, canManage }: Props) {
     const [search, setSearch] = useState('');
     const [status, setStatus] = useState<'all' | CatalogStatus>('all');
-    const [category, setCategory] = useState<string | null>(null);
+    const [category, setCategory] = useState<string>('all');
 
     const filtered = useMemo(() => {
         return products.filter((product) => {
@@ -28,7 +78,7 @@ export default function Products({ products, categories, canManage }: Props) {
                 return false;
             }
 
-            if (category && product.category !== category) {
+            if (category !== 'all' && product.category !== category) {
                 return false;
             }
 
@@ -44,7 +94,14 @@ export default function Products({ products, categories, canManage }: Props) {
     }, [products, search, status, category]);
 
     const hasAnyProducts = products.length > 0;
-    const hasActiveFilters = search.trim() !== '' || status !== 'all' || category !== null;
+    const hasActiveFilters =
+        search.trim() !== '' || status !== 'all' || category !== 'all';
+
+    const clearFilters = () => {
+        setSearch('');
+        setStatus('all');
+        setCategory('all');
+    };
 
     return (
         <div className="flex max-w-5xl flex-col gap-6 p-4">
@@ -84,156 +141,135 @@ export default function Products({ products, categories, canManage }: Props) {
                             />
                         </div>
 
-                        <ToggleGroup
-                            type="single"
-                            variant="outline"
+                        <Select
                             value={status}
                             onValueChange={(value) =>
-                                value && setStatus(value as 'all' | CatalogStatus)
+                                setStatus(value as 'all' | CatalogStatus)
                             }
                         >
-                            <ToggleGroupItem
-                                value="all"
-                                className="data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+                            <SelectTrigger
+                                className="w-40"
+                                data-test="status-filter"
                             >
-                                All
-                            </ToggleGroupItem>
-                            <ToggleGroupItem
-                                value="active"
-                                className="data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-                            >
-                                Active
-                            </ToggleGroupItem>
-                            <ToggleGroupItem
-                                value="archived"
-                                className="data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-                            >
-                                Archived
-                            </ToggleGroupItem>
-                        </ToggleGroup>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">
+                                    All statuses
+                                </SelectItem>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="archived">
+                                    Archived
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
 
                         {categories.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                                {categories.map((c) => (
-                                    <Badge
-                                        key={c}
-                                        variant={
-                                            category === c
-                                                ? 'default'
-                                                : 'secondary'
-                                        }
-                                        className="cursor-pointer"
-                                        onClick={() =>
-                                            setCategory(
-                                                category === c ? null : c,
-                                            )
-                                        }
-                                    >
-                                        {c}
-                                    </Badge>
-                                ))}
-                            </div>
+                            <Select value={category} onValueChange={setCategory}>
+                                <SelectTrigger
+                                    className="w-52"
+                                    data-test="category-filter"
+                                >
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">
+                                        All categories
+                                    </SelectItem>
+                                    {categories.map((c) => (
+                                        <SelectItem key={c} value={c}>
+                                            {c}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        )}
+
+                        {hasActiveFilters && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={clearFilters}
+                            >
+                                Clear filters
+                            </Button>
                         )}
                     </div>
 
                     {filtered.length === 0 ? (
                         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                            {hasActiveFilters ? (
-                                <div className="space-y-3">
-                                    <p>No products match your filters.</p>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                            setSearch('');
-                                            setStatus('all');
-                                            setCategory(null);
-                                        }}
-                                    >
-                                        Clear filters
-                                    </Button>
-                                </div>
-                            ) : (
-                                <p>No products yet.</p>
-                            )}
+                            No products match your filters.
                         </div>
                     ) : (
-                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                            {filtered.map((product) => (
-                                <ProductCard
-                                    key={product.id}
-                                    product={product}
-                                />
-                            ))}
+                        <div className="rounded-lg border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="hover:bg-transparent">
+                                        <TableHead>Name</TableHead>
+                                        <TableHead>Pricing</TableHead>
+                                        <TableHead>Category</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Created</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filtered.map((product) => (
+                                        <TableRow
+                                            key={product.id}
+                                            className="cursor-pointer"
+                                            onClick={() =>
+                                                router.visit(show(product.id))
+                                            }
+                                            data-test="product-row"
+                                        >
+                                            <TableCell>
+                                                <div className="flex items-center gap-3">
+                                                    <ProductMonogram
+                                                        id={product.id}
+                                                        name={product.name}
+                                                        className="size-8 text-xs"
+                                                    />
+                                                    <span className="font-medium">
+                                                        {product.name}
+                                                    </span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
+                                                {pricingSummary(product)}
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
+                                                {product.category ?? '—'}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge
+                                                    variant={
+                                                        product.status ===
+                                                        'active'
+                                                            ? 'secondary'
+                                                            : 'outline'
+                                                    }
+                                                    className="capitalize"
+                                                >
+                                                    {product.status}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-muted-foreground">
+                                                {formatDate(product.createdAt)}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
                         </div>
                     )}
+
+                    <p className="text-sm text-muted-foreground">
+                        {filtered.length}{' '}
+                        {filtered.length === 1 ? 'item' : 'items'}
+                    </p>
                 </>
             )}
         </div>
-    );
-}
-
-function ProductCard({ product }: { product: CatalogProduct }) {
-    const activePrices = product.prices.filter((p) => p.status === 'active');
-    const [firstPrice, ...rest] = activePrices;
-
-    return (
-        <Link href={show(product.id)} data-test="product-card">
-            <Card className="h-full gap-3 p-4 transition-colors hover:border-foreground/20">
-                <div className="flex items-start gap-3">
-                    <ProductMonogram id={product.id} name={product.name} />
-                    <div className="min-w-0 flex-1 space-y-1">
-                        <p className="truncate font-medium">
-                            {product.name}
-                        </p>
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Badge
-                                variant={
-                                    product.status === 'active'
-                                        ? 'secondary'
-                                        : 'outline'
-                                }
-                                className="capitalize"
-                            >
-                                {product.status}
-                            </Badge>
-                            <span>
-                                ·{' '}
-                                {activePrices.length === 0
-                                    ? 'no prices'
-                                    : `${activePrices.length} price${activePrices.length === 1 ? '' : 's'}`}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="text-sm">
-                    {firstPrice ? (
-                        <span className="font-medium">
-                            {firstPrice.unitAmount !== null &&
-                            firstPrice.billingInterval
-                                ? formatPriceInterval(
-                                      firstPrice.unitAmount,
-                                      firstPrice.currency,
-                                      firstPrice.billingInterval,
-                                      firstPrice.billingFrequency,
-                                  )
-                                : 'Custom pricing'}
-                            {rest.length > 0 && (
-                                <span className="font-normal text-muted-foreground">
-                                    {' '}
-                                    + {rest.length} more
-                                </span>
-                            )}
-                        </span>
-                    ) : (
-                        <span className="text-muted-foreground">
-                            No price yet
-                        </span>
-                    )}
-                </div>
-            </Card>
-        </Link>
     );
 }
 
