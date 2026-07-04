@@ -7,9 +7,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\StorePriceRequest;
 use App\Http\Requests\Catalog\UpdatePriceRequest;
 use App\Models\Price;
+use App\Models\PriceTier;
 use App\Models\Product;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -46,9 +48,20 @@ class PriceController extends Controller
     }
 
     /**
-     * Update a price. Amount/currency/interval are freely editable in
-     * Phase 3 — the usage lock (Price::hasBeenUsed()) only activates once
-     * subscriptions exist (see CATALOG_DESIGN.md Principle 6).
+     * The "shape" of a price — locked in place once a subscription has ever
+     * referenced it (see CATALOG_DESIGN.md Principle 6). Cosmetic fields
+     * (name, custom_data) and status (archiving) stay editable regardless.
+     */
+    private const FINANCIAL_FIELDS = [
+        'unit_amount', 'currency', 'billing_interval', 'billing_frequency',
+        'type', 'pricing_model', 'tiers',
+    ];
+
+    /**
+     * Update a price. Every field is freely editable in place until the
+     * price has been referenced by a subscription — the usage lock
+     * (Price::hasBeenUsed()) only activates once subscriptions exist
+     * (Phase 5), at which point only name/custom_data may still change.
      */
     public function update(UpdatePriceRequest $request, string $current_team, Product $product, Price $price): RedirectResponse
     {
@@ -58,7 +71,7 @@ class PriceController extends Controller
 
         Gate::authorize('managePrices', $team);
 
-        $changingFinancialFields = collect(['unit_amount', 'currency', 'billing_interval'])
+        $changingFinancialFields = collect(self::FINANCIAL_FIELDS)
             ->some(fn (string $field) => $request->has($field));
 
         if ($changingFinancialFields && $price->hasBeenUsed()) {
@@ -68,12 +81,30 @@ class PriceController extends Controller
         }
 
         $data = $request->validated();
+        $tiers = $data['tiers'] ?? null;
+        unset($data['tiers']);
 
-        if (isset($data['unit_amount'])) {
+        if (array_key_exists('unit_amount', $data) && $data['unit_amount'] !== null) {
             $data['unit_amount'] = (int) round($data['unit_amount'] * 100);
         }
 
-        $price->update($data);
+        DB::transaction(function () use ($price, $data, $tiers) {
+            $price->update($data);
+
+            if ($tiers !== null) {
+                $price->tiers()->delete();
+
+                foreach (array_values($tiers) as $index => $tier) {
+                    PriceTier::create([
+                        'price_id' => $price->id,
+                        'tier_index' => $index,
+                        'up_to' => $tier['up_to'] ?? null,
+                        'unit_amount' => (int) round($tier['unit_amount'] * 100),
+                        'flat_amount' => isset($tier['flat_amount']) ? (int) round($tier['flat_amount'] * 100) : null,
+                    ]);
+                }
+            }
+        });
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Price updated']);
 

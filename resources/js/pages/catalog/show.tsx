@@ -9,12 +9,14 @@ import {
     Plus,
 } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 import ArchivePriceModal from '@/components/catalog/archive-price-modal';
 import ArchiveProductModal from '@/components/catalog/archive-product-modal';
 import CreatePriceDrawer from '@/components/catalog/create-price-drawer';
 import EditMetadataDrawer from '@/components/catalog/edit-metadata-drawer';
 import EditPriceDrawer from '@/components/catalog/edit-price-drawer';
 import EditProductDrawer from '@/components/catalog/edit-product-drawer';
+import PriceDetailDrawer from '@/components/catalog/price-detail-drawer';
 import { ProductMonogram } from '@/components/catalog/product-monogram';
 import RemoveTrialModal from '@/components/catalog/remove-trial-modal';
 import TrialDrawer from '@/components/catalog/trial-drawer';
@@ -24,6 +26,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
@@ -34,6 +37,11 @@ import {
 } from '@/lib/utils';
 import { index as productsIndex } from '@/routes/catalog/products';
 import type { OtherProduct, Price, ProductDetail, TrialOffer } from '@/types';
+
+async function copyToClipboard(value: string, label: string) {
+    await navigator.clipboard.writeText(value);
+    toast.success(`${label} copied`);
+}
 
 type Props = {
     product: ProductDetail;
@@ -85,6 +93,9 @@ export default function ProductShow({
     const [createTrialOpen, setCreateTrialOpen] = useState(false);
     const [editPriceTarget, setEditPriceTarget] = useState<Price | null>(null);
     const [archivePriceTarget, setArchivePriceTarget] = useState<Price | null>(
+        null,
+    );
+    const [detailPriceTarget, setDetailPriceTarget] = useState<Price | null>(
         null,
     );
     const [trialRowTarget, setTrialRowTarget] = useState<number | null>(null);
@@ -319,11 +330,11 @@ export default function ProductShow({
                                 canManageTrials={
                                     permissions.canManageTrialOffers
                                 }
-                                editOpen={editPriceTarget?.id === price.id}
-                                onEditOpenChange={(open) =>
-                                    setEditPriceTarget(open ? price : null)
-                                }
+                                onEdit={() => setEditPriceTarget(price)}
                                 onArchive={() => setArchivePriceTarget(price)}
+                                onOpenDetail={() =>
+                                    setDetailPriceTarget(price)
+                                }
                                 trialOpen={trialRowTarget === price.id}
                                 onTrialOpenChange={(open) =>
                                     setTrialRowTarget(open ? price.id : null)
@@ -418,29 +429,55 @@ export default function ProductShow({
                                         {trial.transitionPrice.label}
                                     </p>
                                 </div>
-                                {permissions.canManageTrialOffers && (
-                                    <div className="flex shrink-0 items-center gap-2">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() =>
-                                                setEditTrialTarget(trial)
-                                            }
-                                        >
-                                            Edit
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="text-destructive hover:text-destructive"
-                                            onClick={() =>
-                                                setRemoveTrialTarget(trial)
-                                            }
-                                        >
-                                            Remove
-                                        </Button>
-                                    </div>
-                                )}
+                                <div className="flex shrink-0 items-center gap-2">
+                                    {permissions.canManageTrialOffers && (
+                                        <>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() =>
+                                                    setEditTrialTarget(trial)
+                                                }
+                                            >
+                                                Edit
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-destructive hover:text-destructive"
+                                                onClick={() =>
+                                                    setRemoveTrialTarget(trial)
+                                                }
+                                            >
+                                                Remove
+                                            </Button>
+                                        </>
+                                    )}
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                data-test="trial-row-actions-trigger"
+                                            >
+                                                <MoreHorizontal className="size-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem
+                                                onSelect={() =>
+                                                    copyToClipboard(
+                                                        trial.publicId,
+                                                        'Trial ID',
+                                                    )
+                                                }
+                                                data-test="copy-trial-id-action"
+                                            >
+                                                Copy trial ID
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -508,6 +545,26 @@ export default function ProductShow({
                 open={archiveProductOpen}
                 onOpenChange={setArchiveProductOpen}
             />
+            {detailPriceTarget && (
+                <PriceDetailDrawer
+                    price={detailPriceTarget}
+                    productName={product.name}
+                    trials={trials}
+                    canManagePrices={permissions.canManagePrices}
+                    open={detailPriceTarget !== null}
+                    onOpenChange={(open) =>
+                        !open && setDetailPriceTarget(null)
+                    }
+                    onEdit={() => {
+                        setEditPriceTarget(detailPriceTarget);
+                        setDetailPriceTarget(null);
+                    }}
+                    onArchive={() => {
+                        setArchivePriceTarget(detailPriceTarget);
+                        setDetailPriceTarget(null);
+                    }}
+                />
+            )}
             {archivePriceTarget && (
                 <ArchivePriceModal
                     currentTeamSlug={currentTeam.slug}
@@ -522,6 +579,15 @@ export default function ProductShow({
                     onOpenChange={(open) =>
                         !open && setArchivePriceTarget(null)
                     }
+                />
+            )}
+            {editPriceTarget && (
+                <EditPriceDrawer
+                    currentTeamSlug={currentTeam.slug}
+                    productId={product.id}
+                    price={editPriceTarget}
+                    open={editPriceTarget !== null}
+                    onOpenChange={(open) => !open && setEditPriceTarget(null)}
                 />
             )}
             {editTrialTarget && (
@@ -562,9 +628,9 @@ function PriceRow({
     otherProducts,
     canManagePrices,
     canManageTrials,
-    editOpen,
-    onEditOpenChange,
+    onEdit,
     onArchive,
+    onOpenDetail,
     trialOpen,
     onTrialOpenChange,
 }: {
@@ -577,9 +643,9 @@ function PriceRow({
     otherProducts: OtherProduct[];
     canManagePrices: boolean;
     canManageTrials: boolean;
-    editOpen: boolean;
-    onEditOpenChange: (open: boolean) => void;
+    onEdit: () => void;
     onArchive: () => void;
+    onOpenDetail: () => void;
     trialOpen: boolean;
     onTrialOpenChange: (open: boolean) => void;
 }) {
@@ -602,8 +668,13 @@ function PriceRow({
     return (
         <div className="flex items-center justify-between gap-4 p-4">
             <div className="min-w-0 space-y-1">
-                <div className="flex items-center gap-2">
-                    <span className="font-medium">
+                <button
+                    type="button"
+                    onClick={onOpenDetail}
+                    className="flex items-center gap-2 text-left"
+                    data-test="price-row-detail-trigger"
+                >
+                    <span className="font-medium underline-offset-4 hover:underline">
                         {price.name ?? 'Price'}
                     </span>
                     <Badge
@@ -619,7 +690,7 @@ function PriceRow({
                             Trial price for {isTrialPriceFor.name}
                         </Badge>
                     )}
-                </div>
+                </button>
                 <p className="text-sm text-muted-foreground">
                     {price.pricingModel === 'graduated' ? (
                         'Graduated pricing'
@@ -677,30 +748,46 @@ function PriceRow({
                 )}
             </div>
 
-            {canManagePrices && price.status === 'active' && (
-                <div className="flex shrink-0 items-center gap-2">
-                    <EditPriceDrawer
-                        currentTeamSlug={currentTeamSlug}
-                        productId={productId}
-                        price={price}
-                        open={editOpen}
-                        onOpenChange={onEditOpenChange}
-                    >
-                        <Button variant="ghost" size="sm">
-                            Edit
-                        </Button>
-                    </EditPriceDrawer>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                     <Button
                         variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={onArchive}
-                        data-test="archive-price-trigger"
+                        size="icon"
+                        className="shrink-0"
+                        data-test="price-row-actions-trigger"
                     >
-                        Archive
+                        <MoreHorizontal className="size-4" />
                     </Button>
-                </div>
-            )}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                        onSelect={() =>
+                            copyToClipboard(price.publicId, 'Price ID')
+                        }
+                        data-test="copy-price-id-action"
+                    >
+                        Copy price ID
+                    </DropdownMenuItem>
+                    {canManagePrices && price.status === 'active' && (
+                        <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                onSelect={onEdit}
+                                data-test="edit-price-trigger"
+                            >
+                                Edit price
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                variant="destructive"
+                                onSelect={onArchive}
+                                data-test="archive-price-trigger"
+                            >
+                                Archive price
+                            </DropdownMenuItem>
+                        </>
+                    )}
+                </DropdownMenuContent>
+            </DropdownMenu>
         </div>
     );
 }

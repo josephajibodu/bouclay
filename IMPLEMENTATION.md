@@ -72,7 +72,7 @@ Authoritative schema: [`schema.md`](schema.md)
 - `trial_offers` + catalog UI (free trial only for MVP — `trial_price.unit_amount = 0`, relative duration)
 - All queries scoped by `team_id`
 
-**Defer:** paid trials, product-transition trials, timestamp-duration trials, volume + graduated (ship one tiered model only).
+**Defer:** paid trials, product-transition trials, timestamp-duration trials, volume + graduated (ship one tiered model only), **payment links** (a shareable, hosted checkout URL generated per price — the "Create payment link" action on a price row is a Phase 11 self-service-portal companion, since it needs the same hosted-checkout building block).
 
 **Exit criteria:** Team creates “Pro” product with monthly price and optional free trial offer.
 
@@ -195,6 +195,7 @@ Authoritative schema: [`schema.md`](schema.md)
 - Customer-facing pages or hosted portal links (team-branded minimal UI)
 - View subscription status, update payment method, cancel at period end
 - Authenticated by magic link or customer portal token
+- **Payment links** — a "Create payment link" action per price (seen in the Catalog price-row menu) that generates a shareable hosted checkout URL for that exact price, reusing this phase's hosted-portal UI shell
 
 **Exit criteria:** End customer can cancel subscription without support.
 

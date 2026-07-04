@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\HasPublicId;
 use App\Enums\TrialDurationType;
 use Database\Factories\TrialOfferFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -12,6 +13,7 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
+ * @property string $public_id
  * @property int $team_id
  * @property string $name
  * @property int $product_id
@@ -42,7 +44,15 @@ use Illuminate\Support\Carbon;
 class TrialOffer extends Model
 {
     /** @use HasFactory<TrialOfferFactory> */
-    use HasFactory;
+    use HasFactory, HasPublicId;
+
+    /**
+     * Get the prefix for this model's public identifier.
+     */
+    public function publicIdPrefix(): string
+    {
+        return 'trial';
+    }
 
     /**
      * Get the team this trial offer belongs to.
@@ -105,6 +115,7 @@ class TrialOffer extends Model
     {
         return [
             'id' => $this->id,
+            'publicId' => $this->public_id,
             'name' => $this->name,
             'trialPrice' => [
                 'id' => $this->trialPrice->id,

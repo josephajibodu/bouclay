@@ -110,7 +110,11 @@ class Price extends Model
             'currency' => $this->currency,
             'billingInterval' => $this->billing_interval,
             'billingFrequency' => $this->billing_frequency,
+            'taxMode' => $this->tax_mode,
             'status' => $this->status,
+            'hasBeenUsed' => $this->hasBeenUsed(),
+            'customData' => $this->custom_data,
+            'createdAt' => $this->created_at?->toISOString(),
             'tiers' => $this->relationLoaded('tiers')
                 ? $this->tiers->map(fn (PriceTier $tier) => [
                     'id' => $tier->id,

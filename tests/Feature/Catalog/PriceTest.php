@@ -56,6 +56,66 @@ test('a graduated price requires tiers', function () {
         ->and($price->tiers->last()->up_to)->toBeNull();
 });
 
+test('an unused price can have its full shape edited, not just its name', function () {
+    $owner = User::factory()->create();
+    $team = Team::factory()->create();
+    $product = Product::factory()->for($team)->create();
+    $price = Price::factory()->for($team)->for($product)->create([
+        'unit_amount' => 150000,
+        'billing_interval' => 'month',
+        'pricing_model' => 'standard',
+    ]);
+
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $this
+        ->actingAs($owner)
+        ->patch(route('catalog.prices.update', [$team, $product, $price]), [
+            'name' => 'Annual plan',
+            'unit_amount' => 300000,
+            'currency' => 'USD',
+            'billing_interval' => 'year',
+        ])
+        ->assertRedirect();
+
+    $price->refresh();
+    expect($price->name)->toBe('Annual plan')
+        ->and($price->unit_amount)->toBe(30000000)
+        ->and($price->currency)->toBe('USD')
+        ->and($price->billing_interval->value)->toBe('year');
+});
+
+test('editing a price to graduated pricing replaces its tiers', function () {
+    $owner = User::factory()->create();
+    $team = Team::factory()->create();
+    $product = Product::factory()->for($team)->create();
+    $price = Price::factory()->for($team)->for($product)->create([
+        'unit_amount' => 150000,
+        'pricing_model' => 'standard',
+    ]);
+
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $this
+        ->actingAs($owner)
+        ->patch(route('catalog.prices.update', [$team, $product, $price]), [
+            'pricing_model' => 'graduated',
+            'unit_amount' => null,
+            'tiers' => [
+                ['up_to' => 100, 'unit_amount' => 10],
+                ['up_to' => null, 'unit_amount' => 5],
+            ],
+        ])
+        ->assertRedirect();
+
+    $price->refresh();
+    expect($price->pricing_model->value)->toBe('graduated')
+        ->and($price->tiers)->toHaveCount(2)
+        ->and($price->tiers->first()->unit_amount)->toBe(1000);
+});
+
 test('a price can be archived', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create();

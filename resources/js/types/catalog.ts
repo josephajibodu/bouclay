@@ -2,6 +2,7 @@ export type CatalogStatus = 'active' | 'archived';
 export type PriceType = 'recurring' | 'one_time';
 export type PricingModel = 'standard' | 'graduated';
 export type BillingInterval = 'day' | 'week' | 'month' | 'year';
+export type TaxMode = 'inclusive' | 'exclusive' | 'account';
 
 export type PriceTier = {
     id: number;
@@ -21,7 +22,11 @@ export type Price = {
     currency: string;
     billingInterval: BillingInterval | null;
     billingFrequency: number;
+    taxMode: TaxMode;
     status: CatalogStatus;
+    hasBeenUsed: boolean;
+    customData: Record<string, string> | null;
+    createdAt: string | null;
     tiers: PriceTier[];
 };
 
@@ -29,6 +34,7 @@ export type PriceRef = { id: number; label: string };
 
 export type TrialOffer = {
     id: number;
+    publicId: string;
     name: string;
     trialPrice: PriceRef;
     transitionToDifferentProduct: boolean;
