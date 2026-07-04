@@ -1,7 +1,7 @@
 import type { InertiaLinkProps } from '@inertiajs/react';
 import { Head, Link, usePage } from '@inertiajs/react';
 import { Check, ChevronRight } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import PendingInvitationsModal from '@/components/pending-invitations-modal';
 import { Button } from '@/components/ui/button';
@@ -135,6 +135,45 @@ export default function Dashboard({
     const showCompletePill = onboarding !== null && allDone && !expanded;
     const showCompletedCard = onboarding !== null && allDone && expanded;
 
+    let onboardingView: React.ReactNode = null;
+
+    if (showFullChecklist || showCompletedCard) {
+        onboardingView = (
+            <OnboardingChecklist
+                key="checklist"
+                teamName={currentTeam?.name ?? 'your business'}
+                items={items}
+                doneCount={doneCount}
+                allDone={allDone}
+                onDismiss={expanded ? () => setExpanded(false) : dismiss}
+                onSkip={doneCount === 0 ? dismiss : undefined}
+            />
+        );
+    } else if (showBanner) {
+        onboardingView = (
+            <OnboardingBanner
+                key="banner"
+                items={items}
+                doneCount={doneCount}
+                onExpand={() => setExpanded(true)}
+                onDismiss={dismiss}
+            />
+        );
+    } else if (showCompletePill) {
+        onboardingView = (
+            <button
+                key="pill"
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="flex w-fit animate-in items-center gap-2 rounded-full border bg-muted/30 px-3 py-1.5 text-sm text-muted-foreground duration-300 ease-out fade-in slide-in-from-top-2 hover:bg-muted/60"
+                data-test="onboarding-complete-pill"
+            >
+                <Check className="size-3.5 text-emerald-500" />
+                Setup complete
+            </button>
+        );
+    }
+
     return (
         <>
             <Head title="Overview" />
@@ -144,39 +183,7 @@ export default function Dashboard({
                 onOpenChange={setShowInvitations}
             />
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
-                {(showFullChecklist || showCompletedCard) && (
-                    <OnboardingChecklist
-                        teamName={currentTeam?.name ?? 'your business'}
-                        items={items}
-                        doneCount={doneCount}
-                        allDone={allDone}
-                        onDismiss={
-                            expanded ? () => setExpanded(false) : dismiss
-                        }
-                        onSkip={doneCount === 0 ? dismiss : undefined}
-                    />
-                )}
-
-                {showBanner && (
-                    <OnboardingBanner
-                        items={items}
-                        doneCount={doneCount}
-                        onExpand={() => setExpanded(true)}
-                        onDismiss={dismiss}
-                    />
-                )}
-
-                {showCompletePill && (
-                    <button
-                        type="button"
-                        onClick={() => setExpanded(true)}
-                        className="flex w-fit items-center gap-2 rounded-full border bg-muted/30 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/60"
-                        data-test="onboarding-complete-pill"
-                    >
-                        <Check className="size-3.5 text-emerald-500" />
-                        Setup complete
-                    </button>
-                )}
+                <AnimatedHeight>{onboardingView}</AnimatedHeight>
 
                 <div className="grid auto-rows-min gap-4 md:grid-cols-3">
                     <div className="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
@@ -197,6 +204,62 @@ export default function Dashboard({
     );
 }
 
+/**
+ * Animates height and opacity when its child changes or becomes null, so
+ * swapping/hiding onboarding views resizes smoothly instead of jumping.
+ * Keeps rendering the outgoing child for one transition cycle so it fades
+ * out in place rather than vanishing before the collapse finishes.
+ */
+function AnimatedHeight({ children }: { children: React.ReactNode }) {
+    const innerRef = useRef<HTMLDivElement>(null);
+    const isVisible = Boolean(children);
+
+    const [wasVisible, setWasVisible] = useState(isVisible);
+    const [renderedChildren, setRenderedChildren] = useState(children);
+    const [height, setHeight] = useState(0);
+
+    if (isVisible !== wasVisible) {
+        setWasVisible(isVisible);
+
+        if (!isVisible) {
+            setHeight(0);
+        }
+    }
+
+    if (isVisible && children !== renderedChildren) {
+        setRenderedChildren(children);
+    }
+
+    useEffect(() => {
+        if (isVisible) {
+            return;
+        }
+
+        const timeout = setTimeout(() => setRenderedChildren(null), 300);
+
+        return () => clearTimeout(timeout);
+    }, [isVisible]);
+
+    useLayoutEffect(() => {
+        const node = innerRef.current;
+
+        if (!node || !isVisible) {
+            return;
+        }
+
+        setHeight(node.scrollHeight);
+    }, [renderedChildren, isVisible]);
+
+    return (
+        <div
+            className="overflow-hidden transition-[height,opacity] duration-300 ease-in-out"
+            style={{ height, opacity: isVisible ? 1 : 0 }}
+        >
+            <div ref={innerRef}>{renderedChildren}</div>
+        </div>
+    );
+}
+
 function OnboardingChecklist({
     teamName,
     items,
@@ -214,7 +277,7 @@ function OnboardingChecklist({
 }) {
     return (
         <div
-            className="space-y-4 rounded-xl border p-6"
+            className="animate-in space-y-4 rounded-xl border p-6 duration-300 ease-out fade-in slide-in-from-top-2"
             data-test="onboarding-checklist"
         >
             <div className="flex items-start justify-between gap-4">
@@ -239,7 +302,7 @@ function OnboardingChecklist({
                         <span
                             key={item.key}
                             className={cn(
-                                'size-2 rounded-full',
+                                'size-2 rounded-full transition-colors duration-300',
                                 item.done ? 'bg-emerald-500' : 'bg-muted',
                             )}
                         />
@@ -258,12 +321,14 @@ function OnboardingChecklist({
                         <div className="flex items-start gap-3">
                             <span
                                 className={cn(
-                                    'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border',
+                                    'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors duration-300',
                                     item.done &&
                                         'border-emerald-500 bg-emerald-500 text-white',
                                 )}
                             >
-                                {item.done && <Check className="size-3" />}
+                                {item.done && (
+                                    <Check className="size-3 animate-in duration-200 spin-in-45 zoom-in" />
+                                )}
                             </span>
                             <div>
                                 <p className="font-medium">{item.title}</p>
@@ -317,7 +382,7 @@ function OnboardingBanner({
 
     return (
         <div
-            className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-2"
+            className="flex animate-in items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-2 duration-300 ease-out fade-in slide-in-from-top-2"
             data-test="onboarding-banner"
         >
             <button
@@ -330,7 +395,7 @@ function OnboardingBanner({
                         <span
                             key={item.key}
                             className={cn(
-                                'size-2 rounded-full',
+                                'size-2 rounded-full transition-colors duration-300',
                                 item.done ? 'bg-emerald-500' : 'bg-muted-foreground/30',
                             )}
                         />
