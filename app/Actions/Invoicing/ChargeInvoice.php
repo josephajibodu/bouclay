@@ -18,7 +18,7 @@ use Illuminate\Support\Str;
  * Charge a stored payment method against an invoice — the real Nomba
  * server-to-server call ("Charge a Tokenized Card",
  * `/v1/checkout/tokenized-card-payment`) that replaces the Phase 5 simulated
- * `apply('activate')`. Always records a Payment (dashboard: "Transaction"),
+ * Always records a {@see Payment} charge attempt against the invoice.
  * succeeded or failed — schema.md §7 records every attempt, not just
  * successes, since Bouclay runs its own dunning.
  */

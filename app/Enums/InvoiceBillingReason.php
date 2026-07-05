@@ -11,4 +11,17 @@ enum InvoiceBillingReason: string
     case SubscriptionCycle = 'subscription_cycle';
     case SubscriptionUpdate = 'subscription_update';
     case Manual = 'manual';
+
+    /**
+     * Plain-language label for the invoice detail page.
+     */
+    public function label(): string
+    {
+        return match ($this) {
+            self::SubscriptionCreate => 'New subscription',
+            self::SubscriptionCycle => 'Subscription renewal',
+            self::SubscriptionUpdate => 'Subscription update',
+            self::Manual => 'One-off invoice',
+        };
+    }
 }

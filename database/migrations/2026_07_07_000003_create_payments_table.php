@@ -13,8 +13,7 @@ return new class extends Migration
     {
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
-            // "txn_" — the dashboard calls this object a Transaction (Paddle's
-            // word); the model/table stay `Payment`/`payments` (schema.md).
+            // `pay_` — a charge attempt against an invoice (schema.md §7).
             $table->string('public_id')->unique();
             $table->foreignId('team_id')->constrained()->cascadeOnDelete();
             $table->foreignId('invoice_id')->constrained()->cascadeOnDelete();

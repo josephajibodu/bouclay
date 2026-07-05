@@ -2,10 +2,12 @@
 
 namespace App\Actions\Invoicing;
 
+use App\Enums\AddressType;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\InvoiceStatus;
+use App\Models\Address;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Price;
@@ -18,7 +20,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Build and persist an invoice + its line items. The shared primitive behind
- * both a one-off Transaction and a subscription's billed periods — one place
+ * both a one-off invoice and a subscription's billed periods — one place
  * that assigns invoice numbers and computes totals, so both callers stay in
  * sync (IMPLEMENTATION.md Phase 6).
  */
@@ -54,6 +56,10 @@ class CreateInvoice
                 'subtotal' => $subtotal,
                 'total' => $subtotal,
                 'amount_due' => $subtotal,
+                'customer_snapshot' => $this->snapshotCustomer($customer),
+                'billing_address' => $this->snapshotBillingAddress($customer),
+                'period_start' => $subscription?->current_period_start,
+                'period_end' => $subscription?->current_period_end,
                 'due_at' => $dueAt,
                 'finalized_at' => Carbon::now(),
             ]);
@@ -106,5 +112,49 @@ class CreateInvoice
         $settings->increment('next_invoice_number');
 
         return $number;
+    }
+
+    /**
+     * Freeze the customer's identity at issue time — never rely on the live
+     * FK for a historical invoice (schema.md §7).
+     *
+     * @return array{name: string|null, email: string}
+     */
+    private function snapshotCustomer(Customer $customer): array
+    {
+        return [
+            'name' => $customer->name,
+            'email' => $customer->email,
+        ];
+    }
+
+    /**
+     * Freeze the customer's billing address at issue time, if one exists.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function snapshotBillingAddress(Customer $customer): ?array
+    {
+        $address = $customer->addresses()
+            ->where('type', AddressType::Billing)
+            ->orderByDesc('is_default')
+            ->first()
+            ?? $customer->addresses()->first();
+
+        if (! $address instanceof Address) {
+            return null;
+        }
+
+        return [
+            'name' => $address->name,
+            'line1' => $address->line1,
+            'line2' => $address->line2,
+            'city' => $address->city,
+            'region' => $address->region,
+            'postalCode' => $address->postal_code,
+            'country' => $address->country,
+            'phone' => $address->phone,
+            'singleLine' => $address->toSingleLine(),
+        ];
     }
 }

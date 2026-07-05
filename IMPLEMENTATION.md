@@ -120,7 +120,7 @@ Because Decision #2 removed the standalone "add card", the *only* way a card rea
 
 **Carried into later phases (so we don't forget):**
 - **Phase 5 (Subscriptions):** "Create subscription" reuses the Phase-4 checkout primitive for the first charge; enable **live-mode** card collection here (first subscription payment mints the live token). Un-disable the "Create subscription" action + section CTA on the customer page.
-- **Phase 6 (Invoicing/Transactions):** promote "Charge customer" to record real `payments`/`invoices`; replace the customer-page **Transactions placeholder** with the real table in the same slot; add **Total spend** column to the list and spend cell to the Overview grid. Enable live-mode standalone charges.
+- **Phase 6 (Invoicing):** promote "Charge customer" to record real `payments`/`invoices`; replace the customer-page **Invoices** placeholder with the real table in the same slot; add **Total spend** column to the list and spend cell to the Overview grid. Enable live-mode standalone charges.
 - **Phase 7 (Inbound webhooks):** replace the Phase-4 *minimal* `tokenizedCardData` capture with full signature-verified event mapping.
 - **Phase 9 (Outbound):** emit `customer.created` / `payment_method.added` events from the hooks Phase 4 already fires for the activity timeline.
 
@@ -149,17 +149,18 @@ Verified against Stripe's create-subscription dialog (see `SUBSCRIPTIONS_DESIGN.
 2. **Free vs paid trial split (schema.md §5).** Free trial (`trial_price = 0`) → no charge, `trialing`. Paid trial (`trial_price > 0`) → billed the intro price at signup and each cycle, follows `incomplete → active` (**not** `trialing`), converts to `transition_price` at `trial_ends_at`. `current_period_end` = one **intro** cycle; `trial_ends_at` = the conversion point. (SUBSCRIPTIONS_DESIGN §10.2)
 3. **A product appears at most once.** A plain line + a trial for the same product double-charges, so the create builder de-dupes by product and `CreateSubscription::resolveLines` rejects duplicate `product_id`.
 4. **Collection modes** = the two Stripe/Paddle choices: *Automatically charge a saved card* (`automatic`) vs *Send an invoice to pay manually* (`manual`). Already on `subscriptions.collection_mode`; no new column.
-5. **Money is staged (Phase 5/6 cut-line).** No `invoices`/`payments`/real Nomba charge this phase. `apply('activate')` **simulates** a successful first charge; hub Invoices/Payments are `StagedSection`s. (SUBSCRIPTIONS_DESIGN §17.6)
+5. **Money was staged in Phase 5; Phase 6 built invoicing.** Phase 5 used `apply('activate')` simulation and `StagedSection` hubs. Phase 6 records real `invoices`/`payments`, rewires `CreateSubscription`, and replaces hub placeholders. Renewals/proration still deferred. (SUBSCRIPTIONS_DESIGN §17.6)
 
 ### Carried into later phases (so we don't forget)
 
-The create-time seams are marked in code as `TODO(Phase 6)` in `CreateSubscription` (`grep -rn "TODO(Phase" app/`). The worker-driven transitions are **new callers that don't exist yet** — this list is their home:
+Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charge + invoice). Remaining worker-driven transitions are **new callers that don't exist yet** — this list is their home:
 
-- **Phase 6 (Invoicing/charges):**
-  - Replace the **simulated first charge** in `CreateSubscription::settleInitialState` (`apply('activate')`) with a real Nomba charge → record `payment` + `invoice`; on decline leave `incomplete`.
-  - **Automatic + no card** subscriptions currently **dead-end at `incomplete`** — generate the Phase-4 checkout link to collect the card, then flip to `active`/`trialing` on payment.
-  - Add the **trial-conversion worker**: at `subscription_item_trials.ends_at`, swap the item `trial_price_id → transition_price_id`, mark the trial `converted`, and call `apply('convert')`.
-  - Replace the hub **Upcoming invoices / Payments** `StagedSection`s with real tables (same slots); add real amounts to list/customer totals.
+- **Phase 6 (Invoicing/charges) — partial ✅:**
+  - ✅ Replace simulated first charge with real Nomba charge → `payment` + `invoice`; on decline leave `incomplete`.
+  - ⬜ **Automatic + no card** subscriptions still **dead-end at `incomplete`** — generate checkout link to collect card, then flip to `active`/`trialing` on payment.
+  - ⬜ **Trial-conversion worker**: at `subscription_item_trials.ends_at`, swap item `trial_price_id → transition_price_id`, mark trial `converted`, call `apply('convert')`.
+  - ✅ Hub **Upcoming invoices / Payments** → real tables; customer hub **Invoices** + **Total spend**.
+  - ⬜ **Renewal billing worker** at `current_period_end`; **proration** lines on plan/quantity change.
 - **Phase 7 (Inbound webhooks):** drive `apply('activate')` / `apply('markPastDue')` from real Nomba `payment_success` / `payment_failed` events instead of the synchronous create-time assumption; clear the hub's "awaiting payment" banner on the webhook.
 - **Phase 8 (Dunning):**
   - **Incomplete-timeout job** → `apply('expire')` for `incomplete` subs past their grace window (→ `incomplete_expired`).
@@ -172,7 +173,7 @@ The create-time seams are marked in code as `TODO(Phase 6)` in `CreateSubscripti
 
 | Transition | Fires when | Caller wired in |
 |---|---|---|
-| `activate` | first payment captured | **5** (simulated at create) → **6/7** (real charge / webhook) |
+| `activate` | first payment captured | **6** ✅ (real charge at create) → **7** (webhook for async paths) |
 | `pause` / `resume` / `cancel` (immediate) | dashboard action | **5** ✅ |
 | cancel/pause/resume at period end | `scheduled_changes` row reaches `effective_at` | **5** writes row → **6/8** worker fires |
 | `convert` | trial reaches `ends_at` | **6/8** trial-conversion worker |
@@ -182,34 +183,39 @@ The create-time seams are marked in code as `TODO(Phase 6)` in `CreateSubscripti
 
 ---
 
-## Phase 6 — Invoicing, charges & proration 🟡 (core done; worker/proration deferred)
+## Phase 6 — Invoicing, charges & proration 🟡 (invoicing UI done; worker/proration deferred)
 
 **Goal:** Money moves on a schedule; upgrades/downgrades prorate.
 
 **Built:**
 
-- `invoices`, `invoice_lines`, `payments` — migrations, models, factories. The dashboard calls `payments` **"Transactions"** (Paddle's word); the model/table stay `Payment`/`payments` (schema.md).
+- `invoices`, `invoice_lines`, `payments` — migrations, models, factories. See [Dashboard vocabulary](schema.md#dashboard-vocabulary-locked-2026-07-06) in `schema.md`: **`Invoice`** is the billing record; **`Payment`** is a charge attempt (`pay_` public IDs). There is no Bouclay "Transaction" entity.
 - **Real Nomba charge, not simulated.** `NombaCheckout::chargeTokenizedCard()` (`POST /v1/checkout/tokenized-card-payment`) + a follow-up `verifyOrderSucceeded()` per Nomba's own guidance — replaces Phase 5's `apply('activate')` simulation.
-- `App\Actions\Invoicing\CreateInvoice` — the shared primitive both subscriptions and one-off transactions build invoices through (assigns sequential numbers from `team_settings`, computes totals). `App\Actions\Invoicing\ChargeInvoice` — charges an invoice against a stored `PaymentMethod`, always recording a `Payment` (succeeded or failed), in the team's Nomba mode (test/live) matching the token's own mode.
-- **`CreateSubscription` rewired** (Phase 5's TODO(Phase 6) markers): a billed line now produces a real `Invoice`; automatic + card charges it for real via `ChargeInvoice` (charge runs **after** the creation transaction commits — a real external charge must never sit inside a transaction that could still roll back); automatic + no card and manual both still produce an open invoice, just no charge attempt yet.
-- **`App\Actions\Transactions\CreateTransaction`** — the "New transaction" one-off flow (Paddle-style): a customer, one or more line items (a catalog price *or* a custom amount+description), and a collection-mode choice, built on the same `CreateInvoice`/`ChargeInvoice` primitives.
-- `TransactionController` + `routes/transactions.php`, gated on the already-seeded `invoices.view`/`invoices.manage` (`viewTransactions`/`manageTransactions` policy methods, `canViewTransactions`/`canManageTransactions` on `TeamPermissions`).
-- **Dashboard: drawers, not pages.** Both "New subscription" and "New transaction" are two-pane `Sheet` drawers (`sm:max-w-4xl`) opened in place from the Subscriptions/Transactions lists and from a customer's own page — the Phase-5 `/subscriptions/new` full page was removed and its logic became `CreateSubscriptionDrawer`. `BuildSubscriptionCreateOptions` shares the catalog data both drawer entry points need.
-- Wired the Phase-5 staged placeholders to real data: subscription hub's "Upcoming invoices" + "Transactions" sections, customer hub's "Transactions" section + a **Total spend** overview fact (the Phase-4 carried-forward promise) via `Customer::totalSpend()`.
-- **Transactions** nav item (top-level, below Subscriptions).
+- `App\Actions\Invoicing\CreateInvoice` — the shared primitive both subscriptions and one-off invoices build through (assigns sequential numbers from `team_settings`, snapshots `customer_snapshot` + `billing_address` at creation, computes totals). `App\Actions\Invoicing\ChargeInvoice` — charges an invoice against a stored `PaymentMethod`, always recording a `Payment` (succeeded or failed).
+- `App\Actions\Invoicing\CreateOneOffInvoice` — the "New invoice" one-off flow: a customer, one or more line items (catalog price or custom amount), and a collection-mode choice, built on `CreateInvoice`/`ChargeInvoice`.
+- **`CreateSubscription` rewired** (Phase 5's TODO(Phase 6) markers): a billed line now produces a real `Invoice`; automatic + card charges it for real via `ChargeInvoice` (charge runs **after** the creation DB transaction commits); automatic + no card and manual both still produce an open invoice with no charge attempt yet.
+- **`InvoiceController`** + `routes/invoices.php` — list, show, store, void, mark uncollectible. Gated on `invoices.view` / `invoices.manage` via `viewInvoices` / `manageInvoices` on `TeamPolicy` and `canViewInvoices` / `canManageInvoices` on `TeamPermissions`.
+- **Dashboard: drawers for create, pages for detail.** "New subscription" and "New invoice" are two-pane `Sheet` drawers opened from list pages and the customer hub. Invoice detail is a full Inertia page (`resources/js/pages/invoices/show.tsx`): operational overview, payment breakdown, line items, charge-attempt list, and a paper-style invoice document card (PDF export deferred).
+- **Invoices** nav item (top-level sidebar, below Subscriptions) — sole billing list; no separate "Transactions" nav.
+- Wired Phase-5 placeholders to real data:
+  - Subscription hub: **Upcoming invoices** (invoice rows, clickable → detail) + **Payments** (charge attempts via `Payment::toDashboardArray()`).
+  - Customer hub: **Invoices** section (invoice rows, clickable → detail) + **Total spend** overview fact via `Customer::totalSpend()`.
+- Frontend: `resources/js/pages/invoices/`, `resources/js/components/invoices/`, `resources/js/types/invoices.ts`. Shared badge maps: `invoice-status.ts`, `payment-status.ts`.
 
-**Two real bugs found only by manually exercising the drawers in-browser** (not caught by static analysis, since PHP arrays don't enforce docblock shapes at runtime) — both now covered by regression tests:
-1. `CreateInvoice` assumed every line array had a `subscriptionItem` key; `CreateTransaction`'s lines don't set one → `ErrorException` on any transaction with a plain price line. Fixed with `?? null` before the null-safe access.
-2. `TeamSettings::create([])` relies on the migration's DB-level column defaults, but Eloquent doesn't refresh those into the in-memory model after insert — `invoice_prefix` read back as `null` in PHP even though the DB row correctly got `'INV'`, so the very first invoice number came out as the bare string `"-"`. Fixed by passing the defaults explicitly in `nextNumber()`'s `create()` call instead of relying on the DB to supply them silently.
-3. **The Transactions list was payment-centric, so a manually-billed or not-yet-charged invoice was invisible the moment it was created** (zero `Payment` rows exist until something is actually charged). `TransactionController::index()` now queries `invoices` (Paddle's own "Transactions" list is the same shape — one row per invoice, its latest charge attempt shown alongside via `Invoice::toListArray()`), default status filter `all` so nothing is hidden by a surprising default. `InvoiceSummary`/`InvoiceListItem` (in `resources/js/types/transactions.ts`) replace the payment-shaped list item for this page only; the payment-attempt lists nested inside the subscription/customer hubs are correctly still `Payment`-based (those genuinely are "every attempt against this one object"). Shared status-badge maps live in `resources/js/components/transactions/{invoice,payment}-status.ts`.
+**Two real bugs found only by manually exercising the drawers in-browser** (not caught by static analysis) — both now covered by regression tests:
+1. `CreateInvoice` assumed every line array had a `subscriptionItem` key; one-off invoice lines don't set one → `ErrorException`. Fixed with `?? null`.
+2. `TeamSettings::create([])` — Eloquent doesn't hydrate DB defaults after insert; first invoice number came out as `"-"`. Fixed by passing defaults explicitly in `nextNumber()`.
+3. **Early list queried `payments`, hiding open manual invoices** with zero charge attempts. Fixed: global list queries `invoices` via `Invoice::toListArray()`.
+
+**Naming refactor (2026-07-06):** removed the interim "Transactions" dashboard layer (`TransactionController`, `CreateTransaction`, `routes/transactions.php`, `types/transactions.ts`, `/transactions` redirects). Canonical paths and vocabulary are documented in `schema.md` § Dashboard vocabulary.
 
 **Deferred to later in Phase 6 (not built yet):**
 - **Period billing worker** — nothing generates a *renewal* invoice at `current_period_end` yet; only the first invoice (at creation) exists.
-- **Proration** — plan/quantity changes don't produce `invoice_lines` with `kind: proration`. The item row's `⋯` menu still reserves a disabled "Change plan" slot (SUBSCRIPTIONS_DESIGN §11.2).
-- **Checkout link for open invoices** — automatic-with-no-card still just creates an open invoice; nothing yet generates the Nomba hosted-checkout link to collect the card and settle it (the Phase-4 primitive exists and is the obvious reuse target, carried forward again).
-- **No dedicated Invoice page.** An invoice is only visible as a summary row (Transactions list, or the subscription hub's "Upcoming invoices" section) — there's no invoice detail/show page, no PDF-style preview, no void/uncollectible actions, and the customer hub's own "Transactions" section is still payment-attempt-based rather than invoice-based (inconsistent with the fix above). This is the next piece of work.
+- **Proration** — plan/quantity changes don't produce `invoice_lines` with `kind: proration`.
+- **Checkout link for open invoices** — automatic-with-no-card creates an open invoice; no hosted-checkout link yet.
+- **PDF export** — "Download PDF" action is stubbed on the invoice detail page; on-screen paper preview only.
 
-**Exit criteria:** ✅ a real charge succeeds against a stored card (subscription or one-off transaction) and is recorded as a `payment`; ⬜ renewal generates an invoice automatically; ⬜ plan change produces a proration line.
+**Exit criteria:** ✅ a real charge succeeds against a stored card (subscription or one-off invoice) and is recorded as a `payment`; ✅ invoice list + detail pages with snapshots and void/uncollectible; ⬜ renewal generates an invoice automatically; ⬜ plan change produces a proration line.
 
 ---
 

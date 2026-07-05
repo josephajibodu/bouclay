@@ -1,9 +1,7 @@
 <?php
 
-namespace App\Actions\Transactions;
+namespace App\Actions\Invoicing;
 
-use App\Actions\Invoicing\ChargeInvoice;
-use App\Actions\Invoicing\CreateInvoice;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
@@ -16,13 +14,10 @@ use Illuminate\Support\Carbon;
 use InvalidArgumentException;
 
 /**
- * Create a one-off Transaction — a Paddle-style "New transaction": pick a
- * customer, bill one or more line items once, and choose how to collect
- * (IMPLEMENTATION.md Phase 6). Backed by the same Invoice/Payment models a
- * subscription bills into ({@see CreateInvoice}, {@see ChargeInvoice}); the
- * dashboard just calls the result a Transaction.
+ * Create a one-off invoice — pick a customer, bill one or more line items
+ * once, and choose how to collect (IMPLEMENTATION.md Phase 6).
  */
-class CreateTransaction
+class CreateOneOffInvoice
 {
     public function __construct(
         private readonly CreateInvoice $createInvoice,
@@ -83,11 +78,11 @@ class CreateTransaction
                 $price = $team->prices()->with('product')->findOrFail((int) $item['price_id']);
 
                 if ($price->currency !== $currency) {
-                    throw new InvalidArgumentException("This price is in {$price->currency}; this transaction bills in {$currency}. Pick a matching price.");
+                    throw new InvalidArgumentException("This price is in {$price->currency}; this invoice bills in {$currency}. Pick a matching price.");
                 }
 
                 if ($price->unit_amount === null) {
-                    throw new InvalidArgumentException('Tiered and graduated prices aren\'t billable on a one-off transaction yet — use a standard price.');
+                    throw new InvalidArgumentException('Tiered and graduated prices aren\'t billable on a one-off invoice yet — use a standard price.');
                 }
 
                 return [

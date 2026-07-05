@@ -14,9 +14,7 @@ use Illuminate\Support\Carbon;
 
 /**
  * One charge attempt against the processor (schema.md §7) — Bouclay records
- * every attempt, not just successes, since it runs its own dunning. The
- * dashboard calls this object a "Transaction" (Paddle's word); the model and
- * table stay `Payment`/`payments`.
+ * every attempt, not just successes, since it runs its own dunning.
  *
  * @property int $id
  * @property string $public_id
@@ -55,12 +53,11 @@ class Payment extends Model
     use HasFactory, HasPublicId;
 
     /**
-     * Get the prefix for this model's public identifier — "txn" since the
-     * dashboard names this object a Transaction.
+     * Get the prefix for this model's public identifier.
      */
     public function publicIdPrefix(): string
     {
-        return 'txn';
+        return 'pay';
     }
 
     /**
@@ -105,12 +102,11 @@ class Payment extends Model
     }
 
     /**
-     * Serialise a row for the Transactions list (Paddle-thin: product(s),
-     * customer, amount, method, date paid, status).
+     * Serialise a charge attempt for nested hub lists (subscription, customer).
      *
      * @return array<string, mixed>
      */
-    public function toListArray(): array
+    public function toDashboardArray(): array
     {
         return [
             'id' => $this->id,

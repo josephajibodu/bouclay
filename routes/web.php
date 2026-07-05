@@ -45,4 +45,4 @@ require __DIR__.'/developers.php';
 require __DIR__.'/catalog.php';
 require __DIR__.'/customers.php';
 require __DIR__.'/subscriptions.php';
-require __DIR__.'/transactions.php';
+require __DIR__.'/invoices.php';

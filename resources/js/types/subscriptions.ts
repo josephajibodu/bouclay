@@ -77,8 +77,7 @@ export type SubscriptionTimelineEvent = {
     at: string | null;
 };
 
-// Invoice types (InvoiceStatus, InvoiceSummary) live in ./transactions —
-// generic, shared by the subscription hub and the global Transactions list.
+// Invoice types live in ./invoices — shared by invoice list, detail, and hubs.
 
 export type SubscriptionDetail = {
     id: number;

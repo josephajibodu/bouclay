@@ -227,7 +227,7 @@ class Team extends Model
     }
 
     /**
-     * Get all payments (Transactions) this team has attempted.
+     * Get all charge attempts this team has made.
      *
      * @return HasMany<Payment, $this>
      */

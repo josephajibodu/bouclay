@@ -27,7 +27,7 @@ import { index as apiKeys } from '@/routes/developers/api-keys';
 import { show as nombaIntegration } from '@/routes/developers/nomba';
 import { show as webhooks } from '@/routes/developers/webhooks';
 import { index as subscriptions } from '@/routes/subscriptions';
-import { index as transactions } from '@/routes/transactions';
+import { index as invoices } from '@/routes/invoices';
 import type { NavItem } from '@/types';
 
 export function AppSidebar() {
@@ -95,11 +95,11 @@ export function AppSidebar() {
                   },
               ]
             : []),
-        ...(currentTeam && teamPermissions?.canViewTransactions
+        ...(currentTeam && teamPermissions?.canViewInvoices
             ? [
                   {
-                      title: 'Transactions',
-                      href: transactions(),
+                      title: 'Invoices',
+                      href: invoices(),
                       icon: Receipt,
                   },
               ]

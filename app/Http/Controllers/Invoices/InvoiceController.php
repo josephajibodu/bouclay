@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Http\Controllers\Transactions;
+namespace App\Http\Controllers\Invoices;
 
-use App\Actions\Transactions\CreateTransaction;
+use App\Actions\Invoicing\CreateOneOffInvoice;
 use App\Enums\CatalogStatus;
 use App\Enums\PaymentStatus;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Transactions\StoreTransactionRequest;
+use App\Http\Requests\Invoices\StoreInvoiceRequest;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
@@ -21,28 +21,16 @@ use Inertia\Inertia;
 use Inertia\Response;
 use InvalidArgumentException;
 
-/**
- * Transactions — Paddle's word for an invoice + its charge attempts
- * (schema.md's `invoices`/`payments`). One-off "New transaction" mirrors the
- * subscription create flow: a customer, one or more line items, and how to
- * collect (IMPLEMENTATION.md Phase 6).
- */
-class TransactionController extends Controller
+class InvoiceController extends Controller
 {
     /**
-     * Paddle-thin: search, one status filter, server-side paginated.
-     *
-     * Invoice-centric, not payment-centric: a manually-billed or
-     * not-yet-charged invoice has zero `Payment` rows, so listing payments
-     * would make it invisible the moment it's created. Paddle's own
-     * "Transactions" list is the same shape — one row per invoice, its
-     * latest charge attempt (if any) shown alongside.
+     * List the team's invoices — search, one status filter, paginated.
      */
     public function index(Request $request): Response
     {
         $team = $request->user()->currentTeam;
 
-        Gate::authorize('viewTransactions', $team);
+        Gate::authorize('viewInvoices', $team);
 
         $search = trim((string) $request->query('search', ''));
         $status = (string) $request->query('status', 'all');
@@ -67,26 +55,55 @@ class TransactionController extends Controller
             ->withQueryString()
             ->through(fn (Invoice $invoice) => $invoice->toListArray());
 
-        return Inertia::render('transactions/index', [
-            'transactions' => $invoices,
+        return Inertia::render('invoices/index', [
+            'invoices' => $invoices,
             'filters' => ['search' => $search, 'status' => $status],
             'hasAny' => $team->invoices()->exists(),
             'customers' => $this->customerOptions($team),
             'products' => $this->productOptions($team),
             'teamCurrency' => $team->default_currency,
-            'canManage' => $request->user()->toTeamPermissions($team)->canManageTransactions,
+            'canManage' => $request->user()->toTeamPermissions($team)->canManageInvoices,
         ]);
     }
 
     /**
-     * Create a one-off Transaction — invoice it, and charge it now when
-     * automatic with a card on file.
+     * The invoice detail page — operational overview plus the paper document.
      */
-    public function store(StoreTransactionRequest $request, CreateTransaction $create): RedirectResponse
+    public function show(Request $request, Invoice $invoice): Response
     {
         $team = $request->user()->currentTeam;
 
-        Gate::authorize('manageTransactions', $team);
+        abort_unless($invoice->team_id === $team->id, 404);
+
+        Gate::authorize('viewInvoices', $team);
+
+        $invoice->load([
+            'customer',
+            'subscription',
+            'team.settings',
+            'lines.product',
+            'lines.price',
+            'payments.paymentMethod',
+        ]);
+
+        $permissions = $request->user()->toTeamPermissions($team);
+
+        return Inertia::render('invoices/show', [
+            'invoice' => $invoice->toShowArray(),
+            'permissions' => [
+                'canManage' => $permissions->canManageInvoices,
+            ],
+        ]);
+    }
+
+    /**
+     * Create a one-off invoice and charge it when automatic with a card on file.
+     */
+    public function store(StoreInvoiceRequest $request, CreateOneOffInvoice $create): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        Gate::authorize('manageInvoices', $team);
 
         try {
             $invoice = $create->handle($team, $request->validated());
@@ -99,13 +116,53 @@ class TransactionController extends Controller
         Inertia::flash('toast', [
             'type' => $payment !== null && $payment->status === PaymentStatus::Failed ? 'error' : 'success',
             'message' => match (true) {
-                $payment !== null && $payment->status === PaymentStatus::Succeeded => 'Transaction created and charged.',
-                $payment !== null && $payment->status === PaymentStatus::Failed => 'Transaction created, but the charge was declined.',
-                default => 'Transaction created.',
+                $payment !== null && $payment->status === PaymentStatus::Succeeded => 'Invoice created and charged.',
+                $payment !== null && $payment->status === PaymentStatus::Failed => 'Invoice created, but the charge was declined.',
+                default => 'Invoice created.',
             },
         ]);
 
-        return to_route('transactions.index');
+        return to_route('invoices.show', $invoice);
+    }
+
+    /**
+     * Void an open invoice — it can no longer be paid or collected.
+     */
+    public function void(Request $request, Invoice $invoice): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($invoice->team_id === $team->id, 404);
+
+        Gate::authorize('manageInvoices', $team);
+
+        abort_unless($invoice->canBeCanceled(), 422);
+
+        $invoice->markVoid();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Invoice voided.']);
+
+        return to_route('invoices.show', $invoice);
+    }
+
+    /**
+     * Mark an open invoice uncollectible — the debt is written off.
+     */
+    public function markUncollectible(Request $request, Invoice $invoice): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($invoice->team_id === $team->id, 404);
+
+        Gate::authorize('manageInvoices', $team);
+
+        abort_unless($invoice->canBeCanceled(), 422);
+
+        $invoice->markUncollectible();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Invoice marked uncollectible.']);
+
+        return to_route('invoices.show', $invoice);
     }
 
     /**
@@ -132,9 +189,6 @@ class TransactionController extends Controller
     }
 
     /**
-     * Every active price (recurring or one-time) is billable on a one-off
-     * Transaction — unlike a subscription, it isn't limited to recurring.
-     *
      * @return array<int, array<string, mixed>>
      */
     private function productOptions(Team $team): array

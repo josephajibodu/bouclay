@@ -5,5 +5,5 @@ export type * from './developers';
 export type * from './navigation';
 export type * from './subscriptions';
 export type * from './teams';
-export type * from './transactions';
+export type * from './invoices';
 export type * from './ui';

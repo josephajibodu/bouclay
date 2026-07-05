@@ -103,10 +103,7 @@ class CustomerController extends Controller
             'addresses' => fn ($query) => $query->orderByDesc('is_default')->orderBy('created_at'),
             'paymentMethods' => fn ($query) => $query->orderByDesc('is_default')->orderByDesc('created_at'),
             'subscriptions' => fn ($query) => $query->with('activeItems.product')->orderByDesc('created_at'),
-            'payments' => fn ($query) => $query->orderByDesc('created_at'),
-            'payments.invoice.lines',
-            'payments.paymentMethod',
-            'payments.customer',
+            'invoices' => fn ($query) => $query->with('lines')->orderByDesc('created_at'),
         ]);
 
         $defaultAddress = $customer->addresses->firstWhere('is_default', true)
@@ -144,7 +141,10 @@ class CustomerController extends Controller
                 'endsAt' => $subscription->canceled_at !== null ? $subscription->ends_at?->toISOString() : null,
             ])->all(),
             'activeSubscriptionCount' => $activeSubscriptions,
-            'transactions' => $customer->payments->map(fn ($payment) => $payment->toListArray())->all(),
+            'invoices' => $customer->invoices->map(fn ($invoice) => [
+                ...$invoice->toDashboardArray(),
+                'productsLabel' => $invoice->lines->pluck('description')->implode(', ') ?: '—',
+            ])->all(),
             'totalSpend' => $customer->totalSpend(),
             'activity' => $this->buildActivity($customer),
             'teamCurrency' => $team->default_currency,

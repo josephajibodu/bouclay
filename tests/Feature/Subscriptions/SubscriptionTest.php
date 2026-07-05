@@ -34,7 +34,7 @@ function subscriptionFixture(): array
     return compact('team', 'owner', 'customer', 'product', 'price');
 }
 
-// fakeNombaCharge() lives in tests/Pest.php — shared with Transactions tests.
+// fakeNombaCharge() lives in tests/Pest.php — shared with invoice charge tests.
 
 test('the subscriptions index renders', function () {
     ['owner' => $owner, 'team' => $team, 'customer' => $customer] = subscriptionFixture();
@@ -204,12 +204,12 @@ test('an automatic subscription with a card on file is really charged and activa
     expect($invoice->status)->toBe(InvoiceStatus::Paid)
         ->and($payment->status)->toBe(PaymentStatus::Succeeded)
         ->and($payment->payment_method_id)->toBe($card->id)
-        ->and($payment->public_id)->toStartWith('txn_');
+        ->and($payment->public_id)->toStartWith('pay_');
 
     Http::assertSent(fn ($request) => str_contains($request->url(), '/v1/checkout/tokenized-card-payment'));
 });
 
-test('a declined charge leaves the subscription incomplete with a failed transaction on the open invoice', function () {
+test('a declined charge leaves the subscription incomplete with a failed payment on the open invoice', function () {
     ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
     $card = PaymentMethod::factory()->for($team)->for($customer)->create();
     TeamProcessorConnection::factory()->for($team)->testConnected()->create();

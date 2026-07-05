@@ -18,11 +18,11 @@ import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription
 import {
     INVOICE_STATUS_COLOR,
     INVOICE_STATUS_LABEL,
-} from '@/components/transactions/invoice-status';
+} from '@/components/invoices/invoice-status';
 import {
-    PAYMENT_STATUS_COLOR as TRANSACTION_STATUS_COLOR,
-    PAYMENT_STATUS_LABEL as TRANSACTION_STATUS_LABEL,
-} from '@/components/transactions/payment-status';
+    PAYMENT_STATUS_COLOR,
+    PAYMENT_STATUS_LABEL,
+} from '@/components/invoices/payment-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -42,13 +42,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { show as customerShow } from '@/routes/customers';
 import { cancel, index, pause, resume, undoCancel } from '@/routes/subscriptions';
+import { show as invoiceShow } from '@/routes/invoices';
 import type {
     InvoiceSummary,
+    PaymentListItem,
     SubscriptionDetail,
     SubscriptionItem,
     SubscriptionScheduledChange,
     SubscriptionTimelineEvent,
-    TransactionListItem,
 } from '@/types';
 
 type Props = {
@@ -59,7 +60,7 @@ type Props = {
     scheduledChanges: SubscriptionScheduledChange[];
     timeline: SubscriptionTimelineEvent[];
     invoices: InvoiceSummary[];
-    transactions: TransactionListItem[];
+    payments: PaymentListItem[];
     permissions: { canManage: boolean };
 };
 
@@ -104,9 +105,7 @@ function money(amount: number | null, currency: string): string {
     return `${currency} ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 }
 
-/** Invoices/Transactions come from the server in minor units (kobo), unlike
- * the item prices above which are pre-divided — this divides at the point of
- * display. */
+/** Invoice amounts come from the server in minor units (kobo). */
 function formatMinor(amountMinor: number, currency: string): string {
     return money(amountMinor / 100, currency);
 }
@@ -119,7 +118,7 @@ export default function SubscriptionShow({
     scheduledChanges,
     timeline,
     invoices,
-    transactions,
+    payments,
     permissions,
 }: Props) {
     const { canManage } = permissions;
@@ -411,7 +410,18 @@ export default function SubscriptionShow({
                         {invoices.map((invoice) => (
                             <div
                                 key={invoice.id}
-                                className="flex items-center justify-between gap-3 p-4"
+                                role="link"
+                                tabIndex={0}
+                                className="flex cursor-pointer items-center justify-between gap-3 p-4 transition-colors hover:bg-muted/40"
+                                onClick={() =>
+                                    router.visit(invoiceShow(invoice.id))
+                                }
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        router.visit(invoiceShow(invoice.id));
+                                    }
+                                }}
+                                data-test="invoice-row"
                             >
                                 <div className="flex items-center gap-3">
                                     <Receipt className="size-5 text-muted-foreground" />
@@ -447,19 +457,19 @@ export default function SubscriptionShow({
                 )}
             </section>
 
-            {/* Transactions */}
+            {/* Payments */}
             <section className="space-y-3">
-                <h2 className="text-lg font-semibold">Transactions</h2>
-                {transactions.length === 0 ? (
+                <h2 className="text-lg font-semibold">Payments</h2>
+                {payments.length === 0 ? (
                     <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
                         Every charge attempted against this subscription —
                         succeeded, failed, or refunded — will be listed here.
                     </div>
                 ) : (
                     <div className="divide-y rounded-lg border">
-                        {transactions.map((txn) => (
+                        {payments.map((payment) => (
                             <div
-                                key={txn.id}
+                                key={payment.id}
                                 className="flex items-center justify-between gap-3 p-4"
                             >
                                 <div className="flex items-center gap-3">
@@ -467,21 +477,21 @@ export default function SubscriptionShow({
                                     <div>
                                         <p className="font-medium">
                                             {formatMinor(
-                                                txn.amount,
-                                                txn.currency,
+                                                payment.amount,
+                                                payment.currency,
                                             )}
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                            {txn.paymentMethodLabel} ·{' '}
-                                            {formatDateTime(txn.processedAt)}
+                                            {payment.paymentMethodLabel} ·{' '}
+                                            {formatDateTime(payment.processedAt)}
                                         </p>
                                     </div>
                                 </div>
                                 <Badge variant="secondary" className="gap-1">
                                     <span
-                                        className={`size-1.5 rounded-full ${TRANSACTION_STATUS_COLOR[txn.status]}`}
+                                        className={`size-1.5 rounded-full ${PAYMENT_STATUS_COLOR[payment.status]}`}
                                     />
-                                    {TRANSACTION_STATUS_LABEL[txn.status]}
+                                    {PAYMENT_STATUS_LABEL[payment.status]}
                                 </Badge>
                             </div>
                         ))}

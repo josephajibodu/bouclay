@@ -27,8 +27,8 @@ readonly class TeamPermissions
         public bool $canManageTrialOffers,
         public bool $canViewSubscriptions,
         public bool $canManageSubscriptions,
-        public bool $canViewTransactions,
-        public bool $canManageTransactions,
+        public bool $canViewInvoices,
+        public bool $canManageInvoices,
     ) {
         //
     }

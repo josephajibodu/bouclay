@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Http\Requests\Transactions;
+namespace App\Http\Requests\Invoices;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
-class StoreTransactionRequest extends FormRequest
+class StoreInvoiceRequest extends FormRequest
 {
     /**
      * Get the validation rules that apply to the request.

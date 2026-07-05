@@ -20,7 +20,7 @@ import {
     SheetTitle,
 } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
-import { store } from '@/routes/transactions';
+import { store } from '@/routes/invoices';
 import type {
     CollectionMode,
     CreateCustomerOption,
@@ -66,11 +66,11 @@ function money(amount: number | null, currency: string): string {
 }
 
 /**
- * "New transaction" — a one-off invoice: a customer, one or more line items
+ * "New invoice" — a one-off invoice: a customer, one or more line items
  * (a catalog price, or a custom amount), and how to collect. Mirrors
  * CreateSubscriptionDrawer's shape minus trials (IMPLEMENTATION.md Phase 6).
  */
-export default function CreateTransactionDrawer({
+export default function CreateInvoiceDrawer({
     customers,
     products,
     teamCurrency,
@@ -207,7 +207,7 @@ export default function CreateTransactionDrawer({
         ? 'Create & send payment link'
         : collectionMode === 'automatic'
           ? 'Create & charge now'
-          : 'Create transaction';
+          : 'Create invoice';
 
     const submit = () => {
         if (!canSubmit) {
@@ -241,7 +241,7 @@ export default function CreateTransactionDrawer({
         <Sheet open={open} onOpenChange={handleOpenChange}>
             <SheetContent className="flex w-full flex-col gap-0 sm:max-w-4xl">
                 <SheetHeader>
-                    <SheetTitle>New transaction</SheetTitle>
+                    <SheetTitle>New invoice</SheetTitle>
                     <SheetDescription>
                         Bill a customer once — a catalog price, a custom
                         amount, or both.
@@ -269,7 +269,7 @@ export default function CreateTransactionDrawer({
                                         setPaymentMethodId(null);
                                     }}
                                 >
-                                    <SelectTrigger data-test="transaction-customer-select">
+                                    <SelectTrigger data-test="invoice-customer-select">
                                         <SelectValue placeholder="Search or select a customer…" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -310,7 +310,7 @@ export default function CreateTransactionDrawer({
                                         <div
                                             key={line.key}
                                             className="flex items-center gap-3 p-3"
-                                            data-test="transaction-line-item"
+                                            data-test="invoice-line-item"
                                         >
                                             {line.kind === 'price' ? (
                                                 <div className="min-w-0 flex-1">
@@ -406,7 +406,7 @@ export default function CreateTransactionDrawer({
                                             value=""
                                             onValueChange={addPrice}
                                         >
-                                            <SelectTrigger data-test="transaction-add-product">
+                                            <SelectTrigger data-test="invoice-add-product">
                                                 <span className="flex items-center gap-1.5 text-sm">
                                                     <Plus className="size-4" />{' '}
                                                     Add product
@@ -451,7 +451,7 @@ export default function CreateTransactionDrawer({
                                         type="button"
                                         variant="outline"
                                         onClick={addCustomLine}
-                                        data-test="transaction-add-custom"
+                                        data-test="invoice-add-custom"
                                     >
                                         <Plus /> Add custom line
                                     </Button>
@@ -534,7 +534,7 @@ export default function CreateTransactionDrawer({
                                         <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
                                             {customer.name ?? 'This customer'}{' '}
                                             doesn't have a card on file — this
-                                            transaction will be created open,
+                                            this invoice will be created open,
                                             awaiting payment.
                                         </p>
                                     )}
@@ -581,7 +581,7 @@ export default function CreateTransactionDrawer({
                                 className="w-full"
                                 disabled={!canSubmit}
                                 onClick={submit}
-                                data-test="create-transaction-submit"
+                                data-test="create-invoice-submit"
                             >
                                 {processing && <Spinner />}
                                 {ctaLabel}

@@ -155,13 +155,12 @@ class SubscriptionController extends Controller
             ])->all(),
             'timeline' => $this->buildTimeline($subscription),
             // Invoices this subscription has generated so far, and every
-            // Transaction (Payment) attempted against them (IMPLEMENTATION.md
-            // Phase 6) — replaces the Phase 5 staged placeholders.
+            // payment attempted against them (IMPLEMENTATION.md Phase 6).
             'invoices' => $subscription->invoices->map(fn ($invoice) => $invoice->toDashboardArray())->all(),
-            'transactions' => $subscription->invoices
+            'payments' => $subscription->invoices
                 ->flatMap(fn ($invoice) => $invoice->payments)
                 ->sortByDesc('created_at')
-                ->map(fn ($payment) => $payment->toListArray())
+                ->map(fn ($payment) => $payment->toDashboardArray())
                 ->values()
                 ->all(),
             'permissions' => [

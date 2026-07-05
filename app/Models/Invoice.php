@@ -17,8 +17,8 @@ use Illuminate\Support\Carbon;
 
 /**
  * A frozen legal document — numbered, with a full money breakdown
- * (schema.md §7). Bouclay's "Transaction" list (Paddle's word) is a view
- * over `payments` joined back to the invoice they settle.
+ * (schema.md §7). Every charge attempt against an invoice is a separate
+ * {@see Payment} row.
  *
  * @property int $id
  * @property string $public_id
@@ -95,7 +95,7 @@ class Invoice extends Model
 
     /**
      * Get the subscription this invoice was generated for, if any — null for
-     * a one-off transaction.
+     * a one-off invoice.
      *
      * @return BelongsTo<Subscription, $this>
      */
@@ -147,8 +147,38 @@ class Invoice extends Model
     }
 
     /**
-     * Serialise a row for the Transactions-adjacent invoice context (customer
-     * hub, subscription hub).
+     * Void this invoice — it can no longer be paid or collected.
+     */
+    public function markVoid(): void
+    {
+        $this->forceFill([
+            'status' => InvoiceStatus::Void,
+            'voided_at' => now(),
+            'amount_due' => 0,
+        ])->save();
+    }
+
+    /**
+     * Mark this invoice uncollectible — the debt is written off.
+     */
+    public function markUncollectible(): void
+    {
+        $this->forceFill([
+            'status' => InvoiceStatus::Uncollectible,
+            'amount_due' => 0,
+        ])->save();
+    }
+
+    /**
+     * Whether this invoice can still be voided or marked uncollectible.
+     */
+    public function canBeCanceled(): bool
+    {
+        return $this->status === InvoiceStatus::Open;
+    }
+
+    /**
+     * Serialise a row for invoice hub contexts (customer, subscription).
      *
      * @return array<string, mixed>
      */
@@ -169,10 +199,7 @@ class Invoice extends Model
     }
 
     /**
-     * Serialise a row for the global Transactions list — invoice-centric
-     * (Paddle's own "Transactions" is a list of invoices, not raw charge
-     * attempts), so a manually-billed or not-yet-charged invoice is never
-     * invisible just because no `Payment` row exists yet for it.
+     * Serialise a row for the global Invoices list.
      *
      * @return array<string, mixed>
      */
@@ -193,6 +220,100 @@ class Invoice extends Model
                 $this->collection_mode === CollectionMode::Manual => 'Invoice',
                 default => '—',
             },
+        ];
+    }
+
+    /**
+     * Full serialisation for the dedicated invoice detail page — lines,
+     * snapshots, totals, and charge attempts. Keeps {@see toDashboardArray()}
+     * and {@see toListArray()} lean for summary rows elsewhere.
+     *
+     * @return array<string, mixed>
+     */
+    public function toShowArray(): array
+    {
+        $snapshot = $this->customer_snapshot ?? [];
+        $billing = $this->billing_address;
+        $latestPayment = $this->payments->sortByDesc('created_at')->first();
+        $settings = $this->team->settings;
+
+        return [
+            'id' => $this->id,
+            'publicId' => $this->public_id,
+            'number' => $this->number,
+            'status' => $this->status->value,
+            'billingReason' => $this->billing_reason->value,
+            'billingReasonLabel' => $this->billing_reason->label(),
+            'collectionMode' => $this->collection_mode->value,
+            'currency' => $this->currency,
+            'subtotal' => $this->subtotal,
+            'discountTotal' => $this->discount_total,
+            'taxTotal' => $this->tax_total,
+            'total' => $this->total,
+            'amountPaid' => $this->amount_paid,
+            'amountDue' => $this->amount_due,
+            'periodStart' => $this->period_start?->toISOString(),
+            'periodEnd' => $this->period_end?->toISOString(),
+            'dueAt' => $this->due_at?->toISOString(),
+            'finalizedAt' => $this->finalized_at?->toISOString(),
+            'paidAt' => $this->paid_at?->toISOString(),
+            'voidedAt' => $this->voided_at?->toISOString(),
+            'createdAt' => $this->created_at?->toISOString(),
+            'customer' => [
+                'id' => $this->customer_id,
+                'name' => $snapshot['name'] ?? $this->customer->name,
+                'email' => $snapshot['email'] ?? $this->customer->email,
+            ],
+            'billingAddress' => $billing,
+            'subscription' => $this->subscription !== null ? [
+                'id' => $this->subscription->id,
+                'publicId' => $this->subscription->public_id,
+            ] : null,
+            'business' => [
+                'name' => $this->team->name,
+                'line1' => $this->team->line1,
+                'line2' => $this->team->line2,
+                'city' => $this->team->city,
+                'postalCode' => $this->team->postal_code,
+                'country' => $this->team->country,
+            ],
+            'invoiceFooter' => $settings?->invoice_footer,
+            'paymentMethodLabel' => match (true) {
+                $latestPayment?->paymentMethod !== null => trim(($latestPayment->paymentMethod->brand ?? 'Card').' ···· '.($latestPayment->paymentMethod->last4 ?? '••••')),
+                $this->collection_mode === CollectionMode::Manual => 'Invoice',
+                default => '—',
+            },
+            'lines' => $this->lines->map(fn (InvoiceLine $line): array => [
+                'id' => $line->id,
+                'kind' => $line->kind->value,
+                'description' => $line->description,
+                'quantity' => $line->quantity,
+                'unitAmount' => $line->unit_amount,
+                'subtotal' => $line->subtotal,
+                'discountAmount' => $line->discount_amount,
+                'taxAmount' => $line->tax_amount,
+                'total' => $line->total,
+                'periodStart' => $line->period_start?->toISOString(),
+                'periodEnd' => $line->period_end?->toISOString(),
+                'productName' => $line->product?->name,
+                'priceLabel' => $line->price?->toPickerLabel(),
+            ])->all(),
+            'payments' => $this->payments
+                ->sortByDesc('created_at')
+                ->map(fn (Payment $payment): array => [
+                    'id' => $payment->id,
+                    'publicId' => $payment->public_id,
+                    'status' => $payment->status->value,
+                    'amount' => $payment->amount,
+                    'currency' => $payment->currency,
+                    'paymentMethodLabel' => $payment->paymentMethod !== null
+                        ? trim(($payment->paymentMethod->brand ?? 'Card').' ···· '.($payment->paymentMethod->last4 ?? '••••'))
+                        : 'Invoice',
+                    'processedAt' => $payment->processed_at?->toISOString(),
+                    'failureReason' => $payment->failure_reason,
+                ])->values()->all(),
+            'canVoid' => $this->canBeCanceled(),
+            'canMarkUncollectible' => $this->canBeCanceled(),
         ];
     }
 

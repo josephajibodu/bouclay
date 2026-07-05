@@ -124,7 +124,7 @@ class Customer extends Model
     }
 
     /**
-     * Get the customer's payments (Transactions).
+     * Get the customer's charge attempts ({@see Payment}).
      *
      * @return HasMany<Payment, $this>
      */

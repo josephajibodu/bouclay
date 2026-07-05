@@ -22,9 +22,9 @@ import { StagedSection } from '@/components/customers/staged-section';
 import CreateSubscriptionDrawer from '@/components/subscriptions/create-subscription-drawer';
 import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription-status-badge';
 import {
-    PAYMENT_STATUS_COLOR as TRANSACTION_STATUS_COLOR,
-    PAYMENT_STATUS_LABEL as TRANSACTION_STATUS_LABEL,
-} from '@/components/transactions/payment-status';
+    INVOICE_STATUS_COLOR,
+    INVOICE_STATUS_LABEL,
+} from '@/components/invoices/invoice-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +47,7 @@ import {
     defaultMethod as makePmDefault,
     destroy as destroyPm,
 } from '@/routes/customers/payment-methods';
+import { show as invoiceShow } from '@/routes/invoices';
 import { show as subscriptionShow } from '@/routes/subscriptions';
 import type {
     CreateCustomerOption,
@@ -57,7 +58,8 @@ import type {
     CustomerDetail,
     CustomerPaymentMethod,
     SubscriptionStatus,
-    TransactionListItem,
+    InvoiceSummary,
+    PaymentListItem,
 } from '@/types';
 
 type CustomerSubscription = {
@@ -77,7 +79,7 @@ type Props = {
     defaultAddress: CustomerAddress | null;
     subscriptions: CustomerSubscription[];
     activeSubscriptionCount: number;
-    transactions: TransactionListItem[];
+    invoices: (InvoiceSummary & { productsLabel: string })[];
     totalSpend: number;
     activity: CustomerActivityEvent[];
     teamCurrency: string;
@@ -121,7 +123,7 @@ function expiryLabel(pm: CustomerPaymentMethod): string {
     return `${pm.isExpired ? 'Expired' : 'Expires'} ${mm}/${yy}`;
 }
 
-/** Transactions/spend come from the server in minor units (kobo). */
+/** Invoice amounts and spend come from the server in minor units (kobo). */
 function formatMinor(amountMinor: number, currency: string): string {
     return `${currency} ${(amountMinor / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 }
@@ -133,7 +135,7 @@ export default function CustomerShow({
     defaultAddress,
     subscriptions,
     activeSubscriptionCount,
-    transactions,
+    invoices,
     totalSpend,
     activity,
     teamCurrency,
@@ -542,49 +544,64 @@ export default function CustomerShow({
                 </section>
             )}
 
-            {/* Transactions */}
+            {/* Invoices */}
             <section className="space-y-3">
-                <h2 className="text-lg font-semibold">Transactions</h2>
-                {transactions.length === 0 ? (
+                <h2 className="text-lg font-semibold">Invoices</h2>
+                {invoices.length === 0 ? (
                     <div className="space-y-2 rounded-lg border border-dashed p-6 text-center">
                         <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted">
                             <Receipt className="size-5 text-muted-foreground" />
                         </div>
-                        <p className="font-medium">No transactions yet</p>
+                        <p className="font-medium">No invoices yet</p>
                         <p className="mx-auto max-w-md text-sm text-muted-foreground">
-                            Every charge attempted against this customer —
-                            succeeded, failed, or refunded — will be listed
-                            here.
+                            Every invoice billed to this customer — paid or
+                            still awaiting payment — will be listed here.
                         </p>
                     </div>
                 ) : (
                     <div className="divide-y rounded-lg border">
-                        {transactions.map((txn) => (
+                        {invoices.map((invoice) => (
                             <div
-                                key={txn.id}
-                                className="flex items-center justify-between gap-3 p-4"
+                                key={invoice.id}
+                                role="link"
+                                tabIndex={0}
+                                className="flex cursor-pointer items-center justify-between gap-3 p-4 transition-colors hover:bg-muted/40"
+                                onClick={() =>
+                                    router.visit(invoiceShow(invoice.id))
+                                }
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        router.visit(invoiceShow(invoice.id));
+                                    }
+                                }}
+                                data-test="customer-invoice-row"
                             >
                                 <div className="flex items-center gap-3">
-                                    <CreditCard className="size-5 text-muted-foreground" />
+                                    <Receipt className="size-5 text-muted-foreground" />
                                     <div>
                                         <p className="font-medium">
-                                            {formatMinor(
-                                                txn.amount,
-                                                txn.currency,
-                                            )}
+                                            {invoice.number ?? invoice.publicId}
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                            {txn.productsLabel} ·{' '}
-                                            {txn.paymentMethodLabel}
+                                            {invoice.productsLabel} ·{' '}
+                                            {formatDate(invoice.createdAt)}
                                         </p>
                                     </div>
                                 </div>
-                                <Badge variant="secondary" className="gap-1">
-                                    <span
-                                        className={`size-1.5 rounded-full ${TRANSACTION_STATUS_COLOR[txn.status]}`}
-                                    />
-                                    {TRANSACTION_STATUS_LABEL[txn.status]}
-                                </Badge>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-sm font-medium">
+                                        {formatMinor(
+                                            invoice.total,
+                                            invoice.currency,
+                                        )}
+                                    </span>
+                                    <Badge variant="secondary" className="gap-1">
+                                        <span
+                                            className={`size-1.5 rounded-full ${INVOICE_STATUS_COLOR[invoice.status]}`}
+                                        />
+                                        {INVOICE_STATUS_LABEL[invoice.status]}
+                                    </Badge>
+                                </div>
                             </div>
                         ))}
                     </div>

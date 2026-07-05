@@ -3,8 +3,7 @@
 namespace App\Enums;
 
 /**
- * One charge attempt's outcome (schema.md §7). The dashboard calls this
- * object a "Transaction" (Paddle's word); the model/table stay `Payment`.
+ * One charge attempt's outcome (schema.md §7).
  */
 enum PaymentStatus: string
 {

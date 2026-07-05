@@ -1,6 +1,8 @@
 # Bouclay — Customers & Payment Methods Design Proposal (Phase 4)
 
-**Status:** Proposal, not yet built. Standalone companion to [`IMPLEMENTATION.md`](IMPLEMENTATION.md) (Phase 4 section) and [`schema.md`](schema.md) (§2 Customers & Payment Methods). Does not change either document — schema-adjacent observations are called out in [§14](#14-schema-adjacent-notes--open-questions) for you to decide, not applied.
+**Status:** Phase 4 core is built; Phase 5–6 hub sections are wired. This doc remains the original design proposal — see [`IMPLEMENTATION.md`](IMPLEMENTATION.md) and [`schema.md`](schema.md) § Dashboard vocabulary for live behaviour. Standalone companion to [`IMPLEMENTATION.md`](IMPLEMENTATION.md) (Phase 4 section) and [`schema.md`](schema.md) (§2 Customers & Payment Methods). Does not change either document — schema-adjacent observations are called out in [§14](#14-schema-adjacent-notes--open-questions) for you to decide, not applied.
+
+**Implemented (2026-07-06):** customer hub **Subscriptions** and **Invoices** sections are live (invoice rows from `Invoice::toDashboardArray()`, rows link to `/invoices/{id}`). **Total spend** is in the Overview grid. There is no "Transactions" section — Bouclay uses **Invoice** (billing record) and **Payment** (charge attempt) per `schema.md`.
 
 **Stack this proposal is grounded in:** Inertia + React 19 + TypeScript, shadcn/ui-on-Radix (`resources/js/components/ui/*`), Tailwind v4 (`@theme` tokens, no `tailwind.config.js`), `lucide-react` icons, `sonner` toasts, Laravel Wayfinder route helpers. Everything below reuses the patterns Phase 3 (Catalog) and Phase 2 (Developers) already established — the Products index table (`resources/js/pages/catalog/products.tsx`), the single-scroll Product detail with side drawers (`resources/js/pages/catalog/show.tsx`), the `Actions` dropdown, and the copy-ID check-swap microinteraction. A first-time user should not be able to tell Customers was designed by a different team than Catalog.
 
@@ -20,7 +22,7 @@
 8. [Edit customer](#8-edit-customer)
 9. [Addresses](#9-addresses)
 10. [Payment methods & the tokenization journey](#10-payment-methods--the-tokenization-journey)
-11. [Placeholder sections (Subscriptions, Invoices, Transactions)](#11-placeholder-sections)
+11. [Placeholder sections (Subscriptions, Invoices)](#11-placeholder-sections)
 12. [Activity timeline](#12-activity-timeline)
 13. [Empty, loading, success & error states](#13-empty-loading-success--error-states)
 14. [Schema-adjacent notes & open questions](#14-schema-adjacent-notes--open-questions)
@@ -47,7 +49,7 @@ The load-bearing decisions everything else derives from.
 
 6. **No dead-end empty states.** Every empty region teaches its concept before asking for the action. "No payment methods" explains what a payment method *is*, that Nomba tokenizes it, that Bouclay never sees the card, and what becomes possible once one exists. Nobody should hit an empty section and wonder why it's there.
 
-7. **Design the whole page now, wire the ready parts.** Subscriptions, Invoices, and Transactions do not exist until Phases 5–6, but their sections appear on the detail page *today* — as intentional, well-copywritten placeholders with disabled primary actions and "Coming soon" affordances. This is the difference between a product that feels *staged* and one that feels *unfinished*. The page's skeleton is its final skeleton; later phases fill cells, they don't move walls.
+7. **Design the whole page now, wire the ready parts.** Subscriptions and Invoices did not exist until Phases 5–6, but their sections appeared on the detail page *today* — as intentional, well-copywritten placeholders with disabled primary actions and "Coming soon" affordances. This is the difference between a product that feels *staged* and one that feels *unfinished*. The page's skeleton is its final skeleton; later phases fill cells, they don't move walls. *(Both sections are now live — see §11.)*
 
 8. **Archive, never delete (in the UI).** `customers` carries `deleted_at` (SoftDeletes). The destructive action a team member sees is **Archive** — reversible, non-scary, consistent with how Products already behave. Hard deletion is not a dashboard affordance. This matches the "Active / Archived" status filter in your screenshots.
 
@@ -330,7 +332,7 @@ Progressive disclosure — the whole thing is *two fields and a button*, with op
 
 The centerpiece of the phase. A **single scrollable page** (not tabs), `max-w-4xl`, matching the Product detail page's structure exactly — so the two feel like one product. It reads top-to-bottom as: *who is this → how do we bill them → what have they bought (future) → what happened (activity) → developer info*.
 
-The brief's current screenshots show a thin version of this (header, customer details, empty Subscriptions, one Transactions row). The redesign below is the full hub.
+The brief's current screenshots show a thin version of this (header, customer details, empty Subscriptions, one invoice row). The redesign below is the full hub.
 
 ### 7.1 Page skeleton
 
@@ -365,8 +367,8 @@ The brief's current screenshots show a thin version of this (header, customer de
 │  │  Available in the next release.               (disabled CTA) │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
-│  TRANSACTIONS                                                       │
-│  ┌─── staged placeholder — see §11 ────────────────────────────┐   │
+│  INVOICES                                                           │
+│  ┌─── real table (Phase 6) — see §11 ──────────────────────────┐   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 │  ADDRESSES                                     [ + Add address ]    │
@@ -395,7 +397,7 @@ The brief's current screenshots show a thin version of this (header, customer de
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Section order rationale.** Payment Methods sits *above* the future placeholders because it's the customer's billing spine — a customer is subscription-ready once a card is on file. **The section is read-only** (see [§10](#10-payment-methods--the-tokenization-journey)): unlike Stripe, Bouclay does not let a team *type in* or *add* a card here — following Paddle's verified model, a card is saved as a **byproduct of the customer paying a checkout**, never entered by the team. So the section lists cards, sets a default, and removes them, but has no "Add" button. Subscriptions/Transactions come next (they're what *drives* the checkout that stores the card). Addresses follow (supporting billing data). Activity, Metadata, Developer close the page as reference material.
+**Section order rationale.** Payment Methods sits *above* the future placeholders because it's the customer's billing spine — a customer is subscription-ready once a card is on file. **The section is read-only** (see [§10](#10-payment-methods--the-tokenization-journey)): unlike Stripe, Bouclay does not let a team *type in* or *add* a card here — following Paddle's verified model, a card is saved as a **byproduct of the customer paying a checkout**, never entered by the team. So the section lists cards, sets a default, and removes them, but has no "Add" button. Subscriptions and Invoices come next (they're what *drives* the checkout that stores the card). Addresses follow (supporting billing data). Activity, Metadata, Developer close the page as reference material.
 
 ### 7.2 The header
 
@@ -759,7 +761,9 @@ So the answer is **tokenize-on-payment** (what I'd called Option B), and it appl
 
 ## 11. Placeholder sections
 
-Subscriptions, Invoices/Transactions are Phases 5–6. The brief is explicit: design them *now*, as intentional staged experiences, not "No X found."
+> **Implemented (2026-07-06):** **Subscriptions** and **Invoices** are live on the customer hub. Invoice rows use `Invoice::toDashboardArray()` and link to `/invoices/{id}`. There is no "Transactions" section — see `schema.md` § Dashboard vocabulary.
+
+The original Phase 4 brief staged Subscriptions and Invoices as intentional placeholders. Phase 5 activated Subscriptions; Phase 6 activated Invoices in the same slot.
 
 ### 11.1 The staged-placeholder pattern
 
@@ -781,28 +785,30 @@ SUBSCRIPTIONS                          [ + New subscription ]⌦
 
 - **A real section header with a real (disabled) primary action.** The `+ New subscription` button is present but disabled, with a tooltip *"Subscriptions arrive in the next release."* — the same treatment as the Actions-menu future items. The button being *there* (just off) is what makes the page feel staged rather than missing a feature.
 - **Forward-looking body copy** that describes what the section *will* hold and what the user will be able to *do* — answering the brief's three placeholder questions (what it'll contain / why it exists / what you'll do here).
-- **A muted glyph** matching the eventual section (↻ subscriptions, 🧾 invoices/transactions).
+- **A muted glyph** matching the eventual section (↻ subscriptions, 🧾 invoices).
 - **No fake data, no `$0.00` rows.** Emptiness that's clearly "coming" beats emptiness that looks broken.
 
-### 11.2 Transactions
+### 11.2 Invoices *(was "Transactions" in early drafts)*
 
-The current screenshot shows a live Transactions table with a real row ("New subscription for Cursor Plans · Incomplete"). That data comes from `payments` (Phase 6), so for Phase 4 this is a staged placeholder too:
+The original screenshot showed a billing table row. Bouclay models that as an **`Invoice`** (numbered billing record), not a "Transaction" entity. Charge attempts against an invoice appear on the **subscription hub** as **Payments**, not on the customer hub.
+
+**Built (Phase 6):** the customer hub **Invoices** section lists invoice rows for this customer (`Invoice::toDashboardArray()`), each linking to the invoice detail page. Empty state when none exist; **+ New invoice** opens `CreateInvoiceDrawer` when `canManageInvoices`.
+
+Original Phase 4 placeholder copy (for reference):
 
 ```
-TRANSACTIONS
+INVOICES
 ┌──────────────────────────────────────────────────────────────┐
-│   🧾  Payments and refunds will appear here                   │
-│   Every charge Bouclay makes against this customer — succeeded,│
-│   failed, or refunded — will be listed here once billing is on.│
+│   🧾  Invoices will appear here                               │
+│   Every bill Bouclay raises against this customer — open,     │
+│   paid, or void — will be listed here once billing is on.    │
 │   Available with invoicing.                                   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-When Phase 6 lands, the placeholder is *replaced* by the real table in the same slot — the section header, position, and page rhythm don't move. That's the payoff of designing it now.
+### 11.3 Which sections, in which order
 
-### 11.3 Which placeholders, in which order
-
-On the detail page, staged sections appear in their permanent positions (§7.1): **Subscriptions** and **Transactions** directly under Payment Methods (because they're what a payment method is *for*). **Invoices** can fold into Transactions for now (a payment implies an invoice); split them in Phase 6 if the team prefers Stripe's separation. Recommend a single "Transactions" placeholder for MVP to avoid two near-identical empty boxes.
+On the detail page, sections appear in their permanent positions (§7.1): **Subscriptions** and **Invoices** directly under Payment Methods (because they're what a payment method is *for*). We use separate sections (Stripe-shaped), not a single combined "Transactions" box.
 
 ---
 
@@ -967,8 +973,8 @@ Consolidated, so tone stays consistent. Modern, trustworthy, developer-first —
 - Addresses: *"Add a billing address to appear on this customer's invoices and receipts. It's optional."*
 
 **Placeholders**
-- Subscriptions: *"When you subscribe this customer to a plan, their active and past subscriptions will show up here. Available in the next release."*
-- Transactions: *"Every charge Bouclay makes against this customer will be listed here once billing is on. Available with invoicing."*
+- Subscriptions: *"When you subscribe this customer to a plan, their active and past subscriptions will show up here. Available in the next release."* *(section is live — copy retained for empty state only)*
+- Invoices: *"Every bill Bouclay raises against this customer will be listed here once billing is on. Available with invoicing."* *(section is live — copy retained for empty state only)*
 
 **Validation (human, not framework)**
 - Missing email: *"Add an email — it's where receipts go."*
@@ -995,8 +1001,8 @@ Consolidated, so tone stays consistent. Modern, trustworthy, developer-first —
 
 How this page absorbs Phases 5–13 without a redesign:
 
-- **Subscriptions (P5):** the staged Subscriptions section (§11) becomes a real list in the *same slot*; the disabled `+ New subscription` button activates; the `Create subscription` Actions item enables. No layout change.
-- **Invoices / Transactions / Payments (P6):** the staged Transactions placeholder is replaced by the real table; a "Total spend" column drops into the *reserved* list slot and a spend/MRR cell into the *reserved* facts-grid slot.
+- **Subscriptions (P5):** ✅ the staged Subscriptions section (§11) became a real list in the *same slot*; the `+ New subscription` button opens `CreateSubscriptionDrawer`; the `Create subscription` Actions item is live.
+- **Invoices (P6):** ✅ the staged Invoices placeholder was replaced by a real invoice table in the *same slot*; rows link to `/invoices/{id}`. **Total spend** is in the Overview facts grid via `Customer::totalSpend()`. Charge attempts are *not* listed here — they appear on the subscription hub as **Payments**.
 - **Activity (P5–9):** the timeline's per-type renderer (§12) gains cases (`subscription.created`, `invoice.paid`, `payment.failed`) — additive, no structural change.
 - **Segments (later):** if the team eventually wants Stripe-style preset tabs ("Top customers", "High refunds"), they slot in *above* the search as a `Tabs` row — the exact seam Catalog reserved for "All prices." One tab strip, not an IA rework. We intentionally *don't* build these now (no data, and Paddle-simplicity is the current goal).
 - **Customer portal (P11):** the detail page's "Actions" gains a "Copy portal link" / "Send portal invite" item — a menu addition, not a page.

@@ -18,6 +18,24 @@ These apply to every table — assume them rather than repeating per row.
 - **Processor (Nomba BYOK)**: each team connects **their own** Nomba API keys. Bouclay charges and tokenises on their merchant account; settlement stays with Nomba. Bouclay exposes a **generated inbound webhook URL** per team for the Nomba dashboard; integrators register **outbound** URLs in `webhook_endpoints` for subscription lifecycle events.
 - **Authorization**: Spatie-lite RBAC — `permissions` attach to `roles` only; staff receive permissions through **roles assigned per `team_members` row** (many roles per member, Paddle-style). No direct user permissions. Gate dashboard routes and APIs with `$user->hasTeamPermission($team, 'invoices.manage')`, which unions permissions across all roles on that membership.
 
+### Dashboard vocabulary (locked 2026-07-06)
+
+Bouclay is a billing **engine** (Stripe-shaped data model), not a Paddle MoR mirror. Use these terms consistently in code, routes, UI, and docs:
+
+| Concept | Model / table | Public ID | Dashboard label |
+|---|---|---|---|
+| **Invoice** | `Invoice` / `invoices` | `inv_` | **Invoice** — the numbered billing record and legal document |
+| **Payment** | `Payment` / `payments` | `pay_` | **Payment** — one processor charge *attempt* against an invoice (includes failed attempts) |
+
+**Rules:**
+
+- **"Transaction" is not a Bouclay entity.** There is no `Transaction` model, no `/transactions` routes, and no `transactions.*` permissions. Paddle uses "transaction" for what Bouclay models as an `Invoice`; when comparing to Paddle docs, map `transaction` → `invoice`.
+- **Permissions** use `invoices.view`, `invoices.manage`, `invoices.finalize` (seeded). Policy/DTO methods: `viewInvoices` / `manageInvoices`; Inertia props: `canViewInvoices` / `canManageInvoices`.
+- **Routes:** `GET/POST /invoices`, `GET /invoices/{invoice}`, void/uncollectible actions — see `routes/invoices.php`, `InvoiceController`.
+- **Hub sections:** subscription and customer detail pages show **Invoices** (invoice rows) and **Payments** (charge-attempt rows). Never label `Payment` rows "Transactions".
+- **Nomba API** paths like `/v1/transactions/accounts/single` are Nomba's terminology — unrelated to Bouclay dashboard naming.
+- **Laravel** `DB::transaction()` is a database transaction — unrelated to billing vocabulary.
+
 ---
 
 ## Entity Relationship Diagram
@@ -586,7 +604,7 @@ The concrete trial on one subscription item. Snapshots the catalog offer so late
 ## 7. Billing: Invoices, Lines, Payments
 
 ### `invoices`
-A frozen legal document — numbered, with a full money breakdown and snapshots taken at finalise time.
+A frozen legal document — numbered, with a full money breakdown and snapshots taken at finalise time. Dashboard label: **Invoice**. Public ID prefix: `inv_` (via `HasPublicId` on the `Invoice` model). At creation, `CreateInvoice` populates `customer_snapshot` and `billing_address`.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -639,7 +657,7 @@ A frozen legal document — numbered, with a full money breakdown and snapshots 
 | created_at / updated_at | timestamp | no | |
 
 ### `payments`
-One charge attempt against the processor (merges the board's `payment_attempts` with the handwritten "Transaction").
+One charge attempt against an invoice on the processor. Records every attempt (succeeded **and** failed) because Bouclay runs its own dunning — not just settled money. Dashboard label: **Payment**. Public ID prefix: `pay_` (via `HasPublicId` on the `Payment` model).
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -649,7 +667,7 @@ One charge attempt against the processor (merges the board's `payment_attempts` 
 | customer_id | ulid | no | FK → customers |
 | payment_method_id | ulid | yes | FK → payment_methods |
 | processor | string | no | enum: `nomba` |
-| processor_reference | string | yes | the Nomba transaction ref |
+| processor_reference | string | yes | Nomba's reference for this charge attempt |
 | amount | bigInteger | no | minor units |
 | currency | char(3) | no | |
 | status | string | no | enum: `pending` / `processing` / `succeeded` / `failed` / `refunded` |
@@ -922,5 +940,5 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 - Bouclay's `products` / `prices` / `subscriptions` / `subscription_items` correspond to Paddle's catalog and Cashier's mirror — except Bouclay *owns* them rather than mirroring Paddle.
 - **Nomba BYOK**: each `team` connects their own Nomba keys via `team_processor_connections`. Bouclay orchestrates checkout/charge/dunning; money settles to the integrator's Nomba merchant account. Inbound Nomba webhooks hit a generated Bouclay URL; outbound billing events hit the integrator's `webhook_endpoints`.
 - Bouclay's `trial_offers` + `subscription_item_trials` map to Stripe's Trial Offer API: catalog offers attach trial prices to products and transition to a regular price; applied trials live on subscription items (`items[].current_trial`), not on the subscription root.
-- Bouclay's `payments` is what Cashier calls `transactions`, but Bouclay records every *attempt* (it runs its own dunning), where Cashier stores only Paddle's completed transactions.
+- **Paddle "Transaction" → Bouclay `Invoice`.** Paddle's central billing entity maps to Bouclay's numbered invoice. Paddle/Cashier "transactions" (completed money movement) map loosely to Bouclay `Payment` rows where `status = succeeded`, but Bouclay deliberately stores *every* charge attempt, not just successes.
 - The `incomplete` / `incomplete_expired` states and the first-class dunning machine are the deliberate divergence from Paddle: Bouclay charges the token itself, so it needs the pre-active states Paddle hides behind hosted checkout.

@@ -96,8 +96,8 @@ export type TeamPermissions = {
     canManageTrialOffers: boolean;
     canViewSubscriptions: boolean;
     canManageSubscriptions: boolean;
-    canViewTransactions: boolean;
-    canManageTransactions: boolean;
+    canViewInvoices: boolean;
+    canManageInvoices: boolean;
 };
 
 export type RoleOption = {

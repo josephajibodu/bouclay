@@ -2,7 +2,9 @@
 
 The heart of the platform. Everything before this phase — Nomba BYOK, catalog, customers, tokenized cards — existed to make this one object possible: a **subscription** that bills a real customer, on a real schedule, into the merchant's own Nomba account.
 
-This document is the product/UX source of truth for Phase 5. It does **not** redesign the schema (`schema.md` §4–5 is authoritative) and it honours every decision locked in `IMPLEMENTATION.md` and the Phase 4→5 handoff. Where a decision touches money movement or invoice records, this phase **stages** it (Phase 6) rather than building it — see §17.
+This document is the product/UX source of truth for Phase 5. It does **not** redesign the schema (`schema.md` §4–5 is authoritative) and it honours every decision locked in `IMPLEMENTATION.md` and the Phase 4→5 handoff. Where a decision touches money movement or invoice records, Phase 5 **staged** it; Phase 6 **built** invoicing, charges, and the invoice detail page — see [`IMPLEMENTATION.md`](IMPLEMENTATION.md) Phase 6 and `schema.md` § Dashboard vocabulary.
+
+**Implemented (2026-07-06):** subscription hub **Upcoming invoices** and **Payments** sections are live; top-level **Invoices** nav + list/detail pages; create flows use drawers (not `/subscriptions/new`). Dashboard vocabulary: **Invoice** + **Payment** only — no "Transaction" entity.
 
 Sibling docs: [`CATALOG_DESIGN.md`](CATALOG_DESIGN.md) (Phase 3), [`CUSTOMERS_DESIGN.md`](CUSTOMERS_DESIGN.md) (Phase 4). This doc reuses their idioms deliberately.
 
@@ -46,9 +48,9 @@ Seven rules govern every decision below. When two ideas conflict, the earlier ru
 
 5. **Creation is a guided two-pane flow, not a form.** Subscriptions are the first Bouclay object complex enough to earn a dedicated create surface (a two-pane overlay: builder on the left, live preview on the right) instead of the catalog/customer 420px side-drawer. We justify the departure in §7 — but the *sub-actions inside it* (add a line item, add a trial) stay drawer/inline, preserving the house idiom.
 
-6. **Money is staged, not faked.** Phase 5 creates subscriptions and computes trial clocks; it does **not** record `invoices`/`payments` (Phase 6). Anywhere a number would imply an accounting record, we show an honest *"Upcoming"* / *"Available with invoicing"* staged section — the same `StagedSection` pattern Phase 4 established. We never render a fabricated invoice.
+6. **Money is staged, not faked.** Phase 5 created subscriptions and computed trial clocks without recording `invoices`/`payments`. Phase 6 records real invoices and charge attempts; anywhere a number would still be speculative (renewals, proration), we show honest staged copy. We never render a fabricated invoice total.
 
-7. **Design the empty rooms now.** Timeline, Future invoices, Future payments, Usage — most are placeholders today. We lay out their slots in this phase so Phases 6–9 slide in without a redesign, exactly as the customer hub staged Subscriptions and Transactions before they existed.
+7. **Design the empty rooms now.** Timeline, Future invoices, Future payments, Usage — most were placeholders in Phase 5. We laid out their slots so Phases 6–9 slide in without a redesign, exactly as the customer hub staged Subscriptions and Invoices before they existed. *(Upcoming invoices + Payments on the sub hub, and Invoices on the customer hub, are live as of Phase 6.)*
 
 ---
 
@@ -70,17 +72,17 @@ Developers     ▸ Nomba Integration · API Keys · Webhooks
 
 - A subscription is neither a catalog object (it's an *instance*, not a definition) nor owned by the Customers section (it spans customer × catalog). It is its own aggregate root in the schema (`subscriptions` hangs off `teams` directly).
 - It is the primary daily surface for Support and Subscription-KPI roles, who may never touch Catalog.
-- It gives the future roadmap a natural home: **Invoices** (Phase 6) will sit directly below it, and the two read as a pair — *"what they're subscribed to"* and *"what they've been billed."*
-- **Paddle-validated:** Paddle's sandbox nav is exactly this flat top-level shape — *Transactions · Invoices · Subscriptions · Customers · Catalog* — with Subscriptions as its own primary item. (Paddle orders Invoices *above* Subscriptions; we put it *below* because in Bouclay invoices are generated *from* subscriptions, so the reading order mirrors the data flow. Minor, non-blocking.)
+- It gives the future roadmap a natural home: **Invoices** sits directly below it, and the two read as a pair — *"what they're subscribed to"* and *"what they've been billed."* *(Invoices nav + list/detail shipped Phase 6.)*
+- **Paddle reference:** Paddle's sandbox nav includes separate *Transactions* and *Invoices* items. Bouclay collapses Paddle's "transaction" concept into **`Invoice`** (see `schema.md` § Dashboard vocabulary) and uses a single **Invoices** sidebar item — no separate Transactions nav.
 
-**Forward-looking nav (do not build the greyed items yet):**
+**Forward-looking nav (built vs deferred):**
 
 ```
 Overview
 Catalog
 Customers
 Subscriptions
-Invoices        ← Phase 6 (add adjacent; same visual weight)
+Invoices        ← ✅ Phase 6 (below Subscriptions; gated on invoices.view)
 Developers
 Settings        ← already exists under the user menu
 ```
@@ -95,11 +97,12 @@ Settings        ← already exists under the user menu
 
 ```
 GET  /subscriptions                     → index (list)
-GET  /subscriptions/new                 → create (guided flow)   [subscriptions.manage]
-POST /subscriptions                     → store                  [subscriptions.manage]
+POST /subscriptions                     → store                  [subscriptions.manage]  (via CreateSubscriptionDrawer)
 GET  /subscriptions/{subscription}      → show (the hub)         route-model bound by integer id
 POST /subscriptions/{subscription}/cancel|pause|resume  → lifecycle actions [subscriptions.manage]
 ```
+
+Create is a **drawer** opened from the list or customer hub — there is no `/subscriptions/new` page (removed Phase 6).
 
 Public id prefix `sub_` (e.g. `sub_3xK9…`), shown in the UI and copyable; route binding stays on the integer `id`, frontend passes `.id`. Run `php artisan wayfinder:generate` after adding these.
 
@@ -605,7 +608,7 @@ Developer
 - **Billing schedule** — a plain-language sentence + (later) a horizontal period ruler. Phase 5 ships the sentence; Phase 6 adds the visual ruler into the same slot.
 - **Payment method** — reuses the Phase-4 read-only PM row; **Change** swaps the sub's `payment_method_id` (a small dialog listing the customer's cards). For manual/cardless subs, this becomes the "collect a card" affordance (checkout link).
 - **Timeline** — reuses the customer-hub activity list component. Phase 5 emits: *created, trial started, item added/removed, canceled/scheduled, paused/resumed, payment method changed.* Phases 6–9 append *invoice finalized, payment succeeded/failed, retry, converted from trial* — same component, no redesign.
-- **Upcoming invoices / Payments / Usage** — `StagedSection`s. This is where principle 7 ("design the empty rooms") pays off: Phase 6 replaces *Upcoming invoices* and *Payments* placeholders with real tables **in the same slot**, exactly as Phase 6 will replace the customer-page Transactions placeholder.
+- **Upcoming invoices / Payments / Usage** — were `StagedSection`s in Phase 5. Phase 6 replaced *Upcoming invoices* and *Payments* with real tables **in the same slot** on the subscription hub; the customer hub got a real **Invoices** section (invoice rows, not charge attempts). Usage remains staged.
 - **Metadata / Developer** — identical pattern to the customer hub (`custom_data` k/v; copyable ids; timestamps).
 
 ### 8.3 The Actions menu (state-aware)
@@ -745,7 +748,7 @@ Phase 4 deliberately staged two things on `customers/show.tsx`; Phase 5 activate
 
 ### 12.1 Un-disable the two stubs (per the handoff)
 
-1. **Actions → "Create subscription"** — currently `disabled` with a "Soon" pill (`show.tsx:754`). Enable it; it deep-links to `/subscriptions/new?customer={id}`, launching the create flow with section 1 pre-filled (§7).
+1. **Actions → "Create subscription"** — opens `CreateSubscriptionDrawer` with the customer pre-selected (no `/subscriptions/new` page).
 2. **Subscriptions `StagedSection` CTA** — the disabled "New subscription" button (`show.tsx:433`). When the customer has **zero** subscriptions, the section keeps its educational empty copy but the CTA becomes live. When they have **one or more**, the `StagedSection` is *replaced in the same slot* by a real list:
 
 ```
@@ -929,11 +932,11 @@ No schema redesign (per the brief). These are *usage* clarifications and the hon
 3. **Paid trial ⇒ `active`, not `trialing`.** Honour the schema's state-machine note (§5 of `schema.md`): only free trials enter `trialing`. The UI reflects this (§10.2) — don't badge a paid trial as "On trial".
 4. **`collection_mode` already exists** on `subscriptions`; surface it as the two Paddle choices (§3). No new column.
 5. **`scheduled_changes` drives cancel/pause-at-boundary.** "Cancel at period end" and "Pause with resume date" write a `scheduled_changes` row + set `canceled_at`/`ends_at`/`pause_resumes_at`; they do **not** flip `status` immediately. The UI's "Active · cancels 14 Aug" / "Paused · resumes 1 Sep" derived states read these (§4, §8.3).
-6. **The Phase 5/6 cut-line (money is staged).** Phase 5 **does not** create `invoices`, `invoice_lines`, or `payments` rows. Concretely:
+6. **The Phase 5/6 cut-line (money).** Phase 5 **did not** create `invoices`, `invoice_lines`, or `payments` rows. **Phase 6 built that layer** — see `IMPLEMENTATION.md` Phase 6. Original Phase 5 staging plan (now superseded for first charge + one-off invoices):
    - **Free trial** → `trialing`, zero money, `trial_ends_at` computed. ✅ fully built (exit-criteria path).
-   - **Automatic + card** → first charge via the **new** `tokenized-card-payment` recurring charge (handoff seam #2), flips `incomplete → active`. The *charge happens* (real Nomba call) but is **not recorded** as a Bouclay `payment`/`invoice` until Phase 6 — same stance Phase 4 took for "Charge customer". The hub's **Payments**/**Upcoming invoices** stay `StagedSection`.
-   - **Automatic + no card** / **Manual** → sub created; card collected via the Phase-4 checkout-redirect primitive (seam #1); invoicing staged.
-   - **Renewals, proration, dunning retries, plan changes** → Phases 6/8. Phase 5 *shows* `past_due`/retry copy and reserves the plan-change affordance, but the workers land later.
+   - **Automatic + card** → first charge via `tokenized-card-payment`, recorded as Bouclay `invoice` + `payment` via `CreateInvoice`/`ChargeInvoice`. Hub **Payments**/**Upcoming invoices** are live.
+   - **Automatic + no card** / **Manual** → sub creates an open invoice; card collected via checkout link (deferred for open invoices).
+   - **Renewals, proration, dunning retries, plan changes** → still deferred (Phases 6 worker / 8). Phase 5 *shows* `past_due`/retry copy and reserves the plan-change affordance.
 7. **Mode (test/live).** Charges use `NombaModeResolver` (prefer live, else test); a PM's mode is in `custom_data.mode` — charge in that mode (handoff #4). Phase 5 enables **live-mode** collection (first subscription payment mints the live token) per the Phase-4 "carried forward" note. The create flow can show a subtle **Test / Live** indicator matching the API-keys mode chip.
 8. **`once_per_customer` trial guard** enforced via `subscription_item_trials (customer_id, trial_offer_id)`; the UI pre-warns (§7.3, §16.6) rather than erroring at submit.
 9. **Timestamp-duration trials deferred** (`duration_type: timestamp`) — ship `relative` only, matching the Phase-3 cut. The trial card handles both shapes but only `relative` is creatable now.
@@ -948,7 +951,7 @@ The whole layout is a bet that future phases *slot in* rather than *rewrite*. Wh
 
 | Future phase | Slots into (built now as…) |
 |---|---|
-| **6 · Invoices & charges** | Hub **Upcoming invoices** + **Payments** `StagedSection`s → real tables, same slot. Billing-schedule sentence → visual period ruler. Customer-page & sub totals gain real amounts. |
+| **6 · Invoices & charges** | ✅ Hub **Upcoming invoices** + **Payments** `StagedSection`s → real tables, same slot. Top-level **Invoices** nav + list/detail. Customer hub **Invoices** section. Billing-schedule sentence → visual period ruler (ruler still deferred). |
 | **6 · Proration** | Item row `⋯` **"Change plan · Soon"** → live; quantity change → real proration line (the "applies next renewal" helper is replaced by a proration preview). |
 | **7 · Inbound webhooks** | The `incomplete → active` and `active → past_due` flips currently driven synchronously become webhook-driven; the hub's amber "awaiting payment" banner clears on the webhook. No UI change — the states already exist. |
 | **8 · Dunning** | `past_due` banner's "retry 2 of 4 · next 12 Jul" is *copy we already wrote* (§16.1); Phase 8 just feeds it real attempt data. Timeline gains retry entries. |
@@ -956,7 +959,7 @@ The whole layout is a bet that future phases *slot in* rather than *rewrite*. Wh
 | **11 · Portal** | The "collect a card" checkout link and "cancel at period end" are the exact customer-facing actions the portal exposes; Phase 5 builds them merchant-side first. |
 | **Analytics** | The status taxonomy (§4) and color language (§9.4) are the dimensions KPIs slice by (active/trialing/past_due counts, trial-conversion). Built once, reused. |
 
-**The core future-proofing move:** the detail page is a **dashboard of sections**, not a form. Adding a capability = adding/upgrading a section, never restructuring the page. This is the same lesson the customer hub proved when it staged Subscriptions and Transactions — we're applying it one level deeper.
+**The core future-proofing move:** the detail page is a **dashboard of sections**, not a form. Adding a capability = adding/upgrading a section, never restructuring the page. This is the same lesson the customer hub proved when it staged Subscriptions and Invoices — we're applying it one level deeper.
 
 ---
 

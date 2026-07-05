@@ -69,7 +69,9 @@ Bouclay is the product. A minimal **reference app** (e.g. “Acme Notes”) will
 
 ## Status
 
-**In progress** — platform auth and teams exist; **Phase 1 (roles & permissions)** is next, then billing engine and Nomba integration per `IMPLEMENTATION.md`.
+**In progress** — Phases 1–6 core are built (teams, catalog, customers, subscriptions, invoicing UI + real charges). Next: renewal billing worker, proration, inbound Nomba webhooks, dunning — see [`IMPLEMENTATION.md`](IMPLEMENTATION.md).
+
+**Dashboard vocabulary (2026-07-06):** **`Invoice`** = numbered billing record (`inv_`); **`Payment`** = charge attempt (`pay_`). No "Transaction" entity — see [`schema.md`](schema.md) § Dashboard vocabulary.
 
 ## License
 
