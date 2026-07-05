@@ -1,0 +1,31 @@
+<?php
+
+namespace App\States\Subscription;
+
+use App\Enums\SubscriptionStatus;
+use Illuminate\Support\Carbon;
+
+/**
+ * A renewal payment failed and Bouclay is retrying (dunning). It recovers to
+ * active when a retry succeeds, or is canceled when retries are exhausted.
+ */
+final class PastDueState extends BaseSubscriptionState
+{
+    public function status(): SubscriptionStatus
+    {
+        return SubscriptionStatus::PastDue;
+    }
+
+    public function recover(): SubscriptionState
+    {
+        return $this->to(ActiveState::class);
+    }
+
+    public function cancel(): SubscriptionState
+    {
+        $this->subscription->canceled_at = Carbon::now();
+        $this->subscription->ends_at = Carbon::now();
+
+        return $this->to(CanceledState::class);
+    }
+}

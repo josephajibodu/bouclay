@@ -1,0 +1,432 @@
+<?php
+
+namespace App\Http\Controllers\Subscriptions;
+
+use App\Actions\Subscriptions\CreateSubscription;
+use App\Enums\CatalogStatus;
+use App\Enums\PriceType;
+use App\Enums\ScheduledChangeAction;
+use App\Enums\SubscriptionStatus;
+use App\Exceptions\Subscriptions\IllegalStateTransition;
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Subscriptions\StoreSubscriptionRequest;
+use App\Models\Customer;
+use App\Models\PaymentMethod;
+use App\Models\Price;
+use App\Models\Product;
+use App\Models\Subscription;
+use App\Models\Team;
+use App\Models\TrialOffer;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
+use Inertia\Inertia;
+use Inertia\Response;
+use InvalidArgumentException;
+
+class SubscriptionController extends Controller
+{
+    /**
+     * List the team's subscriptions — Paddle-thin: search, one status filter,
+     * server-side paginated (SUBSCRIPTIONS_DESIGN §6).
+     */
+    public function index(Request $request): Response
+    {
+        $team = $request->user()->currentTeam;
+
+        Gate::authorize('viewSubscriptions', $team);
+
+        $search = trim((string) $request->query('search', ''));
+        $status = (string) $request->query('status', 'all_active');
+
+        $subscriptions = $team->subscriptions()
+            ->with(['customer', 'activeItems.product'])
+            ->when($status !== 'all', function ($query) use ($status) {
+                $statuses = $status === 'all_active'
+                    ? array_map(fn (SubscriptionStatus $s) => $s->value, SubscriptionStatus::activeSet())
+                    : [$status];
+
+                $query->whereIn('status', $statuses);
+            })
+            ->when($search !== '', function ($query) use ($search) {
+                $term = '%'.mb_strtolower($search).'%';
+
+                $query->where(function ($query) use ($term) {
+                    $query->whereRaw('lower(public_id) like ?', [$term])
+                        ->orWhereHas('customer', function ($query) use ($term) {
+                            $query->whereRaw('lower(name) like ?', [$term])
+                                ->orWhereRaw('lower(email) like ?', [$term]);
+                        });
+                });
+            })
+            ->orderByDesc('created_at')
+            ->paginate(25)
+            ->withQueryString()
+            ->through(fn (Subscription $subscription) => $subscription->toListArray());
+
+        return Inertia::render('subscriptions/index', [
+            'subscriptions' => $subscriptions,
+            'filters' => ['search' => $search, 'status' => $status],
+            'hasAny' => $team->subscriptions()->exists(),
+            'hasRecurringPrices' => $team->prices()->where('type', PriceType::Recurring)->where('status', CatalogStatus::Active)->exists(),
+            'canManage' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
+        ]);
+    }
+
+    /**
+     * The guided two-pane create surface (SUBSCRIPTIONS_DESIGN §7). Ships the
+     * catalog + customers the builder needs; its inputs mirror the API 1:1.
+     */
+    public function create(Request $request): Response
+    {
+        $team = $request->user()->currentTeam;
+
+        Gate::authorize('manageSubscriptions', $team);
+
+        $preselect = $request->integer('customer');
+
+        return Inertia::render('subscriptions/create', [
+            'customers' => $this->customerOptions($team),
+            'products' => $this->productOptions($team),
+            'trialOffers' => $this->trialOfferOptions($team),
+            'teamCurrency' => $team->default_currency,
+            'preselectedCustomerId' => $preselect ?: null,
+        ]);
+    }
+
+    /**
+     * Create the subscription. Domain guards in the service (currency mismatch,
+     * once-per-customer) surface as inline validation errors.
+     */
+    public function store(StoreSubscriptionRequest $request, CreateSubscription $create): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        Gate::authorize('manageSubscriptions', $team);
+
+        try {
+            $subscription = $create->handle($team, $request->validated());
+        } catch (InvalidArgumentException $e) {
+            throw ValidationException::withMessages(['items' => $e->getMessage()]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => $this->createdToast($subscription)]);
+
+        return to_route('subscriptions.show', $subscription);
+    }
+
+    /**
+     * The subscription detail hub (SUBSCRIPTIONS_DESIGN §8).
+     */
+    public function show(Request $request, Subscription $subscription): Response
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($subscription->team_id === $team->id, 404);
+
+        Gate::authorize('viewSubscriptions', $team);
+
+        $subscription->load([
+            'customer',
+            'paymentMethod',
+            'items' => fn ($query) => $query->orderBy('created_at'),
+            'items.product',
+            'items.price',
+            'items.currentTrial.transitionPrice',
+            'scheduledChanges' => fn ($query) => $query->whereNull('applied_at'),
+        ]);
+
+        $status = $subscription->status;
+
+        return Inertia::render('subscriptions/show', [
+            'subscription' => [
+                'id' => $subscription->id,
+                'publicId' => $subscription->public_id,
+                'status' => $status->value,
+                'currency' => $subscription->currency,
+                'collectionMode' => $subscription->collection_mode->value,
+                'trialEndsAt' => $subscription->trial_ends_at?->toISOString(),
+                'trialEndBehavior' => $subscription->trial_end_behavior?->value,
+                'currentPeriodStart' => $subscription->current_period_start?->toISOString(),
+                'currentPeriodEnd' => $subscription->current_period_end?->toISOString(),
+                'pauseResumesAt' => $subscription->pause_resumes_at?->toISOString(),
+                'canceledAt' => $subscription->canceled_at?->toISOString(),
+                'endsAt' => $subscription->ends_at?->toISOString(),
+                'customData' => $subscription->custom_data,
+                'createdAt' => $subscription->created_at?->toISOString(),
+            ],
+            'customer' => [
+                'id' => $subscription->customer->id,
+                'name' => $subscription->customer->name,
+                'email' => $subscription->customer->email,
+            ],
+            'paymentMethod' => $subscription->paymentMethod?->toDashboardArray(),
+            'items' => $subscription->items->map(fn ($item) => $item->toDashboardArray())->all(),
+            'scheduledChanges' => $subscription->scheduledChanges->map(fn ($change) => [
+                'action' => $change->action->value,
+                'effectiveAt' => $change->effective_at->toISOString(),
+            ])->all(),
+            'timeline' => $this->buildTimeline($subscription),
+            'permissions' => [
+                'canManage' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
+            ],
+        ]);
+    }
+
+    /**
+     * Pause billing, optionally with a resume date.
+     */
+    public function pause(Request $request, Subscription $subscription): RedirectResponse
+    {
+        $subscription = $this->authorizeManage($request, $subscription);
+
+        $resumesAt = $request->filled('resumes_at')
+            ? Carbon::parse($request->date('resumes_at'))
+            : null;
+
+        return $this->runTransition($subscription, function () use ($subscription, $resumesAt) {
+            $subscription->apply('pause', $resumesAt);
+
+            return $resumesAt !== null
+                ? 'Subscription paused — resumes '.$resumesAt->format('j M').'.'
+                : 'Subscription paused.';
+        });
+    }
+
+    /**
+     * Resume a paused subscription.
+     */
+    public function resume(Request $request, Subscription $subscription): RedirectResponse
+    {
+        $subscription = $this->authorizeManage($request, $subscription);
+
+        return $this->runTransition($subscription, function () use ($subscription) {
+            $subscription->apply('resume');
+
+            return 'Subscription resumed.';
+        });
+    }
+
+    /**
+     * Cancel — immediately or at the end of the current period. "At period end"
+     * is a scheduled change, not a status flip (SUBSCRIPTIONS_DESIGN §4, §8.3).
+     */
+    public function cancel(Request $request, Subscription $subscription): RedirectResponse
+    {
+        $subscription = $this->authorizeManage($request, $subscription);
+
+        $mode = $request->validate([
+            'mode' => ['required', 'in:immediately,period_end'],
+        ])['mode'];
+
+        if ($mode === 'immediately') {
+            return $this->runTransition($subscription, function () use ($subscription) {
+                $subscription->apply('cancel');
+
+                return 'Subscription canceled.';
+            });
+        }
+
+        $effectiveAt = $subscription->current_period_end ?? Carbon::now();
+
+        $subscription->scheduledChanges()->create([
+            'action' => ScheduledChangeAction::Cancel,
+            'effective_at' => $effectiveAt,
+        ]);
+
+        $subscription->forceFill([
+            'canceled_at' => Carbon::now(),
+            'ends_at' => $effectiveAt,
+        ])->save();
+
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => 'Cancellation scheduled for '.$effectiveAt->format('j M').'. You can undo anytime before then.',
+        ]);
+
+        return back();
+    }
+
+    /**
+     * Undo a scheduled cancellation.
+     */
+    public function resumeSchedule(Request $request, Subscription $subscription): RedirectResponse
+    {
+        $subscription = $this->authorizeManage($request, $subscription);
+
+        $subscription->scheduledChanges()
+            ->where('action', ScheduledChangeAction::Cancel)
+            ->whereNull('applied_at')
+            ->delete();
+
+        $subscription->forceFill(['canceled_at' => null, 'ends_at' => null])->save();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Cancellation undone.']);
+
+        return back();
+    }
+
+    /**
+     * Resolve + authorize a manageable subscription for lifecycle actions.
+     */
+    private function authorizeManage(Request $request, Subscription $subscription): Subscription
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($subscription->team_id === $team->id, 404);
+
+        Gate::authorize('manageSubscriptions', $team);
+
+        return $subscription;
+    }
+
+    /**
+     * Run a state-machine transition, turning an illegal one into a friendly
+     * error toast instead of a 500 (SUBSCRIPTIONS_DESIGN §14.3).
+     */
+    private function runTransition(Subscription $subscription, callable $transition): RedirectResponse
+    {
+        try {
+            $message = $transition();
+        } catch (IllegalStateTransition $e) {
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => "This subscription's status changed. Refresh to see the latest.",
+            ]);
+
+            return back();
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => $message]);
+
+        return back();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function customerOptions(Team $team): array
+    {
+        $customers = $team->customers()
+            ->with(['paymentMethods' => fn ($query) => $query->orderByDesc('is_default')])
+            ->orderByDesc('created_at')
+            ->get();
+
+        return array_map(fn (Customer $customer): array => [
+            'id' => $customer->id,
+            'name' => $customer->name,
+            'email' => $customer->email,
+            'currency' => $customer->currency,
+            'paymentMethods' => array_map(fn (PaymentMethod $pm): array => [
+                'id' => $pm->id,
+                'label' => trim(($pm->brand ?? 'Card').' ···· '.($pm->last4 ?? '••••')),
+                'isDefault' => $pm->is_default,
+            ], $customer->paymentMethods->all()),
+        ], $customers->all());
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function productOptions(Team $team): array
+    {
+        $products = $team->products()
+            ->where('status', CatalogStatus::Active)
+            ->with(['prices' => fn ($query) => $query->where('type', PriceType::Recurring)->where('status', CatalogStatus::Active)])
+            ->orderBy('name')
+            ->get()
+            ->filter(fn (Product $product) => $product->prices->isNotEmpty());
+
+        return array_map(fn (Product $product): array => [
+            'id' => $product->id,
+            'name' => $product->name,
+            'prices' => array_map(fn (Price $price): array => [
+                'id' => $price->id,
+                'label' => $price->toPickerLabel(),
+                'unitAmount' => $price->unit_amount !== null ? $price->unit_amount / 100 : null,
+                'currency' => $price->currency,
+                'billingInterval' => $price->billing_interval?->value,
+            ], $product->prices->all()),
+        ], array_values($products->all()));
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function trialOfferOptions(Team $team): array
+    {
+        $offers = $team->trialOffers()
+            ->where('active', true)
+            ->with(['product', 'trialPrice', 'transitionPrice'])
+            ->orderBy('name')
+            ->get();
+
+        return array_map(fn (TrialOffer $offer): array => [
+            'id' => $offer->id,
+            'name' => $offer->name,
+            'product' => ['id' => $offer->product->id, 'name' => $offer->product->name],
+            'trialPrice' => [
+                'label' => $offer->trialPrice->toPickerLabel(),
+                'isFree' => ($offer->trialPrice->unit_amount ?? 0) === 0,
+                'unitAmount' => $offer->trialPrice->unit_amount !== null ? $offer->trialPrice->unit_amount / 100 : null,
+                'currency' => $offer->trialPrice->currency,
+            ],
+            'transitionPrice' => [
+                'label' => $offer->transitionPrice->toPickerLabel(),
+                'unitAmount' => $offer->transitionPrice->unit_amount !== null ? $offer->transitionPrice->unit_amount / 100 : null,
+                'currency' => $offer->transitionPrice->currency,
+            ],
+            'durationIterations' => $offer->duration_iterations,
+        ], $offers->all());
+    }
+
+    /**
+     * The success toast copy depends on which branch created the sub
+     * (SUBSCRIPTIONS_DESIGN §14.2).
+     */
+    private function createdToast(Subscription $subscription): string
+    {
+        return match ($subscription->status) {
+            SubscriptionStatus::Trialing => 'Subscription started — customer is on a free trial.',
+            SubscriptionStatus::Incomplete => 'Subscription created — send the customer a checkout link to activate it.',
+            default => 'Subscription created.',
+        };
+    }
+
+    /**
+     * Build the timeline from the timestamps Bouclay already keeps. Later
+     * phases append rows to the same shape (SUBSCRIPTIONS_DESIGN §8.2).
+     *
+     * @return array<int, array<string, string|null>>
+     */
+    private function buildTimeline(Subscription $subscription): array
+    {
+        $events = [[
+            'type' => 'subscription.created',
+            'label' => 'Subscription created',
+            'at' => $subscription->created_at?->toISOString(),
+        ]];
+
+        if ($subscription->trial_ends_at !== null) {
+            $events[] = [
+                'type' => 'trial.started',
+                'label' => 'Free trial started',
+                'at' => $subscription->created_at?->toISOString(),
+            ];
+        }
+
+        if ($subscription->canceled_at !== null) {
+            $events[] = [
+                'type' => 'subscription.canceled',
+                'label' => $subscription->status === SubscriptionStatus::Canceled ? 'Subscription canceled' : 'Cancellation scheduled',
+                'at' => $subscription->canceled_at->toISOString(),
+            ];
+        }
+
+        usort($events, fn ($a, $b) => strcmp((string) $b['at'], (string) $a['at']));
+
+        return $events;
+    }
+}

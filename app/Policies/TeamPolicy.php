@@ -221,6 +221,24 @@ class TeamPolicy
     }
 
     /**
+     * Determine whether the user can view the team's subscriptions.
+     */
+    public function viewSubscriptions(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::SubscriptionsView)
+            || $user->hasTeamPermission($team, PermissionName::SubscriptionsManage);
+    }
+
+    /**
+     * Determine whether the user can create subscriptions and run lifecycle
+     * actions (pause, resume, cancel).
+     */
+    public function manageSubscriptions(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::SubscriptionsManage);
+    }
+
+    /**
      * Determine whether the user can delete the model.
      */
     public function delete(User $user, Team $team): bool

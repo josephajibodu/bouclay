@@ -92,6 +92,27 @@ class Customer extends Model
     }
 
     /**
+     * Get the customer's subscriptions.
+     *
+     * @return HasMany<Subscription, $this>
+     */
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    /**
+     * Get the customer's applied trial instances — denormalised here to
+     * enforce a trial offer's once-per-customer rule (schema.md §5).
+     *
+     * @return HasMany<SubscriptionItemTrial, $this>
+     */
+    public function subscriptionItemTrials(): HasMany
+    {
+        return $this->hasMany(SubscriptionItemTrial::class);
+    }
+
+    /**
      * The name shown in the UI — falls back to the email, which is the one
      * field that is always present.
      */

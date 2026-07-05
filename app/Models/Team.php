@@ -187,6 +187,36 @@ class Team extends Model
     }
 
     /**
+     * Get all prices in this team's catalog.
+     *
+     * @return HasMany<Price, $this>
+     */
+    public function prices(): HasMany
+    {
+        return $this->hasMany(Price::class);
+    }
+
+    /**
+     * Get all trial offers this team defines.
+     *
+     * @return HasMany<TrialOffer, $this>
+     */
+    public function trialOffers(): HasMany
+    {
+        return $this->hasMany(TrialOffer::class);
+    }
+
+    /**
+     * Get all subscriptions this team owns.
+     *
+     * @return HasMany<Subscription, $this>
+     */
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

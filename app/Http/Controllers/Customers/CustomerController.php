@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Customers;
 
+use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Customers\StoreCustomerRequest;
 use App\Http\Requests\Customers\UpdateCustomerRequest;
@@ -100,10 +101,15 @@ class CustomerController extends Controller
         $customer->load([
             'addresses' => fn ($query) => $query->orderByDesc('is_default')->orderBy('created_at'),
             'paymentMethods' => fn ($query) => $query->orderByDesc('is_default')->orderByDesc('created_at'),
+            'subscriptions' => fn ($query) => $query->with('activeItems.product')->orderByDesc('created_at'),
         ]);
 
         $defaultAddress = $customer->addresses->firstWhere('is_default', true)
             ?? $customer->addresses->first();
+
+        $activeSubscriptions = $customer->subscriptions
+            ->whereIn('status', SubscriptionStatus::activeSet())
+            ->count();
 
         return Inertia::render('customers/show', [
             'customer' => [
@@ -123,6 +129,16 @@ class CustomerController extends Controller
             'addresses' => $customer->addresses->map(fn ($address) => $address->toDashboardArray())->all(),
             'paymentMethods' => $customer->paymentMethods->map(fn ($pm) => $pm->toDashboardArray())->all(),
             'defaultAddress' => $defaultAddress?->toDashboardArray(),
+            'subscriptions' => $customer->subscriptions->map(fn ($subscription) => [
+                'id' => $subscription->id,
+                'publicId' => $subscription->public_id,
+                'status' => $subscription->status->value,
+                'planLabel' => $subscription->planLabel(),
+                'trialEndsAt' => $subscription->trial_ends_at?->toISOString(),
+                'currentPeriodEnd' => $subscription->current_period_end?->toISOString(),
+                'endsAt' => $subscription->canceled_at !== null ? $subscription->ends_at?->toISOString() : null,
+            ])->all(),
+            'activeSubscriptionCount' => $activeSubscriptions,
             'activity' => $this->buildActivity($customer),
             'teamCurrency' => $team->default_currency,
             'permissions' => [

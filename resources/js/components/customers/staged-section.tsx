@@ -18,7 +18,7 @@ export function StagedSection({
     icon: LucideIcon;
     heading: string;
     body: string;
-    availability: string;
+    availability?: string;
     action?: ReactNode;
 }) {
     return (
@@ -35,7 +35,11 @@ export function StagedSection({
                 <p className="mx-auto max-w-md text-sm text-muted-foreground">
                     {body}
                 </p>
-                <p className="text-xs text-muted-foreground">{availability}</p>
+                {availability && (
+                    <p className="text-xs text-muted-foreground">
+                        {availability}
+                    </p>
+                )}
             </div>
         </section>
     );

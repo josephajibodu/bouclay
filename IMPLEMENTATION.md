@@ -126,19 +126,59 @@ Because Decision #2 removed the standalone "add card", the *only* way a card rea
 
 ---
 
-## Phase 5 — Subscriptions & state machine
+## Phase 5 — Subscriptions & state machine ✅ (done)
 
 **Goal:** Core subscription lifecycle without full invoicing yet.
 
-**Build:**
+**UX/product spec:** [`SUBSCRIPTIONS_DESIGN.md`](SUBSCRIPTIONS_DESIGN.md) (full proposal — IA, two-pane create, list, detail hub, state machine, trial-as-line-item, copy).
 
-- `subscriptions`, `subscription_items`, `subscription_item_trials`
-- Create subscription (items + optional trial offer)
-- State machine: `incomplete` → `trialing` / `active`, `past_due`, `paused`, `canceled`, `incomplete_expired`
-- `subscriptions.trial_ends_at`, trial end behavior fields
-- Subscription API + minimal dashboard list/detail
+**Built:**
 
-**Exit criteria:** Customer subscribed to a plan; status visible; trial end date computed for free trial.
+- `subscriptions`, `subscription_items`, `subscription_item_trials`, `scheduled_changes`
+- Create subscription (line items + optional trial offer) via a two-pane create flow, reusing a shared `CreateSubscription` action so the future Phase-10 API is a thin wrapper (`items[]` = `{price}` | `{trial_offer}`)
+- Hand-rolled **state machine** (no package) in `app/States/Subscription/` — a `SubscriptionState` contract, `BaseSubscriptionState` (throws by default), seven concrete states, `IllegalStateTransition`, and `Subscription::apply()`; `SubscriptionStatus` enum resolves state classes and carries UI `label()`/`color()`/`description()`
+- `subscriptions.trial_ends_at` + trial-end-behavior fields; list, detail hub, and customer-page activation
+
+**Exit criteria:** Customer subscribed to a plan; status visible; trial end date computed for free trial. ✅
+
+### Decisions locked during design (2026-07-05) — do not re-litigate
+
+Verified against Stripe's create-subscription dialog (see `SUBSCRIPTIONS_DESIGN.md`).
+
+1. **Trials are line items, not a price property.** A subscription is a list of line items; each is a plain price (**Add product**) **or** a trial offer (**Add trial**). Adding a trial creates a `subscription_item` + a snapshotted `subscription_item_trials` row. Bouclay **never** auto-applies a trial because a chosen price is some offer's `transition_price_id`. (SUBSCRIPTIONS_DESIGN §3, §7.2, §17.2a)
+2. **Free vs paid trial split (schema.md §5).** Free trial (`trial_price = 0`) → no charge, `trialing`. Paid trial (`trial_price > 0`) → billed the intro price at signup and each cycle, follows `incomplete → active` (**not** `trialing`), converts to `transition_price` at `trial_ends_at`. `current_period_end` = one **intro** cycle; `trial_ends_at` = the conversion point. (SUBSCRIPTIONS_DESIGN §10.2)
+3. **A product appears at most once.** A plain line + a trial for the same product double-charges, so the create builder de-dupes by product and `CreateSubscription::resolveLines` rejects duplicate `product_id`.
+4. **Collection modes** = the two Stripe/Paddle choices: *Automatically charge a saved card* (`automatic`) vs *Send an invoice to pay manually* (`manual`). Already on `subscriptions.collection_mode`; no new column.
+5. **Money is staged (Phase 5/6 cut-line).** No `invoices`/`payments`/real Nomba charge this phase. `apply('activate')` **simulates** a successful first charge; hub Invoices/Payments are `StagedSection`s. (SUBSCRIPTIONS_DESIGN §17.6)
+
+### Carried into later phases (so we don't forget)
+
+The create-time seams are marked in code as `TODO(Phase 6)` in `CreateSubscription` (`grep -rn "TODO(Phase" app/`). The worker-driven transitions are **new callers that don't exist yet** — this list is their home:
+
+- **Phase 6 (Invoicing/charges):**
+  - Replace the **simulated first charge** in `CreateSubscription::settleInitialState` (`apply('activate')`) with a real Nomba charge → record `payment` + `invoice`; on decline leave `incomplete`.
+  - **Automatic + no card** subscriptions currently **dead-end at `incomplete`** — generate the Phase-4 checkout link to collect the card, then flip to `active`/`trialing` on payment.
+  - Add the **trial-conversion worker**: at `subscription_item_trials.ends_at`, swap the item `trial_price_id → transition_price_id`, mark the trial `converted`, and call `apply('convert')`.
+  - Replace the hub **Upcoming invoices / Payments** `StagedSection`s with real tables (same slots); add real amounts to list/customer totals.
+- **Phase 7 (Inbound webhooks):** drive `apply('activate')` / `apply('markPastDue')` from real Nomba `payment_success` / `payment_failed` events instead of the synchronous create-time assumption; clear the hub's "awaiting payment" banner on the webhook.
+- **Phase 8 (Dunning):**
+  - **Incomplete-timeout job** → `apply('expire')` for `incomplete` subs past their grace window (→ `incomplete_expired`).
+  - **Renewal-failure → `apply('markPastDue')`**, then retry on `team_settings.dunning_config` (soft vs hard decline via `payments.failure_code`); recovery → `apply('recover')`; exhaustion → terminal `apply('cancel')`/`apply('pause')` per config.
+  - **Manual-invoice unpaid path is distinct** from automatic retry: there's no card to retry, so it's reminder-based → age the invoice → `past_due` → terminal. Don't collapse it into the automatic retry loop.
+  - The **scheduled-changes worker** applies `cancel`/`pause`/`resume` rows at `effective_at` (Phase 5 writes the rows; the worker that fires them lands here).
+- **Phase 9 (Outbound):** emit `subscription.created` / `.updated` / `.trial_will_end` from the same lifecycle hooks that already write the timeline in Phase 5.
+
+**State-machine transition owners** (the machine is complete; these are the *callers* still to wire):
+
+| Transition | Fires when | Caller wired in |
+|---|---|---|
+| `activate` | first payment captured | **5** (simulated at create) → **6/7** (real charge / webhook) |
+| `pause` / `resume` / `cancel` (immediate) | dashboard action | **5** ✅ |
+| cancel/pause/resume at period end | `scheduled_changes` row reaches `effective_at` | **5** writes row → **6/8** worker fires |
+| `convert` | trial reaches `ends_at` | **6/8** trial-conversion worker |
+| `markPastDue` | renewal charge fails / invoice past due | **6** (charge) / **7** (webhook) |
+| `recover` | a dunning retry succeeds | **8** |
+| `expire` | `incomplete` sub exceeds grace window | **8** |
 
 ---
 

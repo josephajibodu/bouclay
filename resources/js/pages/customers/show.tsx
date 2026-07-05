@@ -19,6 +19,7 @@ import ChargeCustomerModal from '@/components/customers/charge-customer-modal';
 import { CustomerMonogram } from '@/components/customers/customer-monogram';
 import EditCustomerDrawer from '@/components/customers/edit-customer-drawer';
 import { StagedSection } from '@/components/customers/staged-section';
+import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription-status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,18 +42,35 @@ import {
     defaultMethod as makePmDefault,
     destroy as destroyPm,
 } from '@/routes/customers/payment-methods';
+import {
+    create as createSubscription,
+    show as subscriptionShow,
+} from '@/routes/subscriptions';
 import type {
     CustomerAddress,
     CustomerActivityEvent,
     CustomerDetail,
     CustomerPaymentMethod,
+    SubscriptionStatus,
 } from '@/types';
+
+type CustomerSubscription = {
+    id: number;
+    publicId: string;
+    status: SubscriptionStatus;
+    planLabel: string;
+    trialEndsAt: string | null;
+    currentPeriodEnd: string | null;
+    endsAt: string | null;
+};
 
 type Props = {
     customer: CustomerDetail;
     addresses: CustomerAddress[];
     paymentMethods: CustomerPaymentMethod[];
     defaultAddress: CustomerAddress | null;
+    subscriptions: CustomerSubscription[];
+    activeSubscriptionCount: number;
     activity: CustomerActivityEvent[];
     teamCurrency: string;
     permissions: { canManage: boolean };
@@ -97,6 +115,8 @@ export default function CustomerShow({
     addresses,
     paymentMethods,
     defaultAddress,
+    subscriptions,
+    activeSubscriptionCount,
     activity,
     teamCurrency,
     permissions,
@@ -214,6 +234,7 @@ export default function CustomerShow({
                     <ActionsMenu
                         canManage={canManage}
                         isArchived={isArchived}
+                        customerId={customer.id}
                         onEdit={() => setEditOpen(true)}
                         onCopyId={copyId}
                         onAddAddress={openAddAddress}
@@ -285,12 +306,16 @@ export default function CustomerShow({
                     />
                     <Fact label="Currency" value={currency} />
                     <Fact
-                        label="Customer since"
-                        value={formatDate(customer.createdAt)}
+                        label="Active subscriptions"
+                        value={
+                            activeSubscriptionCount > 0
+                                ? String(activeSubscriptionCount)
+                                : 'None'
+                        }
                     />
                     <Fact
-                        label="Status"
-                        value={isArchived ? 'Archived' : 'Active'}
+                        label="Customer since"
+                        value={formatDate(customer.createdAt)}
                     />
                 </div>
             </section>
@@ -422,19 +447,77 @@ export default function CustomerShow({
                 )}
             </section>
 
-            {/* Subscriptions — staged */}
-            <StagedSection
-                title="Subscriptions"
-                icon={RefreshCw}
-                heading="Subscriptions will live here"
-                body="When you subscribe this customer to a plan, their active and past subscriptions — status, renewal date, and plan — will show up here."
-                availability="Available in the next release."
-                action={
-                    <Button size="sm" variant="outline" disabled>
-                        <Plus /> New subscription
-                    </Button>
-                }
-            />
+            {/* Subscriptions */}
+            {subscriptions.length === 0 ? (
+                <StagedSection
+                    title="Subscriptions"
+                    icon={RefreshCw}
+                    heading="Subscriptions will live here"
+                    body="When you subscribe this customer to a plan, their active and past subscriptions — status, renewal date, and plan — will show up here."
+                    action={
+                        canManage && !isArchived ? (
+                            <Button size="sm" variant="outline" asChild>
+                                <Link
+                                    href={
+                                        createSubscription({
+                                            query: { customer: customer.id },
+                                        }).url
+                                    }
+                                >
+                                    <Plus /> New subscription
+                                </Link>
+                            </Button>
+                        ) : undefined
+                    }
+                />
+            ) : (
+                <section className="space-y-3">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-semibold">Subscriptions</h2>
+                        {canManage && !isArchived && (
+                            <Button size="sm" variant="outline" asChild>
+                                <Link
+                                    href={
+                                        createSubscription({
+                                            query: { customer: customer.id },
+                                        }).url
+                                    }
+                                >
+                                    <Plus /> New subscription
+                                </Link>
+                            </Button>
+                        )}
+                    </div>
+                    <div className="divide-y rounded-lg border">
+                        {subscriptions.map((sub) => (
+                            <Link
+                                key={sub.id}
+                                href={subscriptionShow(sub.id)}
+                                className="flex items-center justify-between gap-3 p-4 transition-colors hover:bg-muted/50"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <RefreshCw className="size-5 text-muted-foreground" />
+                                    <span className="font-medium">
+                                        {sub.planLabel}
+                                    </span>
+                                    <SubscriptionStatusBadge
+                                        status={sub.status}
+                                    />
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                    {sub.status === 'trialing' && sub.trialEndsAt
+                                        ? `Trial ends ${formatDate(sub.trialEndsAt)}`
+                                        : sub.endsAt
+                                          ? `Ends ${formatDate(sub.endsAt)}`
+                                          : sub.status === 'canceled'
+                                            ? 'Ended'
+                                            : formatDate(sub.currentPeriodEnd)}
+                                </span>
+                            </Link>
+                        ))}
+                    </div>
+                </section>
+            )}
 
             {/* Transactions — staged */}
             <StagedSection
@@ -709,6 +792,7 @@ function DevRow({
 function ActionsMenu({
     canManage,
     isArchived,
+    customerId,
     onEdit,
     onCopyId,
     onAddAddress,
@@ -718,6 +802,7 @@ function ActionsMenu({
 }: {
     canManage: boolean;
     isArchived: boolean;
+    customerId: number;
     onEdit: () => void;
     onCopyId: () => void;
     onAddAddress: () => void;
@@ -751,11 +836,16 @@ function ActionsMenu({
                         <DropdownMenuItem onClick={onCharge}>
                             <CreditCard /> Charge customer
                         </DropdownMenuItem>
-                        <DropdownMenuItem disabled>
-                            <RefreshCw /> Create subscription
-                            <span className="ml-auto text-xs text-muted-foreground">
-                                Soon
-                            </span>
+                        <DropdownMenuItem asChild>
+                            <Link
+                                href={
+                                    createSubscription({
+                                        query: { customer: customerId },
+                                    }).url
+                                }
+                            >
+                                <RefreshCw /> Create subscription
+                            </Link>
                         </DropdownMenuItem>
                     </>
                 )}

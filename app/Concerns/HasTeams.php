@@ -200,6 +200,8 @@ trait HasTeams
             canManagePrices: $has(PermissionName::PricesManage),
             canViewTrialOffers: $has(PermissionName::TrialOffersView) || $has(PermissionName::TrialOffersManage),
             canManageTrialOffers: $has(PermissionName::TrialOffersManage),
+            canViewSubscriptions: $has(PermissionName::SubscriptionsView) || $has(PermissionName::SubscriptionsManage),
+            canManageSubscriptions: $has(PermissionName::SubscriptionsManage),
         );
     }
 

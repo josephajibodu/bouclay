@@ -44,3 +44,4 @@ require __DIR__.'/settings.php';
 require __DIR__.'/developers.php';
 require __DIR__.'/catalog.php';
 require __DIR__.'/customers.php';
+require __DIR__.'/subscriptions.php';
