@@ -152,6 +152,24 @@ class TeamPolicy
     }
 
     /**
+     * Determine whether the user can view the team's customers.
+     */
+    public function viewCustomers(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::CustomersView)
+            || $user->hasTeamPermission($team, PermissionName::CustomersManage);
+    }
+
+    /**
+     * Determine whether the user can create, edit, archive, or charge
+     * customers and manage their addresses and payment methods.
+     */
+    public function manageCustomers(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::CustomersManage);
+    }
+
+    /**
      * Determine whether the user can view the team's product catalog.
      */
     public function viewProducts(User $user, Team $team): bool

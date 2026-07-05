@@ -83,6 +83,8 @@ Authoritative schema: [`schema.md`](schema.md)
 
 **Goal:** End-customers exist in Bouclay; cards tokenise via Nomba.
 
+**UX/product spec:** [`CUSTOMERS_DESIGN.md`](CUSTOMERS_DESIGN.md) (full proposal — IA, list, detail hub, payment methods, tokenization journey, copy).
+
 **Build:**
 
 - `customers`, `addresses`, `payment_methods`
@@ -91,6 +93,36 @@ Authoritative schema: [`schema.md`](schema.md)
 - Customer CRUD in dashboard + API
 
 **Exit criteria:** Team creates a customer, completes test checkout, payment method stored against customer.
+
+### Decisions locked during design (2026-07-04) — do not re-litigate
+
+Verified against Nomba's docs (via MCP) and Paddle's live dashboard. These shape the build; the reasoning lives in `CUSTOMERS_DESIGN.md` at the cited sections.
+
+1. **Nomba tokenization = hosted full-redirect, tokenize-on-payment.** `POST /v1/checkout/order` with `tokenizeCard:true` + a **required real `amount`** → `{ checkoutLink, orderReference }` → redirect customer to `checkout.nomba.com/pay/…` → they pay on Nomba's page → callback to `callbackUrl?orderReference=…`. There is **no embedded card field and no $0 setup intent**. (CUSTOMERS_DESIGN §10.3)
+2. **No "Add payment method" action anywhere** — matches Paddle. A card is saved only as the **byproduct of the customer paying a checkout**. The customer-detail **Payment Methods section is read-only** (list / set-default / remove; no Add button; not in the Actions menu, not in the empty state). (CUSTOMERS_DESIGN §7.4, §10.2, §10.5, §10.8)
+3. **No verify-charge, no live-mode policy.** The token-minting charge is always a *real* payment the customer wanted (a one-time transaction or a subscription's first charge), never an artificial ₦50. Applies in both test and live. (CUSTOMERS_DESIGN §10.8)
+4. **Collection modes = `manual | automatic`** (already in schema on `subscriptions`/`invoices`) surface as Paddle's two choices: *Manually, via invoice* (send checkout link) vs. *Automatically, using a stored payment method*. (CUSTOMERS_DESIGN §10.3)
+5. **Token capture:** the exact `orderReference → tokenKey` tie is only in the `payment_success` **webhook**; `GET /v1/checkout/tokenized-card-data?customerEmail=` is the synchronous fallback (email-keyed). Extend the **existing Phase-2 `POST /webhooks/nomba/{token}` receiver** minimally to stash `tokenizedCardData` per order — NOT the full Phase 7 signature-verified event mapping. (CUSTOMERS_DESIGN §10.3, §14.8)
+6. **Column mapping:** `processor_token`←`tokenKey`, `brand`←`cardType`, `last4`←`order.cardLast4Digits`, `exp_*`←`tokenExpiry*` (may be `N/A` → keep nullable). **`fingerprint` is unpopulatable** (Nomba returns none) → no cross-customer card dedupe. (CUSTOMERS_DESIGN §10.3, §10.6)
+7. **`default_payment_method_id` on `customers` is canonical** for "default"; treat `payment_methods.is_default` as a derived mirror. (CUSTOMERS_DESIGN §14.9)
+8. **"New business"** (Paddle's B2B entity on a customer) is **dropped** — no schema table for it. Revisit only if B2B invoicing becomes a goal (schema change, not a stub). (CUSTOMERS_DESIGN §7.4)
+9. **List:** Paddle-thin — Email/Name/Status/Created, one **Status** filter (default Active), search, bulk **Archive** (soft-delete). Server-side search + pagination from the start (first table likely to grow large). No spend/subscription columns until the data exists (Phases 5–6). (CUSTOMERS_DESIGN §5, §14.2)
+10. **Create/Edit** = side drawer (Bouclay's catalog idiom), minimal fields — **email required, name optional** (Paddle helper: "only required to bill by invoice"). (CUSTOMERS_DESIGN §6, §8)
+
+### Way-forward decision: pull a **thin checkout slice** forward (Plan A) — NOT the transactions data model
+
+Because Decision #2 removed the standalone "add card", the *only* way a card reaches Phase 4 is via a checkout — so Phase 4 must ship **one** checkout trigger to meet its own exit criteria. Chosen scope:
+
+- **Build now (thin):** a minimal **"Charge customer"** one-time checkout — create Nomba checkout order (`tokenizeCard:true`, real amount) → redirect → callback verify (`GET /v1/transactions/accounts/single?orderReference=`) → capture token (webhook per Decision #5) → **persist the `payment_methods` row only**. Gate to **test mode** for Phase 4 (matches exit criteria; test cards = fake money). This is the entry point that appears in the Actions menu as "Charge customer".
+- **Do NOT build:** `payments` / `invoices` / `invoice_lines` rows, invoice numbering, proration, tax, dunning. Reason: `payments.invoice_id` is NOT NULL → recording a payment drags in the whole invoicing model = all of Phase 6. Phase 4's checkout stores the **token/payment method only**; the money movement isn't recorded as a Bouclay `payment` until Phase 6 wires it. Acceptable because Phase 4 charges are test-mode setup, not accounted revenue.
+
+**Why forward-pull the thin slice rather than defer to Phase 5/6:** (a) it's the only card-collection path now; (b) it **de-risks the hardest integration** — Nomba hosted-redirect + webhook token correlation — *before* Phase 5 subscriptions depend on it; (c) the checkout-order + token-capture primitive is **reused verbatim** by subscriptions (Phase 5) and invoicing (Phase 6).
+
+**Carried into later phases (so we don't forget):**
+- **Phase 5 (Subscriptions):** "Create subscription" reuses the Phase-4 checkout primitive for the first charge; enable **live-mode** card collection here (first subscription payment mints the live token). Un-disable the "Create subscription" action + section CTA on the customer page.
+- **Phase 6 (Invoicing/Transactions):** promote "Charge customer" to record real `payments`/`invoices`; replace the customer-page **Transactions placeholder** with the real table in the same slot; add **Total spend** column to the list and spend cell to the Overview grid. Enable live-mode standalone charges.
+- **Phase 7 (Inbound webhooks):** replace the Phase-4 *minimal* `tokenizedCardData` capture with full signature-verified event mapping.
+- **Phase 9 (Outbound):** emit `customer.created` / `payment_method.added` events from the hooks Phase 4 already fires for the activity timeline.
 
 ---
 

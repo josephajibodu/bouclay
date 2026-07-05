@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { Code2, LayoutGrid, Package } from 'lucide-react';
+import { Code2, LayoutGrid, Package, Users } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { index as products } from '@/routes/catalog/products';
+import { index as customers } from '@/routes/customers';
 import { index as apiKeys } from '@/routes/developers/api-keys';
 import { show as nombaIntegration } from '@/routes/developers/nomba';
 import { show as webhooks } from '@/routes/developers/webhooks';
@@ -64,6 +65,15 @@ export function AppSidebar() {
                       href: catalogItems[0].href,
                       icon: Package,
                       items: catalogItems,
+                  },
+              ]
+            : []),
+        ...(currentTeam && teamPermissions?.canViewCustomers
+            ? [
+                  {
+                      title: 'Customers',
+                      href: customers(),
+                      icon: Users,
                   },
               ]
             : []),
