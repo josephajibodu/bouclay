@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\InvoiceStatus;
+use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionStatus;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
@@ -7,8 +9,10 @@ use App\Models\Price;
 use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\Team;
+use App\Models\TeamProcessorConnection;
 use App\Models\TrialOffer;
 use App\Models\User;
+use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /**
@@ -29,6 +33,8 @@ function subscriptionFixture(): array
 
     return compact('team', 'owner', 'customer', 'product', 'price');
 }
+
+// fakeNombaCharge() lives in tests/Pest.php — shared with Transactions tests.
 
 test('the subscriptions index renders', function () {
     ['owner' => $owner, 'team' => $team, 'customer' => $customer] = subscriptionFixture();
@@ -95,6 +101,8 @@ test('a paid trial charges the intro price now, bills each cycle, and is active 
         'duration_iterations' => 3,
     ]);
     $card = PaymentMethod::factory()->for($team)->for($customer)->create();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCharge();
 
     $this->actingAs($owner)
         ->post(route('subscriptions.store'), [
@@ -116,9 +124,17 @@ test('a paid trial charges the intro price now, bills each cycle, and is active 
         // The trial converts after 3 intro cycles (~3 months out).
         ->and($subscription->trial_ends_at->greaterThan(now()->addMonths(2)))->toBeTrue()
         ->and($subscription->current_period_end->lessThan($subscription->trial_ends_at))->toBeTrue();
+
+    // The intro price was actually charged — a real invoice + succeeded
+    // transaction, not the old simulated activation.
+    $invoice = $subscription->invoices()->firstOrFail();
+    expect($invoice->status)->toBe(InvoiceStatus::Paid)
+        ->and($invoice->total)->toBe(100_000)
+        ->and($invoice->number)->toMatch('/^[A-Za-z]+-\d+$/')
+        ->and($invoice->payments()->firstOrFail()->status)->toBe(PaymentStatus::Succeeded);
 });
 
-test('a manual subscription with a regular price is active immediately', function () {
+test('a manual subscription with a regular price is active immediately and invoiced', function () {
     ['owner' => $owner, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
 
     $this->actingAs($owner)
@@ -134,9 +150,16 @@ test('a manual subscription with a regular price is active immediately', functio
     expect($subscription->status)->toBe(SubscriptionStatus::Active)
         ->and($subscription->current_period_end)->not->toBeNull()
         ->and($subscription->items->first()->quantity)->toBe(2);
+
+    // Invoiced, not charged — no card required, due in a week, nothing paid.
+    $invoice = $subscription->invoices()->firstOrFail();
+    expect($invoice->status)->toBe(InvoiceStatus::Open)
+        ->and($invoice->due_at)->not->toBeNull()
+        ->and($invoice->amount_paid)->toBe(0)
+        ->and($invoice->payments()->count())->toBe(0);
 });
 
-test('an automatic subscription with no card waits at incomplete', function () {
+test('an automatic subscription with no card waits at incomplete but is still invoiced', function () {
     ['owner' => $owner, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
 
     $this->actingAs($owner)
@@ -147,12 +170,21 @@ test('an automatic subscription with no card waits at incomplete', function () {
         ])
         ->assertRedirect();
 
-    expect(Subscription::query()->firstOrFail()->status)->toBe(SubscriptionStatus::Incomplete);
+    $subscription = Subscription::query()->firstOrFail();
+    expect($subscription->status)->toBe(SubscriptionStatus::Incomplete);
+
+    // An invoice exists to bill (awaiting a card/checkout), but nothing has
+    // been attempted yet — no payment record either way.
+    $invoice = $subscription->invoices()->firstOrFail();
+    expect($invoice->status)->toBe(InvoiceStatus::Open)
+        ->and($invoice->payments()->count())->toBe(0);
 });
 
-test('an automatic subscription with a card on file activates via the state machine', function () {
+test('an automatic subscription with a card on file is really charged and activates', function () {
     ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
     $card = PaymentMethod::factory()->for($team)->for($customer)->create();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCharge();
 
     $this->actingAs($owner)
         ->post(route('subscriptions.store'), [
@@ -163,7 +195,44 @@ test('an automatic subscription with a card on file activates via the state mach
         ])
         ->assertRedirect();
 
-    expect(Subscription::query()->firstOrFail()->status)->toBe(SubscriptionStatus::Active);
+    $subscription = Subscription::query()->firstOrFail();
+    expect($subscription->status)->toBe(SubscriptionStatus::Active);
+
+    $invoice = $subscription->invoices()->firstOrFail();
+    $payment = $invoice->payments()->firstOrFail();
+
+    expect($invoice->status)->toBe(InvoiceStatus::Paid)
+        ->and($payment->status)->toBe(PaymentStatus::Succeeded)
+        ->and($payment->payment_method_id)->toBe($card->id)
+        ->and($payment->public_id)->toStartWith('txn_');
+
+    Http::assertSent(fn ($request) => str_contains($request->url(), '/v1/checkout/tokenized-card-payment'));
+});
+
+test('a declined charge leaves the subscription incomplete with a failed transaction on the open invoice', function () {
+    ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
+    $card = PaymentMethod::factory()->for($team)->for($customer)->create();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCharge(approved: false);
+
+    $this->actingAs($owner)
+        ->post(route('subscriptions.store'), [
+            'customer_id' => $customer->id,
+            'collection_mode' => 'automatic',
+            'payment_method_id' => $card->id,
+            'items' => [['kind' => 'price', 'price_id' => $price->id]],
+        ])
+        ->assertRedirect();
+
+    $subscription = Subscription::query()->firstOrFail();
+    $invoice = $subscription->invoices()->firstOrFail();
+    $payment = $invoice->payments()->firstOrFail();
+
+    // No access granted on a decline — the whole point of `incomplete`.
+    expect($subscription->status)->toBe(SubscriptionStatus::Incomplete)
+        ->and($invoice->status)->toBe(InvoiceStatus::Open)
+        ->and($payment->status)->toBe(PaymentStatus::Failed)
+        ->and($payment->failure_reason)->not->toBeNull();
 });
 
 test('a subscription cannot be created without any items', function () {

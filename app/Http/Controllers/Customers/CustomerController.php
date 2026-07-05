@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Customers;
 
+use App\Actions\Subscriptions\BuildSubscriptionCreateOptions;
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Customers\StoreCustomerRequest;
@@ -90,7 +91,7 @@ class CustomerController extends Controller
      * (CUSTOMERS_DESIGN §7). Renders whether the customer is active or
      * archived (soft-deleted), so the archived banner + Restore can show.
      */
-    public function show(Request $request, Customer $customer): Response
+    public function show(Request $request, Customer $customer, BuildSubscriptionCreateOptions $createOptions): Response
     {
         $team = $request->user()->currentTeam;
 
@@ -102,6 +103,10 @@ class CustomerController extends Controller
             'addresses' => fn ($query) => $query->orderByDesc('is_default')->orderBy('created_at'),
             'paymentMethods' => fn ($query) => $query->orderByDesc('is_default')->orderByDesc('created_at'),
             'subscriptions' => fn ($query) => $query->with('activeItems.product')->orderByDesc('created_at'),
+            'payments' => fn ($query) => $query->orderByDesc('created_at'),
+            'payments.invoice.lines',
+            'payments.paymentMethod',
+            'payments.customer',
         ]);
 
         $defaultAddress = $customer->addresses->firstWhere('is_default', true)
@@ -139,10 +144,28 @@ class CustomerController extends Controller
                 'endsAt' => $subscription->canceled_at !== null ? $subscription->ends_at?->toISOString() : null,
             ])->all(),
             'activeSubscriptionCount' => $activeSubscriptions,
+            'transactions' => $customer->payments->map(fn ($payment) => $payment->toListArray())->all(),
+            'totalSpend' => $customer->totalSpend(),
             'activity' => $this->buildActivity($customer),
             'teamCurrency' => $team->default_currency,
+            // The "Create subscription" drawer's data (SUBSCRIPTIONS_DESIGN
+            // §7, §12) — this customer pre-filled and locked, plus the
+            // team's catalog to build line items from.
+            'customerOption' => [
+                'id' => $customer->id,
+                'name' => $customer->name,
+                'email' => $customer->email,
+                'currency' => $customer->currency,
+                'paymentMethods' => $customer->paymentMethods->map(fn ($pm) => [
+                    'id' => $pm->id,
+                    'label' => trim(($pm->brand ?? 'Card').' ···· '.($pm->last4 ?? '••••')),
+                    'isDefault' => $pm->is_default,
+                ])->all(),
+            ],
+            ...$createOptions->handle($team),
             'permissions' => [
                 'canManage' => $request->user()->toTeamPermissions($team)->canManageCustomers,
+                'canManageSubscriptions' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
             ],
         ]);
     }

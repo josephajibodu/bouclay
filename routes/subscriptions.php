@@ -9,7 +9,6 @@ Route::prefix('subscriptions')
     ->name('subscriptions.')
     ->group(function () {
         Route::get('/', [SubscriptionController::class, 'index'])->name('index');
-        Route::get('new', [SubscriptionController::class, 'create'])->name('create');
         Route::post('/', [SubscriptionController::class, 'store'])->name('store');
 
         Route::get('{subscription}', [SubscriptionController::class, 'show'])->name('show');

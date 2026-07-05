@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Subscriptions;
 
+use App\Actions\Subscriptions\BuildSubscriptionCreateOptions;
 use App\Actions\Subscriptions\CreateSubscription;
 use App\Enums\CatalogStatus;
 use App\Enums\PriceType;
@@ -12,11 +13,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Subscriptions\StoreSubscriptionRequest;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
-use App\Models\Price;
-use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\Team;
-use App\Models\TrialOffer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -32,7 +30,7 @@ class SubscriptionController extends Controller
      * List the team's subscriptions — Paddle-thin: search, one status filter,
      * server-side paginated (SUBSCRIPTIONS_DESIGN §6).
      */
-    public function index(Request $request): Response
+    public function index(Request $request, BuildSubscriptionCreateOptions $createOptions): Response
     {
         $team = $request->user()->currentTeam;
 
@@ -71,28 +69,12 @@ class SubscriptionController extends Controller
             'filters' => ['search' => $search, 'status' => $status],
             'hasAny' => $team->subscriptions()->exists(),
             'hasRecurringPrices' => $team->prices()->where('type', PriceType::Recurring)->where('status', CatalogStatus::Active)->exists(),
-            'canManage' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
-        ]);
-    }
-
-    /**
-     * The guided two-pane create surface (SUBSCRIPTIONS_DESIGN §7). Ships the
-     * catalog + customers the builder needs; its inputs mirror the API 1:1.
-     */
-    public function create(Request $request): Response
-    {
-        $team = $request->user()->currentTeam;
-
-        Gate::authorize('manageSubscriptions', $team);
-
-        $preselect = $request->integer('customer');
-
-        return Inertia::render('subscriptions/create', [
+            // The create drawer's data (SUBSCRIPTIONS_DESIGN §7) — it opens
+            // in-place now rather than navigating to a dedicated page.
             'customers' => $this->customerOptions($team),
-            'products' => $this->productOptions($team),
-            'trialOffers' => $this->trialOfferOptions($team),
+            ...$createOptions->handle($team),
             'teamCurrency' => $team->default_currency,
-            'preselectedCustomerId' => $preselect ?: null,
+            'canManage' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
         ]);
     }
 
@@ -136,6 +118,9 @@ class SubscriptionController extends Controller
             'items.price',
             'items.currentTrial.transitionPrice',
             'scheduledChanges' => fn ($query) => $query->whereNull('applied_at'),
+            'invoices' => fn ($query) => $query->orderByDesc('created_at'),
+            'invoices.payments' => fn ($query) => $query->orderByDesc('created_at'),
+            'invoices.payments.paymentMethod',
         ]);
 
         $status = $subscription->status;
@@ -169,6 +154,16 @@ class SubscriptionController extends Controller
                 'effectiveAt' => $change->effective_at->toISOString(),
             ])->all(),
             'timeline' => $this->buildTimeline($subscription),
+            // Invoices this subscription has generated so far, and every
+            // Transaction (Payment) attempted against them (IMPLEMENTATION.md
+            // Phase 6) — replaces the Phase 5 staged placeholders.
+            'invoices' => $subscription->invoices->map(fn ($invoice) => $invoice->toDashboardArray())->all(),
+            'transactions' => $subscription->invoices
+                ->flatMap(fn ($invoice) => $invoice->payments)
+                ->sortByDesc('created_at')
+                ->map(fn ($payment) => $payment->toListArray())
+                ->values()
+                ->all(),
             'permissions' => [
                 'canManage' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
             ],
@@ -325,61 +320,6 @@ class SubscriptionController extends Controller
                 'isDefault' => $pm->is_default,
             ], $customer->paymentMethods->all()),
         ], $customers->all());
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function productOptions(Team $team): array
-    {
-        $products = $team->products()
-            ->where('status', CatalogStatus::Active)
-            ->with(['prices' => fn ($query) => $query->where('type', PriceType::Recurring)->where('status', CatalogStatus::Active)])
-            ->orderBy('name')
-            ->get()
-            ->filter(fn (Product $product) => $product->prices->isNotEmpty());
-
-        return array_map(fn (Product $product): array => [
-            'id' => $product->id,
-            'name' => $product->name,
-            'prices' => array_map(fn (Price $price): array => [
-                'id' => $price->id,
-                'label' => $price->toPickerLabel(),
-                'unitAmount' => $price->unit_amount !== null ? $price->unit_amount / 100 : null,
-                'currency' => $price->currency,
-                'billingInterval' => $price->billing_interval?->value,
-            ], $product->prices->all()),
-        ], array_values($products->all()));
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function trialOfferOptions(Team $team): array
-    {
-        $offers = $team->trialOffers()
-            ->where('active', true)
-            ->with(['product', 'trialPrice', 'transitionPrice'])
-            ->orderBy('name')
-            ->get();
-
-        return array_map(fn (TrialOffer $offer): array => [
-            'id' => $offer->id,
-            'name' => $offer->name,
-            'product' => ['id' => $offer->product->id, 'name' => $offer->product->name],
-            'trialPrice' => [
-                'label' => $offer->trialPrice->toPickerLabel(),
-                'isFree' => ($offer->trialPrice->unit_amount ?? 0) === 0,
-                'unitAmount' => $offer->trialPrice->unit_amount !== null ? $offer->trialPrice->unit_amount / 100 : null,
-                'currency' => $offer->trialPrice->currency,
-            ],
-            'transitionPrice' => [
-                'label' => $offer->transitionPrice->toPickerLabel(),
-                'unitAmount' => $offer->transitionPrice->unit_amount !== null ? $offer->transitionPrice->unit_amount / 100 : null,
-                'currency' => $offer->transitionPrice->currency,
-            ],
-            'durationIterations' => $offer->duration_iterations,
-        ], $offers->all());
     }
 
     /**

@@ -13,9 +13,16 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { StagedSection } from '@/components/customers/staged-section';
 import { SUBSCRIPTION_STATUS_META } from '@/components/subscriptions/subscription-status';
 import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription-status-badge';
+import {
+    INVOICE_STATUS_COLOR,
+    INVOICE_STATUS_LABEL,
+} from '@/components/transactions/invoice-status';
+import {
+    PAYMENT_STATUS_COLOR as TRANSACTION_STATUS_COLOR,
+    PAYMENT_STATUS_LABEL as TRANSACTION_STATUS_LABEL,
+} from '@/components/transactions/payment-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -36,10 +43,12 @@ import {
 import { show as customerShow } from '@/routes/customers';
 import { cancel, index, pause, resume, undoCancel } from '@/routes/subscriptions';
 import type {
+    InvoiceSummary,
     SubscriptionDetail,
     SubscriptionItem,
     SubscriptionScheduledChange,
     SubscriptionTimelineEvent,
+    TransactionListItem,
 } from '@/types';
 
 type Props = {
@@ -49,6 +58,8 @@ type Props = {
     items: SubscriptionItem[];
     scheduledChanges: SubscriptionScheduledChange[];
     timeline: SubscriptionTimelineEvent[];
+    invoices: InvoiceSummary[];
+    transactions: TransactionListItem[];
     permissions: { canManage: boolean };
 };
 
@@ -93,6 +104,13 @@ function money(amount: number | null, currency: string): string {
     return `${currency} ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 }
 
+/** Invoices/Transactions come from the server in minor units (kobo), unlike
+ * the item prices above which are pre-divided — this divides at the point of
+ * display. */
+function formatMinor(amountMinor: number, currency: string): string {
+    return money(amountMinor / 100, currency);
+}
+
 export default function SubscriptionShow({
     subscription,
     customer,
@@ -100,6 +118,8 @@ export default function SubscriptionShow({
     items,
     scheduledChanges,
     timeline,
+    invoices,
+    transactions,
     permissions,
 }: Props) {
     const { canManage } = permissions;
@@ -379,21 +399,95 @@ export default function SubscriptionShow({
                 </div>
             </section>
 
-            {/* Staged future sections */}
-            <StagedSection
-                title="Upcoming invoices"
-                icon={Receipt}
-                heading="Invoices will appear here"
-                body="Once a billing period runs, the invoices generated for this subscription — with full amounts — will be listed here."
-                availability="Available with invoicing."
-            />
-            <StagedSection
-                title="Payments"
-                icon={CreditCard}
-                heading="Charges will appear here"
-                body="Every charge against this subscription — succeeded, failed, or refunded — will be listed here once billing is on."
-                availability="Available with invoicing."
-            />
+            {/* Invoices */}
+            <section className="space-y-3">
+                <h2 className="text-lg font-semibold">Upcoming invoices</h2>
+                {invoices.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        Nothing has been billed on this subscription yet.
+                    </div>
+                ) : (
+                    <div className="divide-y rounded-lg border">
+                        {invoices.map((invoice) => (
+                            <div
+                                key={invoice.id}
+                                className="flex items-center justify-between gap-3 p-4"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <Receipt className="size-5 text-muted-foreground" />
+                                    <div>
+                                        <p className="font-medium">
+                                            {invoice.number ?? invoice.publicId}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {formatDate(invoice.createdAt)}
+                                            {invoice.dueAt
+                                                ? ` · due ${formatDate(invoice.dueAt)}`
+                                                : ''}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-sm font-medium">
+                                        {formatMinor(
+                                            invoice.total,
+                                            invoice.currency,
+                                        )}
+                                    </span>
+                                    <Badge variant="secondary" className="gap-1">
+                                        <span
+                                            className={`size-1.5 rounded-full ${INVOICE_STATUS_COLOR[invoice.status]}`}
+                                        />
+                                        {INVOICE_STATUS_LABEL[invoice.status]}
+                                    </Badge>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            {/* Transactions */}
+            <section className="space-y-3">
+                <h2 className="text-lg font-semibold">Transactions</h2>
+                {transactions.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        Every charge attempted against this subscription —
+                        succeeded, failed, or refunded — will be listed here.
+                    </div>
+                ) : (
+                    <div className="divide-y rounded-lg border">
+                        {transactions.map((txn) => (
+                            <div
+                                key={txn.id}
+                                className="flex items-center justify-between gap-3 p-4"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <CreditCard className="size-5 text-muted-foreground" />
+                                    <div>
+                                        <p className="font-medium">
+                                            {formatMinor(
+                                                txn.amount,
+                                                txn.currency,
+                                            )}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {txn.paymentMethodLabel} ·{' '}
+                                            {formatDateTime(txn.processedAt)}
+                                        </p>
+                                    </div>
+                                </div>
+                                <Badge variant="secondary" className="gap-1">
+                                    <span
+                                        className={`size-1.5 rounded-full ${TRANSACTION_STATUS_COLOR[txn.status]}`}
+                                    />
+                                    {TRANSACTION_STATUS_LABEL[txn.status]}
+                                </Badge>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
 
             {/* Developer */}
             <section className="space-y-3">

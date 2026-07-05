@@ -1,5 +1,12 @@
 import { Link, usePage } from '@inertiajs/react';
-import { Code2, LayoutGrid, Package, RefreshCw, Users } from 'lucide-react';
+import {
+    Code2,
+    LayoutGrid,
+    Package,
+    Receipt,
+    RefreshCw,
+    Users,
+} from 'lucide-react';
 import AppLogo from '@/components/app-logo';
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
@@ -20,6 +27,7 @@ import { index as apiKeys } from '@/routes/developers/api-keys';
 import { show as nombaIntegration } from '@/routes/developers/nomba';
 import { show as webhooks } from '@/routes/developers/webhooks';
 import { index as subscriptions } from '@/routes/subscriptions';
+import { index as transactions } from '@/routes/transactions';
 import type { NavItem } from '@/types';
 
 export function AppSidebar() {
@@ -84,6 +92,15 @@ export function AppSidebar() {
                       title: 'Subscriptions',
                       href: subscriptions(),
                       icon: RefreshCw,
+                  },
+              ]
+            : []),
+        ...(currentTeam && teamPermissions?.canViewTransactions
+            ? [
+                  {
+                      title: 'Transactions',
+                      href: transactions(),
+                      icon: Receipt,
                   },
               ]
             : []),

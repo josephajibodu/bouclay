@@ -239,6 +239,24 @@ class TeamPolicy
     }
 
     /**
+     * Determine whether the user can view the team's Transactions
+     * (invoices + payments — schema.md §7; the dashboard's name for them).
+     */
+    public function viewTransactions(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::InvoicesView)
+            || $user->hasTeamPermission($team, PermissionName::InvoicesManage);
+    }
+
+    /**
+     * Determine whether the user can create a one-off Transaction.
+     */
+    public function manageTransactions(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::InvoicesManage);
+    }
+
+    /**
      * Determine whether the user can delete the model.
      */
     public function delete(User $user, Team $team): bool

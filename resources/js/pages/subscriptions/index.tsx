@@ -2,6 +2,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import { RefreshCw, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { CustomerMonogram } from '@/components/customers/customer-monogram';
+import CreateSubscriptionDrawer from '@/components/subscriptions/create-subscription-drawer';
 import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription-status-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,8 +22,11 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { index as products } from '@/routes/catalog/products';
-import { create, index, show } from '@/routes/subscriptions';
+import { index, show } from '@/routes/subscriptions';
 import type {
+    CreateCustomerOption,
+    CreateProductOption,
+    CreateTrialOfferOption,
     Paginated,
     SubscriptionFilters,
     SubscriptionListItem,
@@ -33,6 +37,10 @@ type Props = {
     filters: SubscriptionFilters;
     hasAny: boolean;
     hasRecurringPrices: boolean;
+    customers: CreateCustomerOption[];
+    products: CreateProductOption[];
+    trialOffers: CreateTrialOfferOption[];
+    teamCurrency: string;
     canManage: boolean;
 };
 
@@ -77,9 +85,14 @@ export default function SubscriptionsIndex({
     filters,
     hasAny,
     hasRecurringPrices,
+    customers,
+    products: productOptions,
+    trialOffers,
+    teamCurrency,
     canManage,
 }: Props) {
     const [search, setSearch] = useState(filters.search);
+    const [createOpen, setCreateOpen] = useState(false);
     const isFirstRender = useRef(true);
 
     useEffect(() => {
@@ -126,10 +139,11 @@ export default function SubscriptionsIndex({
                 </div>
 
                 {canManage && hasAny && (
-                    <Button asChild>
-                        <Link href={create()} data-test="create-subscription">
-                            <RefreshCw /> New subscription
-                        </Link>
+                    <Button
+                        onClick={() => setCreateOpen(true)}
+                        data-test="create-subscription"
+                    >
+                        <RefreshCw /> New subscription
                     </Button>
                 )}
             </div>
@@ -138,6 +152,7 @@ export default function SubscriptionsIndex({
                 <EmptyState
                     canManage={canManage}
                     hasRecurringPrices={hasRecurringPrices}
+                    onCreate={() => setCreateOpen(true)}
                 />
             ) : (
                 <>
@@ -267,6 +282,17 @@ export default function SubscriptionsIndex({
                     />
                 </>
             )}
+
+            {canManage && (
+                <CreateSubscriptionDrawer
+                    customers={customers}
+                    products={productOptions}
+                    trialOffers={trialOffers}
+                    teamCurrency={teamCurrency}
+                    open={createOpen}
+                    onOpenChange={setCreateOpen}
+                />
+            )}
         </div>
     );
 }
@@ -325,9 +351,11 @@ function Pagination({
 function EmptyState({
     canManage,
     hasRecurringPrices,
+    onCreate,
 }: {
     canManage: boolean;
     hasRecurringPrices: boolean;
+    onCreate: () => void;
 }) {
     return (
         <div className="space-y-4 rounded-lg border border-dashed p-8 text-center">
@@ -347,10 +375,8 @@ function EmptyState({
 
             {canManage &&
                 (hasRecurringPrices ? (
-                    <Button asChild>
-                        <Link href={create()} data-test="create-first-subscription">
-                            <RefreshCw /> Create your first subscription
-                        </Link>
+                    <Button onClick={onCreate} data-test="create-first-subscription">
+                        <RefreshCw /> Create your first subscription
                     </Button>
                 ) : (
                     <div className="space-y-2">

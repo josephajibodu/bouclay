@@ -1,8 +1,10 @@
 <?php
 
+use App\Actions\Invoicing\ChargeInvoice;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /*
@@ -65,5 +67,26 @@ function attachTeamMember(Team $team, User $user, string $role = 'Developer'): v
     $team->members()->attach($user, [
         'role_id' => $team->roles()->where('name', $role)->firstOrFail()->id,
         'is_owner' => false,
+    ]);
+}
+
+/**
+ * Fake the real Nomba tokenized-card charge (+ its follow-up verify call)
+ * that {@see ChargeInvoice} makes for an automatic
+ * subscription/transaction charge — shared by any test exercising a real
+ * charge attempt.
+ */
+function fakeNombaCharge(bool $approved = true): void
+{
+    Http::fake([
+        '*/v1/auth/token/issue' => Http::response(['code' => '00', 'data' => ['access_token' => 'fake-token']]),
+        '*/v1/checkout/tokenized-card-payment' => Http::response([
+            'code' => '00',
+            'data' => ['status' => $approved, 'message' => $approved ? 'Approved by Financial Insitution' : 'Insufficient funds'],
+        ]),
+        '*/v1/transactions/accounts/single*' => Http::response([
+            'code' => '00',
+            'data' => ['status' => $approved ? 'SUCCESS' : 'FAILED'],
+        ]),
     ]);
 }

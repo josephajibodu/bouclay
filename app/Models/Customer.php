@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Concerns\HasPublicId;
+use App\Enums\PaymentStatus;
 use Database\Factories\CustomerFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
@@ -110,6 +111,36 @@ class Customer extends Model
     public function subscriptionItemTrials(): HasMany
     {
         return $this->hasMany(SubscriptionItemTrial::class);
+    }
+
+    /**
+     * Get the customer's invoices.
+     *
+     * @return HasMany<Invoice, $this>
+     */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    /**
+     * Get the customer's payments (Transactions).
+     *
+     * @return HasMany<Payment, $this>
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * Total ever successfully collected from this customer, in minor units —
+     * powers the "Total spend" overview fact (IMPLEMENTATION.md Phase 4
+     * carried-forward note).
+     */
+    public function totalSpend(): int
+    {
+        return (int) $this->payments()->where('status', PaymentStatus::Succeeded)->sum('amount');
     }
 
     /**

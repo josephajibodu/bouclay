@@ -2,15 +2,22 @@
 
 namespace App\Actions\Subscriptions;
 
+use App\Actions\Invoicing\ChargeInvoice;
+use App\Actions\Invoicing\CreateInvoice;
 use App\Enums\BillingInterval;
 use App\Enums\CollectionMode;
+use App\Enums\InvoiceBillingReason;
+use App\Enums\InvoiceLineKind;
+use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionItemStatus;
 use App\Enums\SubscriptionItemTrialStatus;
 use App\Enums\SubscriptionStatus;
 use App\Enums\TrialDurationType;
 use App\Enums\TrialEndBehavior;
 use App\Models\Customer;
+use App\Models\Invoice;
 use App\Models\Price;
+use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
 use App\Models\Team;
@@ -25,13 +32,20 @@ use InvalidArgumentException;
  * dashboard controller and the future Phase-10 API both call so the two never
  * diverge (SUBSCRIPTIONS_DESIGN §7.4, §17.11).
  *
- * Money is staged this phase (SUBSCRIPTIONS_DESIGN §17.6): no invoices/payments
- * rows are written. The automatic-with-card branch runs the state machine's
- * `activate` transition to reflect a successful first charge; the real Nomba
- * charge + recording lands in Phase 6.
+ * Money moves for real when there's something to bill (Phase 6): a billed
+ * line becomes an Invoice, and automatic-with-card charges it via the real
+ * Nomba tokenized-card call ({@see ChargeInvoice}). A free trial still stages
+ * nothing — there's nothing to bill (SUBSCRIPTIONS_DESIGN §17.6).
  */
 class CreateSubscription
 {
+    public function __construct(
+        private readonly CreateInvoice $createInvoice,
+        private readonly ChargeInvoice $chargeInvoice,
+    ) {
+        //
+    }
+
     /**
      * @param  array<string, mixed>  $data  the validated request body (customer_id,
      *                                      collection_mode, items[], payment_method_id?,
@@ -56,7 +70,8 @@ class CreateSubscription
             $customer->paymentMethods()->findOrFail($paymentMethodId);
         }
 
-        return DB::transaction(function () use ($team, $customer, $collectionMode, $currency, $lines, $paymentMethodId, $data) {
+        /** @var array{0: Subscription, 1: Invoice|null} $result */
+        $result = DB::transaction(function () use ($team, $customer, $collectionMode, $currency, $lines, $paymentMethodId, $data) {
             $now = Carbon::now();
 
             $subscription = $team->subscriptions()->create([
@@ -76,7 +91,8 @@ class CreateSubscription
 
             $earliestTrialEnd = null;
             $earliestFreeTrialEnd = null;
-            $firstBilledPrice = null;
+            /** @var list<array{item: SubscriptionItem, price: Price, quantity: int}> $billedItems */
+            $billedItems = [];
 
             foreach ($lines as $line) {
                 $item = $subscription->items()->create([
@@ -96,18 +112,31 @@ class CreateSubscription
                     // (schema.md §5, Stripe treats paid trials as active).
                     if (($line['price']->unit_amount ?? 0) === 0) {
                         $earliestFreeTrialEnd = $this->earliest($earliestFreeTrialEnd, $trialEnd);
-                    } elseif ($firstBilledPrice === null) {
-                        $firstBilledPrice = $line['price'];
+                    } else {
+                        $billedItems[] = ['item' => $item, 'price' => $line['price'], 'quantity' => $line['quantity']];
                     }
-                } elseif ($firstBilledPrice === null) {
-                    $firstBilledPrice = $line['price'];
+                } else {
+                    $billedItems[] = ['item' => $item, 'price' => $line['price'], 'quantity' => $line['quantity']];
                 }
             }
 
-            $this->settleInitialState($subscription, $collectionMode, $paymentMethodId, $earliestTrialEnd, $earliestFreeTrialEnd, $firstBilledPrice, $now);
+            $invoice = $this->settleInitialState($team, $subscription, $customer, $collectionMode, $earliestTrialEnd, $earliestFreeTrialEnd, $billedItems, $now);
 
-            return $subscription;
+            return [$subscription, $invoice];
         });
+
+        [$subscription, $invoice] = $result;
+
+        // The real Nomba charge is real external I/O with real money moving —
+        // it must run only after the subscription/items/invoice have safely
+        // committed, never inside the transaction above. A charge that
+        // succeeded but then got rolled back with it would mean money moved
+        // with no Bouclay record of it.
+        if ($invoice !== null) {
+            $this->collectInitialPayment($team, $subscription, $customer, $invoice, $collectionMode, $paymentMethodId);
+        }
+
+        return $subscription;
     }
 
     /**
@@ -221,60 +250,126 @@ class CreateSubscription
     }
 
     /**
-     * Choose the initial state and billing clock per the create branch table
-     * (SUBSCRIPTIONS_DESIGN §4). All real transitions go through the machine.
+     * Choose the initial billing clock and, when there's something to bill,
+     * create the invoice for it (SUBSCRIPTIONS_DESIGN §4). Runs inside the
+     * creation transaction — everything here is a local write, no external
+     * calls. Returns the invoice so {@see collectInitialPayment()} can charge
+     * it afterwards; null for a pure free trial, which has nothing to bill.
+     *
+     * @param  list<array{item: SubscriptionItem, price: Price, quantity: int}>  $billedItems
      */
     private function settleInitialState(
+        Team $team,
         Subscription $subscription,
+        Customer $customer,
         CollectionMode $collectionMode,
-        ?int $paymentMethodId,
         ?Carbon $earliestTrialEnd,
         ?Carbon $earliestFreeTrialEnd,
-        ?Price $firstBilledPrice,
+        array $billedItems,
         Carbon $now,
-    ): void {
+    ): ?Invoice {
         // trial_ends_at is the conversion clock for any trial, free or paid.
         $subscription->trial_ends_at = $earliestTrialEnd;
 
-        if ($earliestFreeTrialEnd !== null && $firstBilledPrice === null) {
-            // Pure free trial: nothing bills today — start trialing, with the
-            // trial end as the next billing moment (schema.md §5).
+        if ($earliestFreeTrialEnd !== null && $billedItems === []) {
+            // Pure free trial: nothing bills today, so there's nothing to
+            // invoice — start trialing, with the trial end as the next
+            // billing moment (schema.md §5).
             $subscription->current_period_end = $earliestFreeTrialEnd;
             $subscription->status = SubscriptionStatus::Trialing;
             $subscription->save();
 
-            return;
+            return null;
         }
 
-        // Otherwise a line bills now — a regular price or a paid trial's intro
-        // price. The next charge is one interval of that price away.
+        // Otherwise at least one line bills now — a regular price or a paid
+        // trial's intro price. The next charge is one interval away.
+        $firstBilledPrice = $billedItems[0]['price'] ?? null;
         $periodEnd = $firstBilledPrice !== null
             ? $this->addInterval($now->copy(), $firstBilledPrice->billing_interval ?? BillingInterval::Month, $firstBilledPrice->billing_frequency)
             : null;
 
         $subscription->current_period_end = $periodEnd;
+        $subscription->save();
 
+        if ($billedItems === []) {
+            return null;
+        }
+
+        return $this->createInvoice->handle(
+            team: $team,
+            customer: $customer,
+            billingReason: InvoiceBillingReason::SubscriptionCreate,
+            collectionMode: $collectionMode,
+            lines: $this->buildInvoiceLines($billedItems),
+            subscription: $subscription,
+            dueAt: $collectionMode === CollectionMode::Manual ? $now->copy()->addDays(7) : null,
+        );
+    }
+
+    /**
+     * Settle the first invoice once the subscription has safely committed —
+     * deliberately outside the creation transaction, since a real Nomba
+     * charge is external I/O with real money moving; it must never run
+     * somewhere that could still be rolled back out from under it.
+     */
+    private function collectInitialPayment(
+        Team $team,
+        Subscription $subscription,
+        Customer $customer,
+        Invoice $invoice,
+        CollectionMode $collectionMode,
+        ?int $paymentMethodId,
+    ): void {
         if ($collectionMode === CollectionMode::Manual) {
-            // Invoiced — active now.
-            // TODO(Phase 6): generate the first invoice (open, with due_at)
-            // instead of assuming active; unpaid → dunning (Phase 8).
-            $subscription->status = SubscriptionStatus::Active;
-            $subscription->save();
+            // Invoiced — trusted to pay by the due date; unpaid → dunning is
+            // Phase 8. Not a captured payment, but still a legal `activate`
+            // (the state itself carries no payment-specific side effects).
+            $subscription->apply('activate');
 
             return;
         }
 
-        $subscription->save();
-
-        // Automatic collection is simulated this phase (money is staged).
-        // TODO(Phase 6): with a card, replace apply('activate') with a real
-        // Nomba charge → record payment + invoice (on decline, stay incomplete).
-        // With no card, the subscription dead-ends at incomplete — generate the
-        // Phase-4 checkout link to collect one, then activate on the
-        // payment_success webhook (Phase 7).
+        // Automatic + a card on file: charge it for real now. (Already
+        // validated to belong to this customer in handle().)
         if ($paymentMethodId !== null) {
-            $subscription->apply('activate');
+            $paymentMethod = $customer->paymentMethods()->findOrFail($paymentMethodId);
+            $payment = $this->chargeInvoice->handle($team, $invoice, $paymentMethod);
+
+            if ($payment->status === PaymentStatus::Succeeded) {
+                $subscription->apply('activate');
+            }
+            // Declined: the invoice stays open with the failed attempt on it;
+            // the subscription stays incomplete (§14.3 — no access granted).
+
+            return;
         }
+
+        // Automatic + no card: the invoice exists (open) but nothing has been
+        // attempted yet.
+        // TODO(Phase 6/7): generate a Nomba checkout link tied to this invoice
+        // so the customer can pay it; activate on the payment_success webhook.
+    }
+
+    /**
+     * Turn the billed subscription items into invoice-line inputs
+     * ({@see CreateInvoice}) — one line per item, at whatever price it's
+     * currently billing (the regular price, or a paid trial's intro price).
+     *
+     * @param  list<array{item: SubscriptionItem, price: Price, quantity: int}>  $billedItems
+     * @return list<array{subscriptionItem: SubscriptionItem, price: Price, product: Product, kind: InvoiceLineKind, description: string, unitAmount: int, quantity: int}>
+     */
+    private function buildInvoiceLines(array $billedItems): array
+    {
+        return array_map(fn (array $billed): array => [
+            'subscriptionItem' => $billed['item'],
+            'price' => $billed['price'],
+            'product' => $billed['price']->product,
+            'kind' => InvoiceLineKind::Subscription,
+            'description' => $billed['price']->product->name.' · '.$billed['price']->toPickerLabel(),
+            'unitAmount' => $billed['price']->unit_amount ?? 0,
+            'quantity' => $billed['quantity'],
+        ], $billedItems);
     }
 
     /**

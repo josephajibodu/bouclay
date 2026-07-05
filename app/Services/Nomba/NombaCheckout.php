@@ -66,6 +66,34 @@ class NombaCheckout
     }
 
     /**
+     * Charge a previously tokenised card directly — no redirect, no card
+     * details re-entered — the primitive that makes "automatically charge a
+     * saved card" real rather than simulated (a subscription renewal or a
+     * one-off transaction against a stored payment method).
+     *
+     * Nomba's own guidance: always verify the transaction afterwards via
+     * {@see verifyOrderSucceeded()} before granting value, since the
+     * synchronous response here isn't the final settlement authority.
+     *
+     * @param  array<string, mixed>  $order
+     * @return array{approved: bool, message: string}
+     *
+     * @throws NombaConnectionException
+     */
+    public function chargeTokenizedCard(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, string $tokenKey): array
+    {
+        $body = $this->post($connection, $mode, '/v1/checkout/tokenized-card-payment', [
+            'order' => $this->scopeOrderToSubaccount($order, $connection, $mode),
+            'tokenKey' => $tokenKey,
+        ]);
+
+        return [
+            'approved' => (bool) ($body['data']['status'] ?? false),
+            'message' => (string) ($body['data']['message'] ?? 'Unknown response from Nomba.'),
+        ];
+    }
+
+    /**
      * List a customer's tokenised cards by email — the synchronous fallback
      * for capturing a token when the webhook hasn't arrived yet.
      *

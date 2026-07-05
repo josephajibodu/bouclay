@@ -96,6 +96,8 @@ export type TeamPermissions = {
     canManageTrialOffers: boolean;
     canViewSubscriptions: boolean;
     canManageSubscriptions: boolean;
+    canViewTransactions: boolean;
+    canManageTransactions: boolean;
 };
 
 export type RoleOption = {

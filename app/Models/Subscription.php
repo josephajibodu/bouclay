@@ -46,6 +46,7 @@ use Illuminate\Support\Carbon;
  * @property-read PaymentMethod|null $paymentMethod
  * @property-read Collection<int, SubscriptionItem> $items
  * @property-read Collection<int, ScheduledChange> $scheduledChanges
+ * @property-read Collection<int, Invoice> $invoices
  */
 #[Fillable([
     'team_id', 'customer_id', 'type', 'status', 'currency', 'collection_mode',
@@ -151,6 +152,16 @@ class Subscription extends Model
     public function scheduledChanges(): HasMany
     {
         return $this->hasMany(ScheduledChange::class);
+    }
+
+    /**
+     * Get the invoices generated for this subscription (Phase 6+).
+     *
+     * @return HasMany<Invoice, $this>
+     */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
     }
 
     /**

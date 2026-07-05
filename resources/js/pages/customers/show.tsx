@@ -19,7 +19,12 @@ import ChargeCustomerModal from '@/components/customers/charge-customer-modal';
 import { CustomerMonogram } from '@/components/customers/customer-monogram';
 import EditCustomerDrawer from '@/components/customers/edit-customer-drawer';
 import { StagedSection } from '@/components/customers/staged-section';
+import CreateSubscriptionDrawer from '@/components/subscriptions/create-subscription-drawer';
 import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription-status-badge';
+import {
+    PAYMENT_STATUS_COLOR as TRANSACTION_STATUS_COLOR,
+    PAYMENT_STATUS_LABEL as TRANSACTION_STATUS_LABEL,
+} from '@/components/transactions/payment-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -42,16 +47,17 @@ import {
     defaultMethod as makePmDefault,
     destroy as destroyPm,
 } from '@/routes/customers/payment-methods';
-import {
-    create as createSubscription,
-    show as subscriptionShow,
-} from '@/routes/subscriptions';
+import { show as subscriptionShow } from '@/routes/subscriptions';
 import type {
+    CreateCustomerOption,
+    CreateProductOption,
+    CreateTrialOfferOption,
     CustomerAddress,
     CustomerActivityEvent,
     CustomerDetail,
     CustomerPaymentMethod,
     SubscriptionStatus,
+    TransactionListItem,
 } from '@/types';
 
 type CustomerSubscription = {
@@ -71,9 +77,14 @@ type Props = {
     defaultAddress: CustomerAddress | null;
     subscriptions: CustomerSubscription[];
     activeSubscriptionCount: number;
+    transactions: TransactionListItem[];
+    totalSpend: number;
     activity: CustomerActivityEvent[];
     teamCurrency: string;
-    permissions: { canManage: boolean };
+    customerOption: CreateCustomerOption;
+    products: CreateProductOption[];
+    trialOffers: CreateTrialOfferOption[];
+    permissions: { canManage: boolean; canManageSubscriptions: boolean };
 };
 
 function formatDate(iso: string | null): string {
@@ -110,6 +121,11 @@ function expiryLabel(pm: CustomerPaymentMethod): string {
     return `${pm.isExpired ? 'Expired' : 'Expires'} ${mm}/${yy}`;
 }
 
+/** Transactions/spend come from the server in minor units (kobo). */
+function formatMinor(amountMinor: number, currency: string): string {
+    return `${currency} ${(amountMinor / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+}
+
 export default function CustomerShow({
     customer,
     addresses,
@@ -117,16 +133,22 @@ export default function CustomerShow({
     defaultAddress,
     subscriptions,
     activeSubscriptionCount,
+    transactions,
+    totalSpend,
     activity,
     teamCurrency,
+    customerOption,
+    products,
+    trialOffers,
     permissions,
 }: Props) {
-    const { canManage } = permissions;
+    const { canManage, canManageSubscriptions } = permissions;
     const isArchived = customer.status === 'archived';
 
     const [copied, setCopied] = useState(false);
     const [editOpen, setEditOpen] = useState(false);
     const [chargeOpen, setChargeOpen] = useState(false);
+    const [subscribeOpen, setSubscribeOpen] = useState(false);
     const [addressOpen, setAddressOpen] = useState(false);
     const [addressTarget, setAddressTarget] = useState<CustomerAddress | null>(
         null,
@@ -233,12 +255,13 @@ export default function CustomerShow({
 
                     <ActionsMenu
                         canManage={canManage}
+                        canManageSubscriptions={canManageSubscriptions}
                         isArchived={isArchived}
-                        customerId={customer.id}
                         onEdit={() => setEditOpen(true)}
                         onCopyId={copyId}
                         onAddAddress={openAddAddress}
                         onCharge={() => setChargeOpen(true)}
+                        onCreateSubscription={() => setSubscribeOpen(true)}
                         onArchive={confirmArchive}
                         onRestore={() =>
                             router.post(restore(customer.id).url)
@@ -305,6 +328,14 @@ export default function CustomerShow({
                         }
                     />
                     <Fact label="Currency" value={currency} />
+                    <Fact
+                        label="Total spend"
+                        value={
+                            totalSpend > 0
+                                ? formatMinor(totalSpend, currency)
+                                : 'Nothing yet'
+                        }
+                    />
                     <Fact
                         label="Active subscriptions"
                         value={
@@ -455,17 +486,13 @@ export default function CustomerShow({
                     heading="Subscriptions will live here"
                     body="When you subscribe this customer to a plan, their active and past subscriptions — status, renewal date, and plan — will show up here."
                     action={
-                        canManage && !isArchived ? (
-                            <Button size="sm" variant="outline" asChild>
-                                <Link
-                                    href={
-                                        createSubscription({
-                                            query: { customer: customer.id },
-                                        }).url
-                                    }
-                                >
-                                    <Plus /> New subscription
-                                </Link>
+                        canManageSubscriptions && !isArchived ? (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSubscribeOpen(true)}
+                            >
+                                <Plus /> New subscription
                             </Button>
                         ) : undefined
                     }
@@ -474,17 +501,13 @@ export default function CustomerShow({
                 <section className="space-y-3">
                     <div className="flex items-center justify-between">
                         <h2 className="text-lg font-semibold">Subscriptions</h2>
-                        {canManage && !isArchived && (
-                            <Button size="sm" variant="outline" asChild>
-                                <Link
-                                    href={
-                                        createSubscription({
-                                            query: { customer: customer.id },
-                                        }).url
-                                    }
-                                >
-                                    <Plus /> New subscription
-                                </Link>
+                        {canManageSubscriptions && !isArchived && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSubscribeOpen(true)}
+                            >
+                                <Plus /> New subscription
                             </Button>
                         )}
                     </div>
@@ -519,14 +542,54 @@ export default function CustomerShow({
                 </section>
             )}
 
-            {/* Transactions — staged */}
-            <StagedSection
-                title="Transactions"
-                icon={Receipt}
-                heading="Payments will appear here"
-                body="Every charge Bouclay makes against this customer — succeeded, failed, or refunded — will be listed here once billing is on."
-                availability="Available with invoicing."
-            />
+            {/* Transactions */}
+            <section className="space-y-3">
+                <h2 className="text-lg font-semibold">Transactions</h2>
+                {transactions.length === 0 ? (
+                    <div className="space-y-2 rounded-lg border border-dashed p-6 text-center">
+                        <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted">
+                            <Receipt className="size-5 text-muted-foreground" />
+                        </div>
+                        <p className="font-medium">No transactions yet</p>
+                        <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                            Every charge attempted against this customer —
+                            succeeded, failed, or refunded — will be listed
+                            here.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="divide-y rounded-lg border">
+                        {transactions.map((txn) => (
+                            <div
+                                key={txn.id}
+                                className="flex items-center justify-between gap-3 p-4"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <CreditCard className="size-5 text-muted-foreground" />
+                                    <div>
+                                        <p className="font-medium">
+                                            {formatMinor(
+                                                txn.amount,
+                                                txn.currency,
+                                            )}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {txn.productsLabel} ·{' '}
+                                            {txn.paymentMethodLabel}
+                                        </p>
+                                    </div>
+                                </div>
+                                <Badge variant="secondary" className="gap-1">
+                                    <span
+                                        className={`size-1.5 rounded-full ${TRANSACTION_STATUS_COLOR[txn.status]}`}
+                                    />
+                                    {TRANSACTION_STATUS_LABEL[txn.status]}
+                                </Badge>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
 
             {/* Addresses */}
             <section className="space-y-3">
@@ -740,6 +803,16 @@ export default function CustomerShow({
                 open={chargeOpen}
                 onOpenChange={setChargeOpen}
             />
+
+            <CreateSubscriptionDrawer
+                customers={[customerOption]}
+                products={products}
+                trialOffers={trialOffers}
+                teamCurrency={teamCurrency}
+                open={subscribeOpen}
+                onOpenChange={setSubscribeOpen}
+                fixedCustomerId={customer.id}
+            />
         </div>
     );
 }
@@ -791,22 +864,24 @@ function DevRow({
 
 function ActionsMenu({
     canManage,
+    canManageSubscriptions,
     isArchived,
-    customerId,
     onEdit,
     onCopyId,
     onAddAddress,
     onCharge,
+    onCreateSubscription,
     onArchive,
     onRestore,
 }: {
     canManage: boolean;
+    canManageSubscriptions: boolean;
     isArchived: boolean;
-    customerId: number;
     onEdit: () => void;
     onCopyId: () => void;
     onAddAddress: () => void;
     onCharge: () => void;
+    onCreateSubscription: () => void;
     onArchive: () => void;
     onRestore: () => void;
 }) {
@@ -836,16 +911,14 @@ function ActionsMenu({
                         <DropdownMenuItem onClick={onCharge}>
                             <CreditCard /> Charge customer
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                            <Link
-                                href={
-                                    createSubscription({
-                                        query: { customer: customerId },
-                                    }).url
-                                }
-                            >
-                                <RefreshCw /> Create subscription
-                            </Link>
+                    </>
+                )}
+
+                {canManageSubscriptions && !isArchived && (
+                    <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={onCreateSubscription}>
+                            <RefreshCw /> Create subscription
                         </DropdownMenuItem>
                     </>
                 )}

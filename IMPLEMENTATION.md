@@ -182,19 +182,34 @@ The create-time seams are marked in code as `TODO(Phase 6)` in `CreateSubscripti
 
 ---
 
-## Phase 6 — Invoicing, charges & proration
+## Phase 6 — Invoicing, charges & proration 🟡 (core done; worker/proration deferred)
 
 **Goal:** Money moves on a schedule; upgrades/downgrades prorate.
 
-**Build:**
+**Built:**
 
-- `invoices`, `invoice_lines`, `payments`
-- Period billing worker: generate invoice at `current_period_end`
-- Charge via Nomba using team keys; record attempt on `payments`
-- Proration on subscription item changes (invoice lines with `kind: proration`)
-- Invoice numbering from `team_settings`
+- `invoices`, `invoice_lines`, `payments` — migrations, models, factories. The dashboard calls `payments` **"Transactions"** (Paddle's word); the model/table stay `Payment`/`payments` (schema.md).
+- **Real Nomba charge, not simulated.** `NombaCheckout::chargeTokenizedCard()` (`POST /v1/checkout/tokenized-card-payment`) + a follow-up `verifyOrderSucceeded()` per Nomba's own guidance — replaces Phase 5's `apply('activate')` simulation.
+- `App\Actions\Invoicing\CreateInvoice` — the shared primitive both subscriptions and one-off transactions build invoices through (assigns sequential numbers from `team_settings`, computes totals). `App\Actions\Invoicing\ChargeInvoice` — charges an invoice against a stored `PaymentMethod`, always recording a `Payment` (succeeded or failed), in the team's Nomba mode (test/live) matching the token's own mode.
+- **`CreateSubscription` rewired** (Phase 5's TODO(Phase 6) markers): a billed line now produces a real `Invoice`; automatic + card charges it for real via `ChargeInvoice` (charge runs **after** the creation transaction commits — a real external charge must never sit inside a transaction that could still roll back); automatic + no card and manual both still produce an open invoice, just no charge attempt yet.
+- **`App\Actions\Transactions\CreateTransaction`** — the "New transaction" one-off flow (Paddle-style): a customer, one or more line items (a catalog price *or* a custom amount+description), and a collection-mode choice, built on the same `CreateInvoice`/`ChargeInvoice` primitives.
+- `TransactionController` + `routes/transactions.php`, gated on the already-seeded `invoices.view`/`invoices.manage` (`viewTransactions`/`manageTransactions` policy methods, `canViewTransactions`/`canManageTransactions` on `TeamPermissions`).
+- **Dashboard: drawers, not pages.** Both "New subscription" and "New transaction" are two-pane `Sheet` drawers (`sm:max-w-4xl`) opened in place from the Subscriptions/Transactions lists and from a customer's own page — the Phase-5 `/subscriptions/new` full page was removed and its logic became `CreateSubscriptionDrawer`. `BuildSubscriptionCreateOptions` shares the catalog data both drawer entry points need.
+- Wired the Phase-5 staged placeholders to real data: subscription hub's "Upcoming invoices" + "Transactions" sections, customer hub's "Transactions" section + a **Total spend** overview fact (the Phase-4 carried-forward promise) via `Customer::totalSpend()`.
+- **Transactions** nav item (top-level, below Subscriptions).
 
-**Exit criteria:** Renewal generates invoice; test charge succeeds; plan change produces proration line.
+**Two real bugs found only by manually exercising the drawers in-browser** (not caught by static analysis, since PHP arrays don't enforce docblock shapes at runtime) — both now covered by regression tests:
+1. `CreateInvoice` assumed every line array had a `subscriptionItem` key; `CreateTransaction`'s lines don't set one → `ErrorException` on any transaction with a plain price line. Fixed with `?? null` before the null-safe access.
+2. `TeamSettings::create([])` relies on the migration's DB-level column defaults, but Eloquent doesn't refresh those into the in-memory model after insert — `invoice_prefix` read back as `null` in PHP even though the DB row correctly got `'INV'`, so the very first invoice number came out as the bare string `"-"`. Fixed by passing the defaults explicitly in `nextNumber()`'s `create()` call instead of relying on the DB to supply them silently.
+3. **The Transactions list was payment-centric, so a manually-billed or not-yet-charged invoice was invisible the moment it was created** (zero `Payment` rows exist until something is actually charged). `TransactionController::index()` now queries `invoices` (Paddle's own "Transactions" list is the same shape — one row per invoice, its latest charge attempt shown alongside via `Invoice::toListArray()`), default status filter `all` so nothing is hidden by a surprising default. `InvoiceSummary`/`InvoiceListItem` (in `resources/js/types/transactions.ts`) replace the payment-shaped list item for this page only; the payment-attempt lists nested inside the subscription/customer hubs are correctly still `Payment`-based (those genuinely are "every attempt against this one object"). Shared status-badge maps live in `resources/js/components/transactions/{invoice,payment}-status.ts`.
+
+**Deferred to later in Phase 6 (not built yet):**
+- **Period billing worker** — nothing generates a *renewal* invoice at `current_period_end` yet; only the first invoice (at creation) exists.
+- **Proration** — plan/quantity changes don't produce `invoice_lines` with `kind: proration`. The item row's `⋯` menu still reserves a disabled "Change plan" slot (SUBSCRIPTIONS_DESIGN §11.2).
+- **Checkout link for open invoices** — automatic-with-no-card still just creates an open invoice; nothing yet generates the Nomba hosted-checkout link to collect the card and settle it (the Phase-4 primitive exists and is the obvious reuse target, carried forward again).
+- **No dedicated Invoice page.** An invoice is only visible as a summary row (Transactions list, or the subscription hub's "Upcoming invoices" section) — there's no invoice detail/show page, no PDF-style preview, no void/uncollectible actions, and the customer hub's own "Transactions" section is still payment-attempt-based rather than invoice-based (inconsistent with the fix above). This is the next piece of work.
+
+**Exit criteria:** ✅ a real charge succeeds against a stored card (subscription or one-off transaction) and is recorded as a `payment`; ⬜ renewal generates an invoice automatically; ⬜ plan change produces a proration line.
 
 ---
 
