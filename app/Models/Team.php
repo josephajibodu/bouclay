@@ -177,6 +177,16 @@ class Team extends Model
     }
 
     /**
+     * Get all end-customers this team bills.
+     *
+     * @return HasMany<Customer, $this>
+     */
+    public function customers(): HasMany
+    {
+        return $this->hasMany(Customer::class);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

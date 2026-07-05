@@ -911,9 +911,9 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 
 ## Build order & cut-lines (hackathon)
 
-**Build now** — a complete, demoable engine: teams, team_members, team_member_roles, permissions, roles, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, prices (standard + one tiered model), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (free trial only — `trial_price.unit_amount = 0`), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
+**Build now** — a complete, demoable engine: teams, team_members, team_member_roles, permissions, roles, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, prices (standard + graduated), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (Phase 3 wired the full `trial_offers` shape — trial price free or paid, optional product transition, repeatable via `duration_iterations`; `subscription_item_trials` itself lands with subscriptions in Phase 5), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
 
-**Defer** — keep the tables, don't wire the logic: price_currency_options, refunds, both graduated *and* volume (ship one), discounts + discount_redemptions if time-pressed, paid trials (`trial_price.unit_amount > 0`), product-transition trials (`transition_to_different_product`), and timestamp-duration trials (ship `relative` only for MVP).
+**Defer** — keep the tables, don't wire the logic: price_currency_options, refunds, volume pricing model (graduated ships instead), discounts + discount_redemptions if time-pressed, and timestamp-duration trials (`trial_offers.duration_type = timestamp` — ship `relative` only for MVP).
 
 ---
 

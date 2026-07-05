@@ -56,6 +56,7 @@ export type CatalogProduct = {
     description: string | null;
     category: string | null;
     status: CatalogStatus;
+    createdAt: string | null;
     prices: Price[];
 };
 

@@ -40,6 +40,7 @@ class ProductController extends Controller
                 'description' => $product->description,
                 'category' => $product->category,
                 'status' => $product->status,
+                'createdAt' => $product->created_at?->toISOString(),
                 'prices' => $product->prices->map(fn ($price) => $price->toCatalogArray())->all(),
             ]);
 

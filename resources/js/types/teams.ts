@@ -86,6 +86,8 @@ export type TeamPermissions = {
     canManageApiKeys: boolean;
     canViewWebhooks: boolean;
     canManageWebhooks: boolean;
+    canViewCustomers: boolean;
+    canManageCustomers: boolean;
     canViewProducts: boolean;
     canManageProducts: boolean;
     canViewPrices: boolean;

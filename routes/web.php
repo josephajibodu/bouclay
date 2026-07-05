@@ -43,3 +43,4 @@ Route::post('ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd', function () {
 require __DIR__.'/settings.php';
 require __DIR__.'/developers.php';
 require __DIR__.'/catalog.php';
+require __DIR__.'/customers.php';
