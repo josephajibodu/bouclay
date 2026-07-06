@@ -79,7 +79,7 @@ Authoritative schema: [`schema.md`](schema.md)
 
 ---
 
-## Phase 4 — Customers & payment methods
+## Phase 4 — Customers & payment methods ✅ (done)
 
 **Goal:** End-customers exist in Bouclay; cards tokenise via Nomba.
 
@@ -119,6 +119,7 @@ Because Decision #2 removed the standalone "add card", the *only* way a card rea
 **Why forward-pull the thin slice rather than defer to Phase 5/6:** (a) it's the only card-collection path now; (b) it **de-risks the hardest integration** — Nomba hosted-redirect + webhook token correlation — *before* Phase 5 subscriptions depend on it; (c) the checkout-order + token-capture primitive is **reused verbatim** by subscriptions (Phase 5) and invoicing (Phase 6).
 
 **Carried into later phases (so we don't forget):**
+
 - **Phase 5 (Subscriptions):** "Create subscription" reuses the Phase-4 checkout primitive for the first charge; enable **live-mode** card collection here (first subscription payment mints the live token). Un-disable the "Create subscription" action + section CTA on the customer page.
 - **Phase 6 (Invoicing):** promote "Charge customer" to record real `payments`/`invoices`; replace the customer-page **Invoices** placeholder with the real table in the same slot; add **Total spend** column to the list and spend cell to the Overview grid. Enable live-mode standalone charges.
 - **Phase 7 (Inbound webhooks):** replace the Phase-4 *minimal* `tokenizedCardData` capture with full signature-verified event mapping.
@@ -203,6 +204,7 @@ Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charg
 - Frontend: `resources/js/pages/invoices/`, `resources/js/components/invoices/`, `resources/js/types/invoices.ts`. Shared badge maps: `invoice-status.ts`, `payment-status.ts`.
 
 **Two real bugs found only by manually exercising the drawers in-browser** (not caught by static analysis) — both now covered by regression tests:
+
 1. `CreateInvoice` assumed every line array had a `subscriptionItem` key; one-off invoice lines don't set one → `ErrorException`. Fixed with `?? null`.
 2. `TeamSettings::create([])` — Eloquent doesn't hydrate DB defaults after insert; first invoice number came out as `"-"`. Fixed by passing defaults explicitly in `nextNumber()`.
 3. **Early list queried `payments`, hiding open manual invoices** with zero charge attempts. Fixed: global list queries `invoices` via `Invoice::toListArray()`.
@@ -210,6 +212,7 @@ Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charg
 **Naming refactor (2026-07-06):** removed the interim "Transactions" dashboard layer (`TransactionController`, `CreateTransaction`, `routes/transactions.php`, `types/transactions.ts`, `/transactions` redirects). Canonical paths and vocabulary are documented in `schema.md` § Dashboard vocabulary.
 
 **Deferred to later in Phase 6 (not built yet):**
+
 - **Period billing worker** — nothing generates a *renewal* invoice at `current_period_end` yet; only the first invoice (at creation) exists.
 - **Proration** — plan/quantity changes don't produce `invoice_lines` with `kind: proration`.
 - **Checkout link for open invoices** — automatic-with-no-card creates an open invoice; no hosted-checkout link yet.
