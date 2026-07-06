@@ -3,35 +3,17 @@
 use App\Enums\AddressType;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
+use App\Mail\InvoiceIssued;
 use App\Models\Address;
-use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
-use App\Models\Price;
-use App\Models\Product;
 use App\Models\Team;
 use App\Models\TeamProcessorConnection;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Inertia\Testing\AssertableInertia as Assert;
-
-/**
- * @return array{team: Team, owner: User, customer: Customer, product: Product, price: Price}
- */
-function invoiceFixture(): array
-{
-    $owner = User::factory()->create();
-    $team = Team::factory()->create(['default_currency' => 'NGN']);
-    attachTeamOwner($team, $owner);
-    $owner->switchTeam($team);
-
-    $product = Product::factory()->for($team)->create(['name' => 'Pro']);
-    $price = Price::factory()->for($team)->for($product)->create(['currency' => 'NGN']);
-    $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
-
-    return compact('team', 'owner', 'customer', 'product', 'price');
-}
 
 test('the invoices index renders', function () {
     ['owner' => $owner] = invoiceFixture();
@@ -163,7 +145,9 @@ test('the show page reads from the snapshot, not the live customer', function ()
             ->where('invoice.billingAddress.line1', 'Original Street'));
 });
 
-test('a manual invoice with a price line creates an open invoice and no payment', function () {
+test('a manual invoice with a price line creates an open invoice and queues email', function () {
+    Mail::fake();
+
     ['owner' => $owner, 'customer' => $customer, 'price' => $price] = invoiceFixture();
 
     $this->actingAs($owner)
@@ -182,6 +166,8 @@ test('a manual invoice with a price line creates an open invoice and no payment'
         ->and($invoice->lines)->toHaveCount(1)
         ->and($invoice->lines->first()->quantity)->toBe(2)
         ->and($invoice->payments)->toHaveCount(0);
+
+    Mail::assertQueued(InvoiceIssued::class);
 });
 
 test('invoice numbers are real sequential numbers, not a bare dash', function () {

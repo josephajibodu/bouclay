@@ -1,6 +1,9 @@
 <?php
 
 use App\Actions\Invoicing\ChargeInvoice;
+use App\Models\Customer;
+use App\Models\Price;
+use App\Models\Product;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -71,6 +74,31 @@ function attachTeamMember(Team $team, User $user, string $role = 'Developer'): v
 }
 
 /**
+ * @return array{team: Team, owner: User, customer: Customer, product: Product, price: Price}
+ */
+function invoiceFixture(): array
+{
+    $owner = User::factory()->create();
+    $team = Team::factory()->create(['default_currency' => 'NGN']);
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $product = Product::factory()->for($team)->create(['name' => 'Pro']);
+    $price = Price::factory()->for($team)->for($product)->create(['currency' => 'NGN']);
+    $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
+
+    return compact('team', 'owner', 'customer', 'product', 'price');
+}
+
+/**
+ * @return array{team: Team, owner: User, customer: Customer, product: Product, price: Price}
+ */
+function subscriptionFixture(): array
+{
+    return invoiceFixture();
+}
+
+/**
  * Fake the real Nomba tokenized-card charge (+ its follow-up verify call)
  * that {@see ChargeInvoice} makes for an automatic
  * subscription/transaction charge — shared by any test exercising a real
@@ -87,6 +115,39 @@ function fakeNombaCharge(bool $approved = true): void
         '*/v1/transactions/accounts/single*' => Http::response([
             'code' => '00',
             'data' => ['status' => $approved ? 'SUCCESS' : 'FAILED'],
+        ]),
+    ]);
+}
+
+/**
+ * Fake Nomba hosted checkout order creation and verification for invoice
+ * collection paths that generate a checkout link.
+ */
+function fakeNombaCheckout(string $checkoutLink = 'https://checkout.nomba.com/pay/test-invoice'): void
+{
+    Http::fake([
+        '*/v1/auth/token/issue' => Http::response(['code' => '00', 'data' => ['access_token' => 'fake-token']]),
+        '*/v1/checkout/order' => Http::response([
+            'code' => '00',
+            'data' => [
+                'checkoutLink' => $checkoutLink,
+                'orderReference' => 'nomba-order-ref',
+            ],
+        ]),
+        '*/v1/transactions/accounts/single*' => Http::response([
+            'code' => '00',
+            'data' => ['status' => 'SUCCESS'],
+        ]),
+        '*/v1/checkout/tokenized-card-data*' => Http::response([
+            'code' => '00',
+            'data' => [
+                'tokenizedCardDataList' => [[
+                    'tokenKey' => 'tok_test',
+                    'cardType' => 'Visa',
+                    'cardPan' => '************4242',
+                    'tokenExpirationDate' => '12/30',
+                ]],
+            ],
         ]),
     ]);
 }

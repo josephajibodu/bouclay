@@ -21,7 +21,7 @@ class CreateOneOffInvoice
 {
     public function __construct(
         private readonly CreateInvoice $createInvoice,
-        private readonly ChargeInvoice $chargeInvoice,
+        private readonly CollectInvoice $collectInvoice,
     ) {
         //
     }
@@ -51,10 +51,13 @@ class CreateOneOffInvoice
             dueAt: $collectionMode === CollectionMode::Manual ? Carbon::now()->addDays(7) : null,
         );
 
+        $paymentMethod = null;
+
         if ($collectionMode === CollectionMode::Automatic && ! empty($data['payment_method_id'])) {
             $paymentMethod = $customer->paymentMethods()->findOrFail((int) $data['payment_method_id']);
-            $this->chargeInvoice->handle($team, $invoice, $paymentMethod);
         }
+
+        $this->collectInvoice->handle($team, $invoice, $paymentMethod);
 
         return $invoice->fresh(['lines', 'payments']);
     }

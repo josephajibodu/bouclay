@@ -224,6 +224,53 @@ class Invoice extends Model
     }
 
     /**
+     * Serialisation for the customer-facing hosted invoice page.
+     *
+     * @return array<string, mixed>
+     */
+    public function toHostedArray(): array
+    {
+        $snapshot = $this->customer_snapshot ?? [];
+        $billing = $this->billing_address;
+        $settings = $this->team->settings;
+
+        return [
+            'publicId' => $this->public_id,
+            'number' => $this->number,
+            'status' => $this->status->value,
+            'collectionMode' => $this->collection_mode->value,
+            'currency' => $this->currency,
+            'subtotal' => $this->subtotal,
+            'total' => $this->total,
+            'amountDue' => $this->amount_due,
+            'dueAt' => $this->due_at?->toISOString(),
+            'paidAt' => $this->paid_at?->toISOString(),
+            'customer' => [
+                'name' => $snapshot['name'] ?? $this->customer->name,
+                'email' => $snapshot['email'] ?? $this->customer->email,
+            ],
+            'billingAddress' => $billing,
+            'business' => [
+                'name' => $this->team->name,
+                'line1' => $this->team->line1,
+                'line2' => $this->team->line2,
+                'city' => $this->team->city,
+                'postalCode' => $this->team->postal_code,
+                'country' => $this->team->country,
+            ],
+            'invoiceFooter' => $settings?->invoice_footer,
+            'lines' => $this->lines->map(fn (InvoiceLine $line): array => [
+                'description' => $line->description,
+                'quantity' => $line->quantity,
+                'unitAmount' => $line->unit_amount,
+                'total' => $line->total,
+            ])->all(),
+            'canPay' => $this->canBeCanceled(),
+            'payUrl' => route('hosted.invoices.pay', $this->public_id),
+        ];
+    }
+
+    /**
      * Full serialisation for the dedicated invoice detail page — lines,
      * snapshots, totals, and charge attempts. Keeps {@see toDashboardArray()}
      * and {@see toListArray()} lean for summary rows elsewhere.

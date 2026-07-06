@@ -2,13 +2,12 @@
 
 namespace App\Actions\Subscriptions;
 
-use App\Actions\Invoicing\ChargeInvoice;
+use App\Actions\Invoicing\CollectInvoice;
 use App\Actions\Invoicing\CreateInvoice;
 use App\Enums\BillingInterval;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
-use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionItemStatus;
 use App\Enums\SubscriptionItemTrialStatus;
 use App\Enums\SubscriptionStatus;
@@ -41,7 +40,7 @@ class CreateSubscription
 {
     public function __construct(
         private readonly CreateInvoice $createInvoice,
-        private readonly ChargeInvoice $chargeInvoice,
+        private readonly CollectInvoice $collectInvoice,
     ) {
         //
     }
@@ -133,7 +132,11 @@ class CreateSubscription
         // succeeded but then got rolled back with it would mean money moved
         // with no Bouclay record of it.
         if ($invoice !== null) {
-            $this->collectInitialPayment($team, $subscription, $customer, $invoice, $collectionMode, $paymentMethodId);
+            $paymentMethod = $paymentMethodId !== null
+                ? $customer->paymentMethods()->findOrFail($paymentMethodId)
+                : null;
+
+            $this->collectInvoice->handle($team, $invoice, $paymentMethod);
         }
 
         return $subscription;
@@ -305,50 +308,6 @@ class CreateSubscription
             subscription: $subscription,
             dueAt: $collectionMode === CollectionMode::Manual ? $now->copy()->addDays(7) : null,
         );
-    }
-
-    /**
-     * Settle the first invoice once the subscription has safely committed —
-     * deliberately outside the creation transaction, since a real Nomba
-     * charge is external I/O with real money moving; it must never run
-     * somewhere that could still be rolled back out from under it.
-     */
-    private function collectInitialPayment(
-        Team $team,
-        Subscription $subscription,
-        Customer $customer,
-        Invoice $invoice,
-        CollectionMode $collectionMode,
-        ?int $paymentMethodId,
-    ): void {
-        if ($collectionMode === CollectionMode::Manual) {
-            // Invoiced — trusted to pay by the due date; unpaid → dunning is
-            // Phase 8. Not a captured payment, but still a legal `activate`
-            // (the state itself carries no payment-specific side effects).
-            $subscription->apply('activate');
-
-            return;
-        }
-
-        // Automatic + a card on file: charge it for real now. (Already
-        // validated to belong to this customer in handle().)
-        if ($paymentMethodId !== null) {
-            $paymentMethod = $customer->paymentMethods()->findOrFail($paymentMethodId);
-            $payment = $this->chargeInvoice->handle($team, $invoice, $paymentMethod);
-
-            if ($payment->status === PaymentStatus::Succeeded) {
-                $subscription->apply('activate');
-            }
-            // Declined: the invoice stays open with the failed attempt on it;
-            // the subscription stays incomplete (§14.3 — no access granted).
-
-            return;
-        }
-
-        // Automatic + no card: the invoice exists (open) but nothing has been
-        // attempted yet.
-        // TODO(Phase 6/7): generate a Nomba checkout link tied to this invoice
-        // so the customer can pay it; activate on the payment_success webhook.
     }
 
     /**

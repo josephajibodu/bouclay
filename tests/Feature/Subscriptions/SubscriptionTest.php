@@ -3,6 +3,7 @@
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionStatus;
+use App\Mail\InvoiceIssued;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
 use App\Models\Price;
@@ -13,29 +14,12 @@ use App\Models\TeamProcessorConnection;
 use App\Models\TrialOffer;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /**
  * A team + owner with a recurring price and a customer, all in NGN.
- *
- * @return array{team: Team, owner: User, customer: Customer, product: Product, price: Price}
  */
-function subscriptionFixture(): array
-{
-    $owner = User::factory()->create();
-    $team = Team::factory()->create(['default_currency' => 'NGN']);
-    attachTeamOwner($team, $owner);
-    $owner->switchTeam($team);
-
-    $product = Product::factory()->for($team)->create(['name' => 'Pro']);
-    $price = Price::factory()->for($team)->for($product)->create(['currency' => 'NGN']);
-    $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
-
-    return compact('team', 'owner', 'customer', 'product', 'price');
-}
-
-// fakeNombaCharge() lives in tests/Pest.php — shared with invoice charge tests.
-
 test('the subscriptions index renders', function () {
     ['owner' => $owner, 'team' => $team, 'customer' => $customer] = subscriptionFixture();
     Subscription::factory()->for($team)->for($customer)->create();
@@ -134,7 +118,9 @@ test('a paid trial charges the intro price now, bills each cycle, and is active 
         ->and($invoice->payments()->firstOrFail()->status)->toBe(PaymentStatus::Succeeded);
 });
 
-test('a manual subscription with a regular price is active immediately and invoiced', function () {
+test('a manual subscription with a regular price stays incomplete until the invoice is paid', function () {
+    Mail::fake();
+
     ['owner' => $owner, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
 
     $this->actingAs($owner)
@@ -147,20 +133,28 @@ test('a manual subscription with a regular price is active immediately and invoi
 
     $subscription = Subscription::query()->firstOrFail();
 
-    expect($subscription->status)->toBe(SubscriptionStatus::Active)
+    expect($subscription->status)->toBe(SubscriptionStatus::Incomplete)
         ->and($subscription->current_period_end)->not->toBeNull()
         ->and($subscription->items->first()->quantity)->toBe(2);
 
-    // Invoiced, not charged — no card required, due in a week, nothing paid.
     $invoice = $subscription->invoices()->firstOrFail();
     expect($invoice->status)->toBe(InvoiceStatus::Open)
         ->and($invoice->due_at)->not->toBeNull()
         ->and($invoice->amount_paid)->toBe(0)
         ->and($invoice->payments()->count())->toBe(0);
+
+    Mail::assertQueued(InvoiceIssued::class, function (InvoiceIssued $mail) use ($invoice): bool {
+        return $mail->invoice->is($invoice)
+            && str_contains($mail->actionUrl, $invoice->public_id);
+    });
 });
 
-test('an automatic subscription with no card waits at incomplete but is still invoiced', function () {
-    ['owner' => $owner, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
+test('an automatic subscription with no card waits at incomplete, generates checkout, and emails the customer', function () {
+    Mail::fake();
+
+    ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout();
 
     $this->actingAs($owner)
         ->post(route('subscriptions.store'), [
@@ -173,11 +167,12 @@ test('an automatic subscription with no card waits at incomplete but is still in
     $subscription = Subscription::query()->firstOrFail();
     expect($subscription->status)->toBe(SubscriptionStatus::Incomplete);
 
-    // An invoice exists to bill (awaiting a card/checkout), but nothing has
-    // been attempted yet — no payment record either way.
     $invoice = $subscription->invoices()->firstOrFail();
     expect($invoice->status)->toBe(InvoiceStatus::Open)
-        ->and($invoice->payments()->count())->toBe(0);
+        ->and($invoice->payments()->count())->toBe(0)
+        ->and($invoice->custom_data['checkout_link'] ?? null)->toStartWith('https://');
+
+    Mail::assertQueued(InvoiceIssued::class);
 });
 
 test('an automatic subscription with a card on file is really charged and activates', function () {
