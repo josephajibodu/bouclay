@@ -26,8 +26,8 @@ export default function Webhooks({ connection, canManage }: Props) {
             <div className="space-y-1">
                 <h1 className="text-2xl font-semibold">Webhooks</h1>
                 <p className="text-sm text-muted-foreground">
-                    Nomba sends payment events here. The same URL receives
-                    both test and live events — Bouclay tells them apart.
+                    Nomba sends payment events here. Bouclay verifies them
+                    with the webhook secret you saved when connecting Nomba.
                 </p>
             </div>
 

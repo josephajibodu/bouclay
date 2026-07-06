@@ -151,6 +151,10 @@ function ConnectedCard({
                 {status.connectedAt && (
                     <div>Verified {formatRelativeTime(status.connectedAt)}</div>
                 )}
+                <div>
+                    Webhook secret{' '}
+                    {status.webhookSecretSet ? 'saved' : 'not set'}
+                </div>
             </dl>
 
             {canManage && (
@@ -305,6 +309,25 @@ function ConnectForm({
                                 autoComplete="new-password"
                             />
                             <InputErrorText message={errors.client_secret} />
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label htmlFor={`webhook_secret_${mode}`}>
+                                Webhook secret
+                            </Label>
+                            <PasswordInput
+                                id={`webhook_secret_${mode}`}
+                                name="webhook_secret"
+                                required
+                                autoComplete="new-password"
+                                placeholder="Same signing key you set on Nomba → Webhooks"
+                            />
+                            <p className="text-sm text-muted-foreground">
+                                Bouclay verifies every inbound payment event
+                                with this secret — paste the value from your
+                                Nomba dashboard.
+                            </p>
+                            <InputErrorText message={errors.webhook_secret} />
                         </div>
 
                         {isLive && (

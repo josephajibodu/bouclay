@@ -2,10 +2,10 @@
 
 use App\Http\Controllers\Auth\JoinInvitationController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Hackathon\NombaIngressController;
 use App\Http\Controllers\Teams\TeamInvitationController;
 use App\Http\Controllers\Webhooks\NombaInboundController;
 use App\Http\Middleware\EnsureCurrentTeam;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'welcome')->name('home');
@@ -31,14 +31,11 @@ Route::middleware('guest')->group(function () {
 
 Route::post('webhooks/nomba/{token}', NombaInboundController::class)->name('webhooks.nomba.receive');
 
-Route::post('ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd', function () {
-    Log::info('Incoming webhook: ', request()->all());
-
-    return response()->json([
-        'message' => 'All is well and good',
-        'data' => null,
-    ]);
-});
+// Hackathon-only fixed Nomba URL — delete this route and app/Hackathon/ after the demo.
+Route::post(
+    config('services.nomba.hackathon_ingress.path', 'ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd'),
+    NombaIngressController::class,
+)->name('hackathon.nomba.ingress');
 
 require __DIR__.'/settings.php';
 require __DIR__.'/developers.php';

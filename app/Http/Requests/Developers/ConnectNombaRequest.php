@@ -22,6 +22,7 @@ class ConnectNombaRequest extends FormRequest
             'subaccount_id' => ['nullable', 'string', 'max:255'],
             'client_id' => ['required', 'string', 'max:255'],
             'client_secret' => ['required', 'string', 'max:255'],
+            'webhook_secret' => ['required', 'string', 'min:8', 'max:255'],
         ];
     }
 }

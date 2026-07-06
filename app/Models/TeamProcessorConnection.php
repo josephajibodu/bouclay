@@ -116,9 +116,17 @@ class TeamProcessorConnection extends Model
      */
     public function hasWebhookSecret(ApiKeyMode $mode): bool
     {
+        return $this->webhookSecretFor($mode) !== null;
+    }
+
+    /**
+     * Get the inbound webhook signing secret for the given mode.
+     */
+    public function webhookSecretFor(ApiKeyMode $mode): ?string
+    {
         return match ($mode) {
-            ApiKeyMode::Test => $this->nomba_test_webhook_secret !== null,
-            ApiKeyMode::Live => $this->nomba_live_webhook_secret !== null,
+            ApiKeyMode::Test => $this->nomba_test_webhook_secret,
+            ApiKeyMode::Live => $this->nomba_live_webhook_secret,
         };
     }
 

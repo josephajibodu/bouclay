@@ -5,9 +5,12 @@ use App\Models\Customer;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Team;
+use App\Models\TeamProcessorConnection;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /*
@@ -123,6 +126,109 @@ function fakeNombaCharge(bool $approved = true): void
  * Fake Nomba hosted checkout order creation and verification for invoice
  * collection paths that generate a checkout link.
  */
+/**
+ * Build a valid Nomba webhook HMAC signature for test payloads.
+ *
+ * @param  array<string, mixed>  $payload
+ */
+function nombaWebhookSignature(array $payload, string $secret, string $timestamp): string
+{
+    $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+    $merchant = is_array($data['merchant'] ?? null) ? $data['merchant'] : [];
+    $transaction = is_array($data['transaction'] ?? null) ? $data['transaction'] : [];
+
+    $responseCode = $transaction['responseCode'] ?? '';
+    if ($responseCode === 'null') {
+        $responseCode = '';
+    }
+
+    $hashingPayload = sprintf(
+        '%s:%s:%s:%s:%s:%s:%s:%s:%s',
+        (string) ($payload['event_type'] ?? ''),
+        (string) ($payload['requestId'] ?? ''),
+        (string) ($merchant['userId'] ?? ''),
+        (string) ($merchant['walletId'] ?? ''),
+        (string) ($transaction['transactionId'] ?? ''),
+        (string) ($transaction['type'] ?? ''),
+        (string) ($transaction['time'] ?? ''),
+        (string) $responseCode,
+        $timestamp,
+    );
+
+    return base64_encode(hash_hmac('sha256', $hashingPayload, $secret, true));
+}
+
+/**
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function nombaPaymentSuccessPayload(string $orderReference, string $accountId, array $overrides = []): array
+{
+    return array_replace_recursive([
+        'event_type' => 'payment_success',
+        'requestId' => (string) Str::uuid(),
+        'data' => [
+            'merchant' => [
+                'userId' => $accountId,
+            ],
+            'transaction' => [
+                'transactionId' => 'WEB-test-'.fake()->uuid(),
+                'type' => 'online_checkout',
+                'time' => now()->toIso8601String(),
+            ],
+            'order' => [
+                'orderReference' => $orderReference,
+                'accountId' => $accountId,
+                'customerEmail' => 'customer@example.com',
+                'amount' => 4000.00,
+                'currency' => 'NGN',
+            ],
+            'tokenizedCardData' => [
+                'tokenKey' => 'tok_webhook_test',
+                'cardType' => 'Visa',
+                'tokenExpiryMonth' => 12,
+                'tokenExpiryYear' => 2030,
+            ],
+        ],
+    ], $overrides);
+}
+
+/**
+ * POST a signed Nomba webhook to the team's inbound endpoint.
+ *
+ * @param  array<string, mixed>  $payload
+ */
+function postSignedNombaWebhook(
+    TeamProcessorConnection $connection,
+    array $payload,
+    string $secret = 'whsec_test_default',
+): TestResponse {
+    return postSignedNombaWebhookAt(
+        "/webhooks/nomba/{$connection->inbound_webhook_token}",
+        $payload,
+        $secret,
+    );
+}
+
+/**
+ * POST a signed Nomba webhook payload to an arbitrary inbound path.
+ *
+ * @param  array<string, mixed>  $payload
+ */
+function postSignedNombaWebhookAt(
+    string $path,
+    array $payload,
+    string $secret = 'whsec_test_default',
+): TestResponse {
+    $timestamp = now()->toIso8601String();
+    $signature = nombaWebhookSignature($payload, $secret, $timestamp);
+
+    return test()->postJson($path, $payload, [
+        'nomba-signature' => $signature,
+        'nomba-timestamp' => $timestamp,
+    ]);
+}
+
 function fakeNombaCheckout(string $checkoutLink = 'https://checkout.nomba.com/pay/test-invoice'): void
 {
     Http::fake([

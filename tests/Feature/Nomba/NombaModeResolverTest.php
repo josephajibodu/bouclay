@@ -15,30 +15,44 @@ test('it returns null when no connection exists', function () {
     expect($this->resolver->resolve($team))->toBeNull();
 });
 
-test('it returns null when a connection exists but neither mode is connected', function () {
+test('it returns null when a connection exists but the configured mode is not connected', function () {
+    config(['services.nomba.mode' => 'live']);
+
     $team = Team::factory()->create();
-    TeamProcessorConnection::factory()->for($team)->create();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
 
     expect($this->resolver->resolve($team))->toBeNull();
 });
 
-test('it returns test when only test is connected', function () {
+test('it returns test when the deployment is configured for test and test is connected', function () {
+    config(['services.nomba.mode' => 'test']);
+
     $team = Team::factory()->create();
     TeamProcessorConnection::factory()->for($team)->testConnected()->create();
 
     expect($this->resolver->resolve($team))->toBe(ApiKeyMode::Test);
 });
 
-test('it returns live when only live is connected', function () {
+test('it returns live when the deployment is configured for live and live is connected', function () {
+    config(['services.nomba.mode' => 'live']);
+
     $team = Team::factory()->create();
     TeamProcessorConnection::factory()->for($team)->liveConnected()->create();
 
     expect($this->resolver->resolve($team))->toBe(ApiKeyMode::Live);
 });
 
-test('it prefers live when both modes are connected', function () {
-    $team = Team::factory()->create();
-    TeamProcessorConnection::factory()->for($team)->testConnected()->liveConnected()->create();
+test('configured mode defaults to live', function () {
+    config(['services.nomba.mode' => null]);
 
-    expect($this->resolver->resolve($team))->toBe(ApiKeyMode::Live);
+    expect($this->resolver->configuredMode())->toBe(ApiKeyMode::Live);
+});
+
+test('it ignores a connected mode that does not match the deployment configuration', function () {
+    config(['services.nomba.mode' => 'test']);
+
+    $team = Team::factory()->create();
+    TeamProcessorConnection::factory()->for($team)->liveConnected()->create();
+
+    expect($this->resolver->resolve($team))->toBeNull();
 });

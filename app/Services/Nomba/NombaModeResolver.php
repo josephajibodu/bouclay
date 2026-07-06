@@ -7,17 +7,22 @@ use App\Models\Team;
 use App\Models\TeamProcessorConnection;
 
 /**
- * Resolves which Nomba environment a team's processor operations should run
- * in. A single source of truth so charges, tokenisation, and anything else
- * that talks to Nomba all agree on the mode.
- *
- * Rule: prefer a connected **live** account; fall back to a connected **test**
- * account; `null` when neither is connected.
+ * Resolves which Nomba environment Bouclay runs in. The active mode comes
+ * from {@see config('services.nomba.mode')} (default: live) — not from
+ * per-request payload inspection or "whichever mode is connected".
  */
 class NombaModeResolver
 {
     /**
-     * Resolve the mode for a team.
+     * The Nomba environment this deployment uses.
+     */
+    public function configuredMode(): ApiKeyMode
+    {
+        return ApiKeyMode::tryFrom((string) config('services.nomba.mode')) ?? ApiKeyMode::Live;
+    }
+
+    /**
+     * Resolve the mode for a team when credentials exist for the configured mode.
      */
     public function resolve(Team $team): ?ApiKeyMode
     {
@@ -25,8 +30,7 @@ class NombaModeResolver
     }
 
     /**
-     * Resolve the mode for an already-loaded connection (avoids re-querying
-     * the relationship when the caller already has it).
+     * Resolve the mode for an already-loaded connection.
      */
     public function forConnection(?TeamProcessorConnection $connection): ?ApiKeyMode
     {
@@ -34,10 +38,8 @@ class NombaModeResolver
             return null;
         }
 
-        return match (true) {
-            $connection->isConnected(ApiKeyMode::Live) => ApiKeyMode::Live,
-            $connection->isConnected(ApiKeyMode::Test) => ApiKeyMode::Test,
-            default => null,
-        };
+        $mode = $this->configuredMode();
+
+        return $connection->isConnected($mode) ? $mode : null;
     }
 }

@@ -42,7 +42,7 @@ test('the webhooks page shows the inbound url once nomba is connected', function
             ->component('developers/webhooks')
             ->where('connection.inboundUrl', url("/webhooks/nomba/{$connection->inbound_webhook_token}"))
             ->where('connection.reachable', false)
-            ->where('connection.testSecretSet', false)
+            ->where('connection.testSecretSet', true)
             ->where('connection.liveSecretSet', false),
         );
 });

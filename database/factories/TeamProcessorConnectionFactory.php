@@ -33,6 +33,7 @@ class TeamProcessorConnectionFactory extends Factory
             'nomba_test_account_id' => fake()->uuid(),
             'nomba_test_client_id' => fake()->uuid(),
             'nomba_test_client_secret' => fake()->sha256(),
+            'nomba_test_webhook_secret' => 'whsec_test_default',
             'test_connected_at' => now(),
         ]);
     }
@@ -46,6 +47,7 @@ class TeamProcessorConnectionFactory extends Factory
             'nomba_live_account_id' => fake()->uuid(),
             'nomba_live_client_id' => fake()->uuid(),
             'nomba_live_client_secret' => fake()->sha256(),
+            'nomba_live_webhook_secret' => 'whsec_live_default',
             'live_connected_at' => now(),
         ]);
     }

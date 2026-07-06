@@ -51,6 +51,7 @@ class NombaConnectionController extends Controller
         $subaccountId = $request->validated('subaccount_id') ?: null;
         $clientId = $request->validated('client_id');
         $clientSecret = $request->validated('client_secret');
+        $webhookSecret = $request->validated('webhook_secret');
 
         try {
             // Authentication always uses the parent account, never the
@@ -70,6 +71,7 @@ class NombaConnectionController extends Controller
                 'nomba_test_subaccount_id' => $subaccountId,
                 'nomba_test_client_id' => $clientId,
                 'nomba_test_client_secret' => $clientSecret,
+                'nomba_test_webhook_secret' => $webhookSecret,
                 'test_connected_at' => now(),
             ],
             ApiKeyMode::Live => [
@@ -77,6 +79,7 @@ class NombaConnectionController extends Controller
                 'nomba_live_subaccount_id' => $subaccountId,
                 'nomba_live_client_id' => $clientId,
                 'nomba_live_client_secret' => $clientSecret,
+                'nomba_live_webhook_secret' => $webhookSecret,
                 'live_connected_at' => now(),
             ],
         });
@@ -150,6 +153,7 @@ class NombaConnectionController extends Controller
                 'nomba_test_subaccount_id' => null,
                 'nomba_test_client_id' => null,
                 'nomba_test_client_secret' => null,
+                'nomba_test_webhook_secret' => null,
                 'test_connected_at' => null,
             ],
             ApiKeyMode::Live => [
@@ -157,6 +161,7 @@ class NombaConnectionController extends Controller
                 'nomba_live_subaccount_id' => null,
                 'nomba_live_client_id' => null,
                 'nomba_live_client_secret' => null,
+                'nomba_live_webhook_secret' => null,
                 'live_connected_at' => null,
             ],
         });
@@ -167,7 +172,7 @@ class NombaConnectionController extends Controller
     }
 
     /**
-     * @return array{connected: bool, connectedAt: string|null, accountIdPreview: string|null, subaccountIdPreview: string|null, clientIdPreview: string|null}
+     * @return array{connected: bool, connectedAt: string|null, accountIdPreview: string|null, subaccountIdPreview: string|null, clientIdPreview: string|null, webhookSecretSet: bool}
      */
     private function modeStatus(?TeamProcessorConnection $connection, ApiKeyMode $mode): array
     {
@@ -182,6 +187,7 @@ class NombaConnectionController extends Controller
             'accountIdPreview' => $credentials ? substr($credentials['accountId'], -4) : null,
             'subaccountIdPreview' => $credentials && $credentials['subaccountId'] ? substr($credentials['subaccountId'], -4) : null,
             'clientIdPreview' => $credentials ? substr($credentials['clientId'], -4) : null,
+            'webhookSecretSet' => $connection?->hasWebhookSecret($mode) ?? false,
         ];
     }
 }

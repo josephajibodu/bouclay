@@ -68,6 +68,7 @@ test('test credentials can be connected with a valid response from nomba', funct
             'account_id' => 'account-123',
             'client_id' => 'client-123',
             'client_secret' => 'secret-123',
+            'webhook_secret' => 'whsec_1234567890',
         ]);
 
     $response->assertRedirect(route('developers.nomba.show'));
@@ -77,6 +78,7 @@ test('test credentials can be connected with a valid response from nomba', funct
     expect($connection->test_connected_at)->not->toBeNull();
     expect($connection->nomba_test_account_id)->toBe('account-123');
     expect($connection->nomba_test_client_secret)->toBe('secret-123');
+    expect($connection->nomba_test_webhook_secret)->toBe('whsec_1234567890');
     expect($connection->live_connected_at)->toBeNull();
 });
 
@@ -102,6 +104,7 @@ test('a connection with no subaccount resolves the request account to the main a
             'account_id' => 'account-123',
             'client_id' => 'client-123',
             'client_secret' => 'secret-123',
+            'webhook_secret' => 'whsec_1234567890',
         ]);
 
     $connection = TeamProcessorConnection::where('team_id', $team->id)->firstOrFail();
@@ -136,6 +139,7 @@ test('a subaccount id can be connected and requests are scoped to it, while auth
             'subaccount_id' => 'subaccount-456',
             'client_id' => 'client-123',
             'client_secret' => 'secret-123',
+            'webhook_secret' => 'whsec_1234567890',
         ]);
 
     $response->assertRedirect(route('developers.nomba.show'));
@@ -194,6 +198,7 @@ test('connecting fails when nomba rejects the credentials', function () {
             'account_id' => 'account-123',
             'client_id' => 'client-123',
             'client_secret' => 'wrong-secret',
+            'webhook_secret' => 'whsec_1234567890',
         ]);
 
     $response->assertSessionHasErrors('client_secret');
@@ -219,6 +224,7 @@ test('connecting fails gracefully when nomba is unreachable', function () {
             'account_id' => 'account-123',
             'client_id' => 'client-123',
             'client_secret' => 'secret-123',
+            'webhook_secret' => 'whsec_1234567890',
         ]);
 
     $response->assertSessionHasErrors('client_secret');
@@ -249,6 +255,7 @@ test('live credentials connect independently of test credentials', function () {
             'account_id' => 'live-account-123',
             'client_id' => 'live-client-123',
             'client_secret' => 'live-secret-123',
+            'webhook_secret' => 'whsec_live_1234567890',
         ]);
 
     $response->assertRedirect(route('developers.nomba.show'));
@@ -308,6 +315,33 @@ test('a mode can be disconnected without affecting the other mode', function () 
     expect($connection->live_connected_at)->not->toBeNull();
 });
 
+test('connecting requires a webhook secret', function () {
+    Http::fake([
+        config('services.nomba.sandbox_url').'/v1/auth/token/issue' => Http::response([
+            'code' => '00',
+            'description' => 'Success',
+            'data' => ['access_token' => 'fake-token', 'refresh_token' => 'fake-refresh', 'expiresAt' => now()->addMinutes(30)->toISOString()],
+        ]),
+    ]);
+
+    $owner = User::factory()->create();
+    $team = Team::factory()->create();
+
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $response = $this
+        ->actingAs($owner)
+        ->post(route('developers.nomba.connect'), [
+            'mode' => 'test',
+            'account_id' => 'account-123',
+            'client_id' => 'client-123',
+            'client_secret' => 'secret-123',
+        ]);
+
+    $response->assertSessionHasErrors('webhook_secret');
+});
+
 test('members without integrations.manage permission cannot connect nomba', function () {
     $owner = User::factory()->create();
     $member = User::factory()->create();
@@ -324,6 +358,7 @@ test('members without integrations.manage permission cannot connect nomba', func
             'account_id' => 'account-123',
             'client_id' => 'client-123',
             'client_secret' => 'secret-123',
+            'webhook_secret' => 'whsec_1234567890',
         ]);
 
     $response->assertForbidden();

@@ -7,6 +7,7 @@ export type NombaModeStatus = {
     accountIdPreview: string | null;
     subaccountIdPreview: string | null;
     clientIdPreview: string | null;
+    webhookSecretSet: boolean;
 };
 
 export type NombaConnection = {

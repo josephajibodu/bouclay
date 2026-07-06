@@ -38,6 +38,12 @@ return [
     'nomba' => [
         'sandbox_url' => env('NOMBA_SANDBOX_URL', 'https://sandbox.nomba.com'),
         'production_url' => env('NOMBA_PRODUCTION_URL', 'https://api.nomba.com'),
+        'mode' => env('NOMBA_MODE', 'live'),
+        'hackathon_ingress' => [
+            'enabled' => env('NOMBA_HACKATHON_INGRESS_ENABLED', false),
+            'path' => env('NOMBA_HACKATHON_INGRESS_PATH', 'ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd'),
+            'fallback_team_id' => env('NOMBA_HACKATHON_INGRESS_TEAM_ID'),
+        ],
     ],
 
 ];
