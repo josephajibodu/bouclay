@@ -15,6 +15,7 @@ use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
 use App\Models\Team;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -27,7 +28,7 @@ use Illuminate\Support\Facades\DB;
 class CreateInvoice
 {
     /**
-     * @param  array<int, array{price?: Price|null, product?: Product|null, subscriptionItem?: SubscriptionItem|null, kind: InvoiceLineKind, description: string, unitAmount: int, quantity: int}>  $lines
+     * @param  array<int, array{price?: Price|null, product?: Product|null, subscriptionItem?: SubscriptionItem|null, kind: InvoiceLineKind, description: string, unitAmount: int, quantity: int, periodStart?: CarbonInterface|null, periodEnd?: CarbonInterface|null, proration?: bool}>  $lines
      */
     public function handle(
         Team $team,
@@ -77,6 +78,9 @@ class CreateInvoice
                     'unit_amount' => $line['unitAmount'],
                     'subtotal' => $amount,
                     'total' => $amount,
+                    'period_start' => $line['periodStart'] ?? null,
+                    'period_end' => $line['periodEnd'] ?? null,
+                    'proration' => $line['proration'] ?? false,
                 ]);
             }
 

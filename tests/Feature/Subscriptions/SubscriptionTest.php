@@ -2,6 +2,7 @@
 
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\SubscriptionItemStatus;
 use App\Enums\SubscriptionStatus;
 use App\Mail\InvoiceIssued;
 use App\Models\Customer;
@@ -147,6 +148,31 @@ test('a manual subscription with a regular price stays incomplete until the invo
         return $mail->invoice->is($invoice)
             && str_contains($mail->actionUrl, $invoice->public_id);
     });
+});
+
+test('the subscription hub exposes catalog products for item changes', function () {
+    ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'product' => $product, 'price' => $price] = subscriptionFixture();
+
+    $subscription = Subscription::factory()
+        ->for($team)
+        ->for($customer)
+        ->create(['status' => SubscriptionStatus::Active]);
+
+    $subscription->items()->create([
+        'price_id' => $price->id,
+        'product_id' => $product->id,
+        'quantity' => 1,
+        'status' => SubscriptionItemStatus::Active,
+    ]);
+
+    $this->actingAs($owner)
+        ->get(route('subscriptions.show', $subscription))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('subscriptions/show')
+            ->has('products', 1)
+            ->where('products.0.id', $product->id)
+            ->where('products.0.prices.0.id', $price->id));
 });
 
 test('an incomplete manual subscription exposes a payment link on the hub', function () {

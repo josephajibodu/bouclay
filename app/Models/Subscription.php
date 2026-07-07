@@ -82,7 +82,7 @@ class Subscription extends Model
      * legality (throwing IllegalStateTransition when the action isn't allowed),
      * then we persist the new status plus any state-owned timestamps it set.
      *
-     * @param  'activate'|'convert'|'pause'|'resume'|'cancel'|'markPastDue'|'recover'|'expire'  $action
+     * @param  'activate'|'convert'|'pause'|'resume'|'cancel'|'markPastDue'|'recover'|'expire'  $action  cancel accepts an optional ends-at timestamp
      */
     public function apply(string $action, mixed ...$args): SubscriptionState
     {

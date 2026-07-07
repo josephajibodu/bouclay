@@ -3,6 +3,7 @@
 namespace App\States\Subscription;
 
 use App\Enums\SubscriptionStatus;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 
 /**
@@ -29,8 +30,8 @@ interface SubscriptionState
     /** Resume a paused subscription. */
     public function resume(): SubscriptionState;
 
-    /** End the subscription immediately. */
-    public function cancel(): SubscriptionState;
+    /** End the subscription immediately, or at a scheduled boundary. */
+    public function cancel(?CarbonInterface $endsAt = null): SubscriptionState;
 
     /** A renewal charge failed — enter dunning. */
     public function markPastDue(): SubscriptionState;

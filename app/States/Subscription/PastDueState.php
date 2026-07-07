@@ -3,6 +3,7 @@
 namespace App\States\Subscription;
 
 use App\Enums\SubscriptionStatus;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 
 /**
@@ -21,10 +22,10 @@ final class PastDueState extends BaseSubscriptionState
         return $this->to(ActiveState::class);
     }
 
-    public function cancel(): SubscriptionState
+    public function cancel(?CarbonInterface $endsAt = null): SubscriptionState
     {
         $this->subscription->canceled_at = Carbon::now();
-        $this->subscription->ends_at = Carbon::now();
+        $this->subscription->ends_at = $endsAt !== null ? Carbon::instance($endsAt) : Carbon::now();
 
         return $this->to(CanceledState::class);
     }

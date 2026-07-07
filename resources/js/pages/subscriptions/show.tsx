@@ -5,7 +5,9 @@ import {
     Copy,
     CreditCard,
     Gift,
+    MoreHorizontal,
     Pause,
+    Pencil,
     Play,
     Receipt,
     RefreshCw,
@@ -13,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import ManageSubscriptionItemSheet from '@/components/subscriptions/manage-subscription-item-sheet';
 import { SUBSCRIPTION_STATUS_META } from '@/components/subscriptions/subscription-status';
 import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription-status-badge';
 import {
@@ -44,6 +47,7 @@ import { show as customerShow } from '@/routes/customers';
 import { cancel, index, pause, resume, undoCancel } from '@/routes/subscriptions';
 import { show as invoiceShow } from '@/routes/invoices';
 import type {
+    CreateProductOption,
     InvoiceSummary,
     PaymentListItem,
     SubscriptionDetail,
@@ -63,6 +67,7 @@ type Props = {
     payments: PaymentListItem[];
     permissions: { canManage: boolean };
     paymentLink: string | null;
+    products: CreateProductOption[];
 };
 
 function formatDate(iso: string | null): string {
@@ -122,16 +127,25 @@ export default function SubscriptionShow({
     payments,
     permissions,
     paymentLink,
+    products,
 }: Props) {
     const { canManage } = permissions;
     const [copied, setCopied] = useState(false);
     const [cancelOpen, setCancelOpen] = useState(false);
+    const [manageItem, setManageItem] = useState<SubscriptionItem | null>(
+        null,
+    );
 
     const meta = SUBSCRIPTION_STATUS_META[subscription.status];
     const scheduledCancel = scheduledChanges.find((c) => c.action === 'cancel');
     const isTerminal =
         subscription.status === 'canceled' ||
         subscription.status === 'incomplete_expired';
+    const canEditItems =
+        canManage &&
+        !isTerminal &&
+        (subscription.status === 'active' ||
+            subscription.status === 'past_due');
 
     const copyId = async () => {
         await navigator.clipboard.writeText(subscription.publicId);
@@ -292,7 +306,25 @@ export default function SubscriptionShow({
 
             {/* Items */}
             <section className="space-y-3">
-                <h2 className="text-lg font-semibold">Subscription items</h2>
+                <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-lg font-semibold">Subscription items</h2>
+                    {canEditItems && items.some((item) => itemCanBeManaged(item)) && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                                setManageItem(
+                                    items.find((item) => itemCanBeManaged(item)) ??
+                                        null,
+                                )
+                            }
+                            data-test="manage-items-button"
+                        >
+                            Manage items
+                        </Button>
+                    )}
+                </div>
                 <div className="divide-y rounded-lg border">
                     {items.map((item) => (
                         <div
@@ -324,18 +356,25 @@ export default function SubscriptionShow({
                                     </p>
                                 </div>
                             </div>
-                            <div className="text-right text-sm">
-                                <p className="font-medium">
-                                    {item.trial?.isFree
-                                        ? 'Free'
-                                        : money(
-                                              item.price.unitAmount,
-                                              item.price.currency,
-                                          )}
-                                </p>
-                                <p className="text-muted-foreground">
-                                    × {item.quantity}
-                                </p>
+                            <div className="flex items-start gap-2">
+                                <div className="text-right text-sm">
+                                    <p className="font-medium">
+                                        {item.trial?.isFree
+                                            ? 'Free'
+                                            : money(
+                                                  item.price.unitAmount,
+                                                  item.price.currency,
+                                              )}
+                                    </p>
+                                    <p className="text-muted-foreground">
+                                        × {item.quantity}
+                                    </p>
+                                </div>
+                                {canEditItems && itemCanBeManaged(item) && (
+                                    <ItemActionsMenu
+                                        onManage={() => setManageItem(item)}
+                                    />
+                                )}
                             </div>
                         </div>
                     ))}
@@ -525,6 +564,18 @@ export default function SubscriptionShow({
                     </div>
                 </div>
             </section>
+
+            <ManageSubscriptionItemSheet
+                subscription={subscription}
+                item={manageItem}
+                products={products}
+                open={manageItem !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setManageItem(null);
+                    }
+                }}
+            />
 
             {/* Cancel dialog */}
             <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
@@ -787,6 +838,33 @@ function Fact({ label, value }: { label: string; value: string }) {
                 {value}
             </p>
         </div>
+    );
+}
+
+function itemCanBeManaged(item: SubscriptionItem): boolean {
+    return item.status === 'active' && item.trial === null;
+}
+
+function ItemActionsMenu({ onManage }: { onManage: () => void }) {
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0"
+                    data-test="item-actions"
+                >
+                    <MoreHorizontal className="size-4" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={onManage}>
+                    <Pencil /> Change plan or quantity
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     );
 }
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Subscriptions;
 
 use App\Actions\Subscriptions\BuildSubscriptionCreateOptions;
 use App\Actions\Subscriptions\CreateSubscription;
+use App\Actions\Subscriptions\UpdateSubscriptionItem;
 use App\Enums\CatalogStatus;
 use App\Enums\InvoiceStatus;
 use App\Enums\PriceType;
@@ -12,9 +13,11 @@ use App\Enums\SubscriptionStatus;
 use App\Exceptions\Subscriptions\IllegalStateTransition;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Subscriptions\StoreSubscriptionRequest;
+use App\Http\Requests\Subscriptions\UpdateSubscriptionItemRequest;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
 use App\Models\Subscription;
+use App\Models\SubscriptionItem;
 use App\Models\Team;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -103,7 +106,7 @@ class SubscriptionController extends Controller
     /**
      * The subscription detail hub (SUBSCRIPTIONS_DESIGN §8).
      */
-    public function show(Request $request, Subscription $subscription): Response
+    public function show(Request $request, Subscription $subscription, BuildSubscriptionCreateOptions $createOptions): Response
     {
         $team = $request->user()->currentTeam;
 
@@ -172,8 +175,40 @@ class SubscriptionController extends Controller
             'permissions' => [
                 'canManage' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
             ],
+            'products' => $createOptions->handle($team)['products'],
             'paymentLink' => $paymentLink,
         ]);
+    }
+
+    /**
+     * Update a subscription item's plan or quantity and invoice proration.
+     */
+    public function updateItem(
+        UpdateSubscriptionItemRequest $request,
+        Subscription $subscription,
+        SubscriptionItem $item,
+        UpdateSubscriptionItem $update,
+    ): RedirectResponse {
+        $subscription = $this->authorizeManage($request, $subscription);
+
+        abort_unless($item->subscription_id === $subscription->id, 404);
+
+        $validated = $request->validated();
+
+        try {
+            $update->handle(
+                subscription: $subscription,
+                item: $item,
+                quantity: isset($validated['quantity']) ? (int) $validated['quantity'] : null,
+                priceId: isset($validated['price_id']) ? (int) $validated['price_id'] : null,
+            );
+        } catch (InvalidArgumentException $e) {
+            throw ValidationException::withMessages(['quantity' => $e->getMessage()]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Subscription item updated.']);
+
+        return back();
     }
 
     /**

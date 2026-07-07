@@ -4,6 +4,7 @@ namespace App\States\Subscription;
 
 use App\Exceptions\Subscriptions\IllegalStateTransition;
 use App\Models\Subscription;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 
 /**
@@ -35,7 +36,7 @@ abstract class BaseSubscriptionState implements SubscriptionState
         return $this->illegal('resume');
     }
 
-    public function cancel(): SubscriptionState
+    public function cancel(?CarbonInterface $endsAt = null): SubscriptionState
     {
         return $this->illegal('cancel');
     }
