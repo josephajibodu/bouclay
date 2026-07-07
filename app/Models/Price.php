@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -40,6 +41,7 @@ use Illuminate\Support\Carbon;
  * @property-read Team $team
  * @property-read Product $product
  * @property-read Collection<int, PriceTier> $tiers
+ * @property-read PaymentLink|null $paymentLink
  */
 #[Fillable([
     'team_id', 'product_id', 'name', 'type', 'pricing_model',
@@ -90,6 +92,16 @@ class Price extends Model
     }
 
     /**
+     * Get the durable hosted checkout link for this price, when one exists.
+     *
+     * @return HasOne<PaymentLink, $this>
+     */
+    public function paymentLink(): HasOne
+    {
+        return $this->hasOne(PaymentLink::class);
+    }
+
+    /**
      * Format this price for the frontend — amounts converted back to major
      * currency units (see App\Actions\Catalog\CreatePrice for the reverse).
      * Trial involvement is no longer embedded here — a price is a normal,
@@ -115,6 +127,13 @@ class Price extends Model
             'status' => $this->status,
             'hasBeenUsed' => $this->hasBeenUsed(),
             'customData' => $this->custom_data,
+            'paymentLink' => $this->relationLoaded('paymentLink') && $this->paymentLink !== null
+                ? [
+                    'id' => $this->paymentLink->public_id,
+                    'url' => $this->paymentLink->url(),
+                    'priceLabel' => $this->toPickerLabel(),
+                ]
+                : null,
             'createdAt' => $this->created_at?->toISOString(),
             'tiers' => $this->relationLoaded('tiers')
                 ? $this->tiers->map(fn (PriceTier $tier) => [

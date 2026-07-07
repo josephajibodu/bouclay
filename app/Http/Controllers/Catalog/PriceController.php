@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Catalog;
 
 use App\Actions\Catalog\CreatePrice;
+use App\Enums\CatalogStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\StorePriceRequest;
 use App\Http\Requests\Catalog\UpdatePriceRequest;
+use App\Models\PaymentLink;
 use App\Models\Price;
 use App\Models\PriceTier;
 use App\Models\Product;
@@ -122,6 +124,49 @@ class PriceController extends Controller
         $price->update(['status' => 'archived']);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Price archived']);
+
+        return back();
+    }
+
+    /**
+     * Create or retrieve the shareable hosted checkout URL for this exact
+     * catalog price.
+     */
+    public function paymentLink(Request $request, Product $product, Price $price): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($product->team_id === $team->id && $price->product_id === $product->id, 404);
+
+        Gate::authorize('managePrices', $team);
+
+        if ($product->status === CatalogStatus::Archived || $price->status === CatalogStatus::Archived || ($price->unit_amount ?? 0) <= 0) {
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => 'Payment links are available for active, fixed-amount prices.',
+            ]);
+
+            return back();
+        }
+
+        $paymentLink = PaymentLink::query()->firstOrCreate(
+            [
+                'team_id' => $team->id,
+                'price_id' => $price->id,
+            ],
+            [
+                'product_id' => $product->id,
+                'active' => true,
+            ],
+        );
+
+        Inertia::flash('paymentLink', [
+            'url' => $paymentLink->url(),
+            'productName' => $product->name,
+            'priceLabel' => $price->toPickerLabel(),
+        ]);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Payment link ready']);
 
         return back();
     }

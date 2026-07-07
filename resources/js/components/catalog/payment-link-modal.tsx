@@ -1,0 +1,215 @@
+import { router } from '@inertiajs/react';
+import { Check, Copy, ExternalLink, Link as LinkIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
+import { paymentLink as createPaymentLink } from '@/routes/catalog/prices';
+import type { Price } from '@/types';
+
+type PaymentLinkPayload = {
+    url: string;
+    productName: string;
+    priceLabel: string;
+};
+
+type Props = {
+    productId: number;
+    productName: string;
+    price: Price | null;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+};
+
+export default function PaymentLinkModal({
+    productId,
+    productName,
+    price,
+    open,
+    onOpenChange,
+}: Props) {
+    const [processing, setProcessing] = useState(false);
+    const [link, setLink] = useState<PaymentLinkPayload | null>(null);
+    const [copied, setCopied] = useState(false);
+    const existingLink = price?.paymentLink
+        ? {
+              url: price.paymentLink.url,
+              productName,
+              priceLabel: price.paymentLink.priceLabel,
+          }
+        : null;
+    const visibleLink = link ?? existingLink;
+
+    useEffect(() => {
+        return router.on('flash', (event) => {
+            const flash = (event as CustomEvent).detail?.flash;
+            const payload = flash?.paymentLink as
+                PaymentLinkPayload | undefined;
+
+            if (payload) {
+                setLink(payload);
+            }
+        });
+    }, []);
+
+    const reset = () => {
+        setProcessing(false);
+        setLink(null);
+        setCopied(false);
+    };
+
+    const create = () => {
+        if (!price) {
+            return;
+        }
+
+        router.post(
+            createPaymentLink({ product: productId, price: price.id }).url,
+            {},
+            {
+                preserveScroll: true,
+                preserveState: true,
+                onStart: () => setProcessing(true),
+                onFinish: () => setProcessing(false),
+            },
+        );
+    };
+
+    const copy = async () => {
+        if (!visibleLink) {
+            return;
+        }
+
+        await navigator.clipboard.writeText(visibleLink.url);
+        setCopied(true);
+        toast.success('Payment link copied');
+        window.setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(next) => {
+                if (!next) {
+                    reset();
+                }
+
+                onOpenChange(next);
+            }}
+        >
+            <DialogContent>
+                {visibleLink ? (
+                    <>
+                        <DialogHeader>
+                            <DialogTitle>Payment link</DialogTitle>
+                            <DialogDescription>
+                                Share this hosted checkout page anywhere. Buyers
+                                enter their email, then pay the exact catalog
+                                price on Nomba.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="flex flex-col gap-3">
+                            <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                                <p className="font-medium">
+                                    {visibleLink.productName ||
+                                        'Hosted checkout'}
+                                </p>
+                                <p className="text-muted-foreground">
+                                    {visibleLink.priceLabel}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    readOnly
+                                    value={visibleLink.url}
+                                    className="font-mono text-xs"
+                                    onFocus={(e) => e.target.select()}
+                                    data-test="payment-link-url"
+                                />
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={copy}
+                                    aria-label="Copy payment link"
+                                >
+                                    {copied ? (
+                                        <Check className="text-emerald-500" />
+                                    ) : (
+                                        <Copy />
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+
+                        <DialogFooter className="flex-row justify-end gap-2">
+                            <Button
+                                variant="secondary"
+                                type="button"
+                                onClick={() => onOpenChange(false)}
+                            >
+                                Done
+                            </Button>
+                            <Button asChild type="button">
+                                <a
+                                    href={visibleLink.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    <ExternalLink /> Open link
+                                </a>
+                            </Button>
+                        </DialogFooter>
+                    </>
+                ) : (
+                    <>
+                        <DialogHeader>
+                            <DialogTitle>Create payment link</DialogTitle>
+                            <DialogDescription>
+                                Create a reusable hosted checkout URL for this
+                                price. Customers can pay without you using the
+                                API.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="flex items-start gap-3 rounded-md border bg-muted/30 p-3 text-sm">
+                            <LinkIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                            <p className="text-muted-foreground">
+                                The link creates the customer at checkout time
+                                and sends them to Nomba for secure payment.
+                            </p>
+                        </div>
+
+                        <DialogFooter className="flex-row justify-end gap-2">
+                            <Button
+                                variant="secondary"
+                                type="button"
+                                onClick={() => onOpenChange(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={create}
+                                disabled={processing || !price}
+                                data-test="create-payment-link-submit"
+                            >
+                                {processing && <Spinner />}
+                                Create payment link
+                            </Button>
+                        </DialogFooter>
+                    </>
+                )}
+            </DialogContent>
+        </Dialog>
+    );
+}

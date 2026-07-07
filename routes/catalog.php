@@ -19,6 +19,7 @@ Route::prefix('catalog')
         Route::post('products/{product}/prices', [PriceController::class, 'store'])->name('prices.store');
         Route::patch('products/{product}/prices/{price}', [PriceController::class, 'update'])->name('prices.update');
         Route::delete('products/{product}/prices/{price}', [PriceController::class, 'archive'])->name('prices.archive');
+        Route::post('products/{product}/prices/{price}/payment-link', [PriceController::class, 'paymentLink'])->name('prices.payment-link');
 
         Route::post('products/{product}/trials', [TrialOfferController::class, 'store'])->name('trials.store');
         Route::patch('products/{product}/trials/{trial_offer}', [TrialOfferController::class, 'update'])->name('trials.update');

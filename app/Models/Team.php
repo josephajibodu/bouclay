@@ -38,6 +38,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Role> $roles
  * @property-read Collection<int, ApiKey> $apiKeys
  * @property-read Collection<int, Product> $products
+ * @property-read Collection<int, PaymentLink> $paymentLinks
  * @property-read TeamSettings|null $settings
  * @property-read TeamProcessorConnection|null $processorConnection
  * @property-read Collection<int, Event> $events
@@ -196,6 +197,16 @@ class Team extends Model
     public function prices(): HasMany
     {
         return $this->hasMany(Price::class);
+    }
+
+    /**
+     * Get all hosted payment links this team has created.
+     *
+     * @return HasMany<PaymentLink, $this>
+     */
+    public function paymentLinks(): HasMany
+    {
+        return $this->hasMany(PaymentLink::class);
     }
 
     /**

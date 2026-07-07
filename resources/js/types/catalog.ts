@@ -26,6 +26,7 @@ export type Price = {
     status: CatalogStatus;
     hasBeenUsed: boolean;
     customData: Record<string, string> | null;
+    paymentLink: { id: string; url: string; priceLabel: string } | null;
     createdAt: string | null;
     tiers: PriceTier[];
 };

@@ -108,7 +108,7 @@ class ProductController extends Controller
 
         Gate::authorize('viewProducts', $team);
 
-        $product->load(['prices' => fn ($query) => $query->with('tiers')->orderBy('created_at')]);
+        $product->load(['prices' => fn ($query) => $query->with(['tiers', 'paymentLink'])->orderBy('created_at')]);
 
         $trials = TrialOffer::query()
             ->where('product_id', $product->id)

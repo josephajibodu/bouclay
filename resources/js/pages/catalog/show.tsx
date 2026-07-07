@@ -16,6 +16,7 @@ import CreatePriceDrawer from '@/components/catalog/create-price-drawer';
 import EditMetadataDrawer from '@/components/catalog/edit-metadata-drawer';
 import EditPriceDrawer from '@/components/catalog/edit-price-drawer';
 import EditProductDrawer from '@/components/catalog/edit-product-drawer';
+import PaymentLinkModal from '@/components/catalog/payment-link-modal';
 import PriceDetailDrawer from '@/components/catalog/price-detail-drawer';
 import { ProductMonogram } from '@/components/catalog/product-monogram';
 import RemoveTrialModal from '@/components/catalog/remove-trial-modal';
@@ -91,6 +92,9 @@ export default function ProductShow({
     const [createTrialOpen, setCreateTrialOpen] = useState(false);
     const [editPriceTarget, setEditPriceTarget] = useState<Price | null>(null);
     const [archivePriceTarget, setArchivePriceTarget] = useState<Price | null>(
+        null,
+    );
+    const [paymentLinkTarget, setPaymentLinkTarget] = useState<Price | null>(
         null,
     );
     const [detailPriceTarget, setDetailPriceTarget] = useState<Price | null>(
@@ -229,9 +233,7 @@ export default function ProductShow({
                         </p>
                     </div>
                     <div>
-                        <p className="text-xs text-muted-foreground">
-                            Created
-                        </p>
+                        <p className="text-xs text-muted-foreground">Created</p>
                         <p className="text-sm font-medium">
                             {product.createdAt
                                 ? new Date(
@@ -282,9 +284,7 @@ export default function ProductShow({
                         <CreatePriceDrawer
                             productId={product.id}
                             productName={product.name}
-                            defaultCurrency={
-                                activePrices[0]?.currency ?? 'NGN'
-                            }
+                            defaultCurrency={activePrices[0]?.currency ?? 'NGN'}
                             open={createPriceOpen}
                             onOpenChange={setCreatePriceOpen}
                         >
@@ -301,9 +301,9 @@ export default function ProductShow({
                             This product doesn't have a price yet
                         </p>
                         <p>
-                            {product.name} can't be subscribed to until it
-                            has at least one price — the amount and interval
-                            a customer is billed.
+                            {product.name} can't be subscribed to until it has
+                            at least one price — the amount and interval a
+                            customer is billed.
                         </p>
                     </div>
                 ) : (
@@ -323,9 +323,10 @@ export default function ProductShow({
                                 }
                                 onEdit={() => setEditPriceTarget(price)}
                                 onArchive={() => setArchivePriceTarget(price)}
-                                onOpenDetail={() =>
-                                    setDetailPriceTarget(price)
+                                onCreatePaymentLink={() =>
+                                    setPaymentLinkTarget(price)
                                 }
+                                onOpenDetail={() => setDetailPriceTarget(price)}
                                 trialOpen={trialRowTarget === price.id}
                                 onTrialOpenChange={(open) =>
                                     setTrialRowTarget(open ? price.id : null)
@@ -369,8 +370,8 @@ export default function ProductShow({
 
                 {prices.length === 0 ? (
                     <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                        Add a price first — a trial needs at least one price
-                        to reference.
+                        Add a price first — a trial needs at least one price to
+                        reference.
                     </div>
                 ) : trials.length === 0 ? (
                     <div className="space-y-1 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -378,8 +379,8 @@ export default function ProductShow({
                             No trials on this product yet
                         </p>
                         <p>
-                            Trials are entirely optional — create one
-                            whenever you're ready.
+                            Trials are entirely optional — create one whenever
+                            you're ready.
                         </p>
                     </div>
                 ) : (
@@ -540,9 +541,7 @@ export default function ProductShow({
                     trials={trials}
                     canManagePrices={permissions.canManagePrices}
                     open={detailPriceTarget !== null}
-                    onOpenChange={(open) =>
-                        !open && setDetailPriceTarget(null)
-                    }
+                    onOpenChange={(open) => !open && setDetailPriceTarget(null)}
                     onEdit={() => {
                         setEditPriceTarget(detailPriceTarget);
                         setDetailPriceTarget(null);
@@ -568,6 +567,13 @@ export default function ProductShow({
                     }
                 />
             )}
+            <PaymentLinkModal
+                productId={product.id}
+                productName={product.name}
+                price={paymentLinkTarget}
+                open={paymentLinkTarget !== null}
+                onOpenChange={(open) => !open && setPaymentLinkTarget(null)}
+            />
             {editPriceTarget && (
                 <EditPriceDrawer
                     productId={product.id}
@@ -593,9 +599,7 @@ export default function ProductShow({
                     productName={product.name}
                     trialId={removeTrialTarget.id}
                     open={removeTrialTarget !== null}
-                    onOpenChange={(open) =>
-                        !open && setRemoveTrialTarget(null)
-                    }
+                    onOpenChange={(open) => !open && setRemoveTrialTarget(null)}
                 />
             )}
         </div>
@@ -613,6 +617,7 @@ function PriceRow({
     canManageTrials,
     onEdit,
     onArchive,
+    onCreatePaymentLink,
     onOpenDetail,
     trialOpen,
     onTrialOpenChange,
@@ -627,6 +632,7 @@ function PriceRow({
     canManageTrials: boolean;
     onEdit: () => void;
     onArchive: () => void;
+    onCreatePaymentLink: () => void;
     onOpenDetail: () => void;
     trialOpen: boolean;
     onTrialOpenChange: (open: boolean) => void;
@@ -676,8 +682,7 @@ function PriceRow({
                 <p className="text-sm text-muted-foreground">
                     {price.pricingModel === 'graduated' ? (
                         'Graduated pricing'
-                    ) : price.unitAmount !== null &&
-                      price.billingInterval ? (
+                    ) : price.unitAmount !== null && price.billingInterval ? (
                         <>
                             {formatPriceInterval(
                                 price.unitAmount,
@@ -752,6 +757,14 @@ function PriceRow({
                     {canManagePrices && price.status === 'active' && (
                         <>
                             <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                onSelect={onCreatePaymentLink}
+                                data-test="create-payment-link-trigger"
+                            >
+                                {price.paymentLink
+                                    ? 'View payment link'
+                                    : 'Create payment link'}
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                                 onSelect={onEdit}
                                 data-test="edit-price-trigger"
