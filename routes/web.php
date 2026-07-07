@@ -53,5 +53,6 @@ require __DIR__.'/catalog.php';
 require __DIR__.'/customers.php';
 require __DIR__.'/subscriptions.php';
 require __DIR__.'/invoices.php';
+require __DIR__.'/billing-settings.php';
 require __DIR__.'/hosted.php';
 require __DIR__.'/portal.php';
