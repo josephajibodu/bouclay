@@ -13,6 +13,7 @@ use App\Models\PaymentMethod;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Team;
+use App\Services\Invoicing\InvoicePdfGenerator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -20,6 +21,7 @@ use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use InvalidArgumentException;
+use Symfony\Component\HttpFoundation\Response as HttpFoundationResponse;
 
 class InvoiceController extends Controller
 {
@@ -93,6 +95,27 @@ class InvoiceController extends Controller
             'permissions' => [
                 'canManage' => $permissions->canManageInvoices,
             ],
+        ]);
+    }
+
+    /**
+     * Download a PDF snapshot of this invoice.
+     */
+    public function download(Request $request, Invoice $invoice, InvoicePdfGenerator $pdf): HttpFoundationResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($invoice->team_id === $team->id, 404);
+
+        Gate::authorize('viewInvoices', $team);
+
+        $invoice->load(['customer', 'lines', 'team.settings']);
+
+        $filename = ($invoice->number ?? $invoice->public_id).'.pdf';
+
+        return response($pdf->generate($invoice), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
     }
 

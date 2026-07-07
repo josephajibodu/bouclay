@@ -292,3 +292,39 @@ test('invoices from another team return 404', function () {
         ->get(route('invoices.show', $invoice))
         ->assertNotFound();
 });
+
+test('an authenticated team member can download an invoice pdf', function () {
+    ['owner' => $owner, 'customer' => $customer, 'price' => $price] = invoiceFixture();
+
+    $this->actingAs($owner)
+        ->post(route('invoices.store'), [
+            'customer_id' => $customer->id,
+            'collection_mode' => 'manual',
+            'items' => [['price_id' => $price->id]],
+        ]);
+
+    $invoice = Invoice::query()->firstOrFail();
+
+    $response = $this->actingAs($owner)
+        ->get(route('invoices.pdf', $invoice));
+
+    $response->assertOk()
+        ->assertHeader('content-type', 'application/pdf');
+
+    expect(strlen($response->getContent()))->toBeGreaterThan(100);
+});
+
+test('invoice pdf downloads from another team return 404', function () {
+    ['owner' => $owner, 'customer' => $customer] = invoiceFixture();
+
+    $otherTeam = Team::factory()->create();
+    $otherOwner = User::factory()->create();
+    attachTeamOwner($otherTeam, $otherOwner);
+    $otherOwner->switchTeam($otherTeam);
+
+    $invoice = Invoice::factory()->for($owner->currentTeam)->for($customer)->create();
+
+    $this->actingAs($otherOwner)
+        ->get(route('invoices.pdf', $invoice))
+        ->assertNotFound();
+});

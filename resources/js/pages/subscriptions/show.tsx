@@ -62,6 +62,7 @@ type Props = {
     invoices: InvoiceSummary[];
     payments: PaymentListItem[];
     permissions: { canManage: boolean };
+    paymentLink: string | null;
 };
 
 function formatDate(iso: string | null): string {
@@ -120,6 +121,7 @@ export default function SubscriptionShow({
     invoices,
     payments,
     permissions,
+    paymentLink,
 }: Props) {
     const { canManage } = permissions;
     const [copied, setCopied] = useState(false);
@@ -249,6 +251,7 @@ export default function SubscriptionShow({
                 scheduledCancel={scheduledCancel}
                 onUndoCancel={doUndoCancel}
                 canManage={canManage}
+                paymentLink={paymentLink}
             />
 
             {/* Overview */}
@@ -564,11 +567,13 @@ function StatusBanner({
     scheduledCancel,
     onUndoCancel,
     canManage,
+    paymentLink,
 }: {
     subscription: SubscriptionDetail;
     scheduledCancel: SubscriptionScheduledChange | undefined;
     onUndoCancel: () => void;
     canManage: boolean;
+    paymentLink: string | null;
 }) {
     if (scheduledCancel) {
         return (
@@ -601,9 +606,12 @@ function StatusBanner({
             return (
                 <Banner tone="amber">
                     <span>
-                        Waiting for the first payment. Access should start once
-                        it's paid.
+                        Waiting for the first payment. Send the customer the
+                        payment link — access should start once it&apos;s paid.
                     </span>
+                    {canManage && paymentLink && (
+                        <CopyPaymentLinkButton url={paymentLink} />
+                    )}
                 </Banner>
             );
         case 'past_due':
@@ -613,6 +621,9 @@ function StatusBanner({
                         A renewal payment failed. Bouclay will retry
                         automatically. Update the card to recover sooner.
                     </span>
+                    {canManage && paymentLink && (
+                        <CopyPaymentLinkButton url={paymentLink} />
+                    )}
                 </Banner>
             );
         case 'paused':
@@ -650,6 +661,29 @@ const TONES: Record<string, string> = {
     violet: 'border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300',
     zinc: 'border-border bg-muted/40 text-muted-foreground',
 };
+
+function CopyPaymentLinkButton({ url }: { url: string }) {
+    const [copied, setCopied] = useState(false);
+
+    const copy = async () => {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        toast.success('Payment link copied');
+        window.setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <Button
+            size="sm"
+            variant="outline"
+            onClick={copy}
+            data-test="copy-payment-link"
+        >
+            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            Copy payment link
+        </Button>
+    );
+}
 
 function Banner({
     tone,

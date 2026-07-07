@@ -11,6 +11,7 @@ Route::prefix('invoices')
         Route::get('/', [InvoiceController::class, 'index'])->name('index');
         Route::post('/', [InvoiceController::class, 'store'])->name('store');
         Route::get('{invoice}', [InvoiceController::class, 'show'])->name('show');
+        Route::get('{invoice}/pdf', [InvoiceController::class, 'download'])->name('pdf');
         Route::post('{invoice}/void', [InvoiceController::class, 'void'])->name('void');
         Route::post('{invoice}/uncollectible', [InvoiceController::class, 'markUncollectible'])->name('uncollectible');
     });

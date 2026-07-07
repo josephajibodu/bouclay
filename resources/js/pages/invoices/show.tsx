@@ -30,6 +30,7 @@ import {
 import { show as customerShow } from '@/routes/customers';
 import {
     index as invoicesIndex,
+    pdf as downloadInvoicePdf,
     uncollectible,
     voidMethod as voidInvoice,
 } from '@/routes/invoices';
@@ -167,11 +168,14 @@ export default function InvoiceShow({ invoice, permissions }: Props) {
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-56">
-                                <DropdownMenuItem
-                                    disabled
-                                    title="PDF export lands in a later pass"
-                                >
-                                    <Download /> Download PDF
+                                <DropdownMenuItem asChild>
+                                    <a
+                                        href={downloadInvoicePdf.url(invoice.id)}
+                                        download
+                                        data-test="download-invoice-pdf"
+                                    >
+                                        <Download /> Download PDF
+                                    </a>
                                 </DropdownMenuItem>
                                 {invoice.subscription && (
                                     <DropdownMenuItem asChild>

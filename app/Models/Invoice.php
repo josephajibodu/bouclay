@@ -178,6 +178,25 @@ class Invoice extends Model
     }
 
     /**
+     * The URL a customer can use to pay this invoice — a direct Nomba checkout
+     * link when one exists, otherwise the Bouclay hosted invoice page.
+     */
+    public function paymentLink(): ?string
+    {
+        if (! $this->canBeCanceled()) {
+            return null;
+        }
+
+        $checkoutLink = $this->custom_data['checkout_link'] ?? null;
+
+        if (is_string($checkoutLink) && $checkoutLink !== '') {
+            return $checkoutLink;
+        }
+
+        return route('hosted.invoices.show', $this->public_id);
+    }
+
+    /**
      * Serialise a row for invoice hub contexts (customer, subscription).
      *
      * @return array<string, mixed>

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Subscriptions;
 use App\Actions\Subscriptions\BuildSubscriptionCreateOptions;
 use App\Actions\Subscriptions\CreateSubscription;
 use App\Enums\CatalogStatus;
+use App\Enums\InvoiceStatus;
 use App\Enums\PriceType;
 use App\Enums\ScheduledChangeAction;
 use App\Enums\SubscriptionStatus;
@@ -124,6 +125,11 @@ class SubscriptionController extends Controller
         ]);
 
         $status = $subscription->status;
+        $openInvoice = $subscription->invoices
+            ->first(fn ($invoice) => $invoice->status === InvoiceStatus::Open);
+        $paymentLink = $openInvoice !== null && in_array($status, [SubscriptionStatus::Incomplete, SubscriptionStatus::PastDue], true)
+            ? $openInvoice->paymentLink()
+            : null;
 
         return Inertia::render('subscriptions/show', [
             'subscription' => [
@@ -166,6 +172,7 @@ class SubscriptionController extends Controller
             'permissions' => [
                 'canManage' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
             ],
+            'paymentLink' => $paymentLink,
         ]);
     }
 

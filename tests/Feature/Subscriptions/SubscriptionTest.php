@@ -149,6 +149,55 @@ test('a manual subscription with a regular price stays incomplete until the invo
     });
 });
 
+test('an incomplete manual subscription exposes a payment link on the hub', function () {
+    Mail::fake();
+
+    ['owner' => $owner, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
+
+    $this->actingAs($owner)
+        ->post(route('subscriptions.store'), [
+            'customer_id' => $customer->id,
+            'collection_mode' => 'manual',
+            'items' => [['kind' => 'price', 'price_id' => $price->id, 'quantity' => 1]],
+        ])
+        ->assertRedirect();
+
+    $subscription = Subscription::query()->firstOrFail();
+    $invoice = $subscription->invoices()->firstOrFail();
+
+    $this->actingAs($owner)
+        ->get(route('subscriptions.show', $subscription))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('subscriptions/show')
+            ->where('paymentLink', route('hosted.invoices.show', $invoice->public_id)));
+});
+
+test('an incomplete automatic subscription without a card exposes the checkout link on the hub', function () {
+    Mail::fake();
+
+    ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout('https://checkout.nomba.com/pay/sub-hub');
+
+    $this->actingAs($owner)
+        ->post(route('subscriptions.store'), [
+            'customer_id' => $customer->id,
+            'collection_mode' => 'automatic',
+            'items' => [['kind' => 'price', 'price_id' => $price->id]],
+        ])
+        ->assertRedirect();
+
+    $subscription = Subscription::query()->firstOrFail();
+
+    $this->actingAs($owner)
+        ->get(route('subscriptions.show', $subscription))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('subscriptions/show')
+            ->where('paymentLink', 'https://checkout.nomba.com/pay/sub-hub'));
+});
+
 test('an automatic subscription with no card waits at incomplete, generates checkout, and emails the customer', function () {
     Mail::fake();
 
