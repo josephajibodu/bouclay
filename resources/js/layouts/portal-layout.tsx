@@ -1,5 +1,6 @@
 import { Link, usePage } from '@inertiajs/react';
 import {
+    ArrowLeft,
     CreditCard,
     LayoutGrid,
     Receipt,
@@ -46,7 +47,7 @@ const NAV_ITEMS = [
 
 export default function PortalLayout({ children }: PropsWithChildren) {
     const { currentUrl } = useCurrentUrl();
-    const { token, business } = usePage<PortalPageProps>().props;
+    const { token, business, returnUrl } = usePage<PortalPageProps>().props;
 
     return (
         <div className="portal flex min-h-screen w-full bg-[#f6f7f9] text-foreground">
@@ -59,6 +60,17 @@ export default function PortalLayout({ children }: PropsWithChildren) {
                         {business.name}
                     </span>
                 </div>
+
+                {returnUrl && (
+                    <a
+                        href={returnUrl}
+                        className="mb-4 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-zinc-100 hover:text-foreground"
+                        data-test="portal-return-link"
+                    >
+                        <ArrowLeft className="size-3.5" />
+                        Return to {business.name}
+                    </a>
+                )}
 
                 <nav className="flex flex-1 flex-col gap-1">
                     {NAV_ITEMS.map((item) => {

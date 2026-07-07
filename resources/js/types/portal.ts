@@ -30,6 +30,7 @@ export type PortalSharedProps = {
     customer: PortalCustomer;
     canUpdatePaymentMethod: boolean;
     paymentMethod: PortalPaymentMethod | null;
+    returnUrl: string | null;
 };
 
 export type PortalSubscriptionListItem = {

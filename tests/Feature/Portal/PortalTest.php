@@ -9,7 +9,9 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
+use App\Models\Product;
 use App\Models\Subscription;
+use App\Models\SubscriptionItem;
 use App\Models\Team;
 use App\Models\TeamProcessorConnection;
 use App\Models\User;
@@ -157,6 +159,42 @@ test('the account page renders customer details', function () {
             ->component('portal/account/index')
             ->where('customer.name', 'Ada Lovelace')
             ->where('customer.email', 'ada@example.com'));
+});
+
+test('the portal shows a return link to the subscribed product\'s website', function () {
+    $team = Team::factory()->create(['website' => 'https://team-site.example.com']);
+    $customer = Customer::factory()->for($team)->create();
+    $product = Product::factory()->for($team)->create(['website_url' => 'https://acme.example.com/app']);
+    $subscription = Subscription::factory()->for($team)->for($customer)->create();
+    SubscriptionItem::factory()->for($subscription)->for($product)->create();
+
+    $this->get(route('portal.account.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('returnUrl', 'https://acme.example.com/app'));
+});
+
+test('the portal falls back to the team website when the product has no return link', function () {
+    $team = Team::factory()->create(['website' => 'https://team-site.example.com']);
+    $customer = Customer::factory()->for($team)->create();
+    $product = Product::factory()->for($team)->create(['website_url' => null]);
+    $subscription = Subscription::factory()->for($team)->for($customer)->create();
+    SubscriptionItem::factory()->for($subscription)->for($product)->create();
+
+    $this->get(route('portal.account.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('returnUrl', 'https://team-site.example.com'));
+});
+
+test('the portal has no return link when neither the product nor the team has a website', function () {
+    $team = Team::factory()->create(['website' => null]);
+    $customer = Customer::factory()->for($team)->create();
+
+    $this->get(route('portal.account.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('returnUrl', null));
 });
 
 test('the customer hub exposes the portal url', function () {

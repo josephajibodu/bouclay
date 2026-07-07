@@ -15,6 +15,9 @@ test('customers can be created listed updated archived and restored via api', fu
         ->assertJsonPath('data.email', 'ada@example.com');
 
     $customerId = $create->json('data.id');
+    $customer = Customer::query()->where('public_id', $customerId)->firstOrFail();
+
+    expect($create->json('data.portalUrl'))->toBe(route('portal.show', $customer->portal_token));
 
     $this->getJson('/api/v1/customers', apiHeaders($token))
         ->assertOk()

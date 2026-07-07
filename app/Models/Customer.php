@@ -198,6 +198,7 @@ class Customer extends Model
             'defaultPaymentMethod' => $defaultPaymentMethod !== null
                 ? ['id' => $defaultPaymentMethod->public_id]
                 : null,
+            'portalUrl' => $this->portalUrl(),
             'archivedAt' => $this->deleted_at?->toISOString(),
         ];
     }

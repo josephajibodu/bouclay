@@ -1396,6 +1396,10 @@ components:
           properties:
             id:
               type: string
+        portalUrl:
+          type: string
+          format: uri
+          description: Hosted self-service portal link for this customer (no login required).
         archivedAt:
           type:
             - string

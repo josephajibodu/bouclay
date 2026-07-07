@@ -70,7 +70,25 @@ class BuildPortalContext
                 'expYear' => $defaultPaymentMethod->exp_year,
                 'isExpired' => $defaultPaymentMethod->isExpired(),
             ] : null,
+            'returnUrl' => $this->resolveReturnUrl($customer) ?? $team->website,
         ];
+    }
+
+    /**
+     * The product-level "return to site" link (same one shown on the hosted
+     * invoice) for whichever product this customer most recently subscribed
+     * to — falls back to the team's own website in {@see shared()}.
+     */
+    private function resolveReturnUrl(Customer $customer): ?string
+    {
+        return SubscriptionItem::query()
+            ->whereHas('subscription', fn ($query) => $query->where('customer_id', $customer->id))
+            ->whereHas('product', fn ($query) => $query->whereNotNull('website_url'))
+            ->with('product')
+            ->latest('id')
+            ->first()
+            ?->product
+            ?->website_url;
     }
 
     /**
