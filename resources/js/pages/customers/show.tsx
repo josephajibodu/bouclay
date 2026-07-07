@@ -11,6 +11,7 @@ import {
     Receipt,
     RefreshCw,
     Trash2,
+    ExternalLink,
 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -87,6 +88,7 @@ type Props = {
     products: CreateProductOption[];
     trialOffers: CreateTrialOfferOption[];
     permissions: { canManage: boolean; canManageSubscriptions: boolean };
+    portalUrl: string;
 };
 
 function formatDate(iso: string | null): string {
@@ -143,6 +145,7 @@ export default function CustomerShow({
     products,
     trialOffers,
     permissions,
+    portalUrl,
 }: Props) {
     const { canManage, canManageSubscriptions } = permissions;
     const isArchived = customer.status === 'archived';
@@ -259,6 +262,7 @@ export default function CustomerShow({
                         canManage={canManage}
                         canManageSubscriptions={canManageSubscriptions}
                         isArchived={isArchived}
+                        portalUrl={portalUrl}
                         onEdit={() => setEditOpen(true)}
                         onCopyId={copyId}
                         onAddAddress={openAddAddress}
@@ -883,6 +887,7 @@ function ActionsMenu({
     canManage,
     canManageSubscriptions,
     isArchived,
+    portalUrl,
     onEdit,
     onCopyId,
     onAddAddress,
@@ -894,6 +899,7 @@ function ActionsMenu({
     canManage: boolean;
     canManageSubscriptions: boolean;
     isArchived: boolean;
+    portalUrl: string;
     onEdit: () => void;
     onCopyId: () => void;
     onAddAddress: () => void;
@@ -902,6 +908,11 @@ function ActionsMenu({
     onArchive: () => void;
     onRestore: () => void;
 }) {
+    const copyPortalLink = async () => {
+        await navigator.clipboard.writeText(portalUrl);
+        toast.success('Portal link copied');
+    };
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -918,6 +929,14 @@ function ActionsMenu({
                 <DropdownMenuItem onClick={onCopyId}>
                     <Copy /> Copy customer ID
                 </DropdownMenuItem>
+                {!isArchived && (
+                    <DropdownMenuItem
+                        onClick={copyPortalLink}
+                        data-test="copy-portal-link"
+                    >
+                        <ExternalLink /> Copy portal link
+                    </DropdownMenuItem>
+                )}
 
                 {canManage && !isArchived && (
                     <>

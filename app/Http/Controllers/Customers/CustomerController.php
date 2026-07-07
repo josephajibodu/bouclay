@@ -167,6 +167,7 @@ class CustomerController extends Controller
                 'canManage' => $request->user()->toTeamPermissions($team)->canManageCustomers,
                 'canManageSubscriptions' => $request->user()->toTeamPermissions($team)->canManageSubscriptions,
             ],
+            'portalUrl' => $customer->portalUrl(),
         ]);
     }
 

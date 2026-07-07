@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\HasPortalToken;
 use App\Concerns\HasPublicId;
 use App\Enums\PaymentStatus;
 use Database\Factories\CustomerFactory;
@@ -17,6 +18,7 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $id
  * @property string $public_id
+ * @property string $portal_token
  * @property int $team_id
  * @property string|null $external_ref
  * @property string|null $name
@@ -38,11 +40,12 @@ use Illuminate\Support\Carbon;
 #[Fillable([
     'team_id', 'external_ref', 'name', 'email', 'phone',
     'currency', 'locale', 'country', 'default_payment_method_id', 'custom_data',
+    'portal_token',
 ])]
 class Customer extends Model
 {
     /** @use HasFactory<CustomerFactory> */
-    use HasFactory, HasPublicId, SoftDeletes;
+    use HasFactory, HasPortalToken, HasPublicId, SoftDeletes;
 
     /**
      * Get the prefix for this model's public identifier.
