@@ -52,10 +52,10 @@ Authoritative schema: [`schema.md`](schema.md)
 - Nomba Integration page — connect/test/disconnect per mode (test, live), type-to-confirm on live, credentials verified against Nomba's real token-issue endpoint before saving *(requires `integrations.manage`; `integrations.view` to read)*
 - API Keys page — create (name, publishable/secret, test/live), reveal-once with copy-confirm-before-close, revoke; live keys blocked until a live Nomba connection exists *(requires `api_keys.manage`; `api_keys.view` to read)*
 - Webhooks page — shared inbound URL (`team_processor_connections.inbound_webhook_token`), per-mode signing secret (pasted in from Nomba's dashboard, masked forever after save), rotate endpoint, "Send test event" self-check *(requires `webhooks.manage`; `webhooks.view` to read)*
-- Minimal public `POST /webhooks/nomba/{token}` receiver — resolves the team and marks `webhook_verified_at`; no signature verification or event mapping yet (Phase 7)
+- Minimal public `POST /webhooks/nomba/{token}` receiver started here; Phase 7 has since replaced this with signature verification and event mapping
 - Overview onboarding checklist (business details, Nomba, API key, webhook) tying the four steps together, session-dismissible, deep-linking to the same permanent pages above
 
-**Deferred to a later phase:** `idempotency_keys` table + middleware — belongs with Phase 10's API surface (there's no external write endpoint yet for it to guard).
+**Phase 10 follow-up now done:** `idempotency_keys` table + middleware landed with the public Billing API once external write endpoints existed.
 
 **Exit criteria:** Team saves Nomba keys; dashboard displays `POST /webhooks/nomba/{token}`; team can create/revoke a Bouclay API key. ✅
 
@@ -136,7 +136,7 @@ Because Decision #2 removed the standalone "add card", the *only* way a card rea
 **Built:**
 
 - `subscriptions`, `subscription_items`, `subscription_item_trials`, `scheduled_changes`
-- Create subscription (line items + optional trial offer) via a two-pane create flow, reusing a shared `CreateSubscription` action so the future Phase-10 API is a thin wrapper (`items[]` = `{price}` | `{trial_offer}`)
+- Create subscription (line items + optional trial offer) via a two-pane create flow, reusing a shared `CreateSubscription` action that the Phase 10 API now wraps (`items[]` = `{price}` | `{trial_offer}`)
 - Hand-rolled **state machine** (no package) in `app/States/Subscription/` — a `SubscriptionState` contract, `BaseSubscriptionState` (throws by default), seven concrete states, `IllegalStateTransition`, and `Subscription::apply()`; `SubscriptionStatus` enum resolves state classes and carries UI `label()`/`color()`/`description()`
 - `subscriptions.trial_ends_at` + trial-end-behavior fields; list, detail hub, and customer-page activation
 
@@ -150,27 +150,19 @@ Verified against Stripe's create-subscription dialog (see `SUBSCRIPTIONS_DESIGN.
 2. **Free vs paid trial split (schema.md §5).** Free trial (`trial_price = 0`) → no charge, `trialing`. Paid trial (`trial_price > 0`) → billed the intro price at signup and each cycle, follows `incomplete → active` (**not** `trialing`), converts to `transition_price` at `trial_ends_at`. `current_period_end` = one **intro** cycle; `trial_ends_at` = the conversion point. (SUBSCRIPTIONS_DESIGN §10.2)
 3. **A product appears at most once.** A plain line + a trial for the same product double-charges, so the create builder de-dupes by product and `CreateSubscription::resolveLines` rejects duplicate `product_id`.
 4. **Collection modes** = the two Stripe/Paddle choices: *Automatically charge a saved card* (`automatic`) vs *Send an invoice to pay manually* (`manual`). Already on `subscriptions.collection_mode`; no new column.
-5. **Money was staged in Phase 5; Phase 6 built invoicing.** Phase 5 used `apply('activate')` simulation and `StagedSection` hubs. Phase 6 records real `invoices`/`payments`, rewires `CreateSubscription`, and replaces hub placeholders. Renewals/proration still deferred. (SUBSCRIPTIONS_DESIGN §17.6)
+5. **Money was staged in Phase 5; Phase 6 built invoicing.** Phase 5 used `apply('activate')` simulation and `StagedSection` hubs. Phase 6 records real `invoices`/`payments`, rewires `CreateSubscription`, replaces hub placeholders, and now includes renewal billing and proration. (SUBSCRIPTIONS_DESIGN §17.6)
 
-### Carried into later phases (so we don't forget)
+### Carried into later phases — status update (2026-07-07)
 
-Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charge + invoice). Remaining worker-driven transitions are **new callers that don't exist yet** — this list is their home:
+The Phase 5 state machine is still the lifecycle core. Most of the originally-carried callers are now wired:
 
-- **Phase 6 (Invoicing/charges) — partial ✅:**
-  - ✅ Replace simulated first charge with real Nomba charge → `payment` + `invoice`; on decline leave `incomplete`.
-  - ⬜ **Automatic + no card** subscriptions still **dead-end at `incomplete`** — generate checkout link to collect card, then flip to `active`/`trialing` on payment.
-  - ⬜ **Trial-conversion worker**: at `subscription_item_trials.ends_at`, swap item `trial_price_id → transition_price_id`, mark trial `converted`, call `apply('convert')`.
-  - ✅ Hub **Upcoming invoices / Payments** → real tables; customer hub **Invoices** + **Total spend**.
-  - ⬜ **Renewal billing worker** at `current_period_end`; **proration** lines on plan/quantity change.
-- **Phase 7 (Inbound webhooks):** drive `apply('activate')` / `apply('markPastDue')` from real Nomba `payment_success` / `payment_failed` events instead of the synchronous create-time assumption; clear the hub's "awaiting payment" banner on the webhook.
-- **Phase 8 (Dunning):**
-  - **Incomplete-timeout job** → `apply('expire')` for `incomplete` subs past their grace window (→ `incomplete_expired`).
-  - **Renewal-failure → `apply('markPastDue')`**, then retry on `team_settings.dunning_config` (soft vs hard decline via `payments.failure_code`); recovery → `apply('recover')`; exhaustion → terminal `apply('cancel')`/`apply('pause')` per config.
-  - **Manual-invoice unpaid path is distinct** from automatic retry: there's no card to retry, so it's reminder-based → age the invoice → `past_due` → terminal. Don't collapse it into the automatic retry loop.
-  - The **scheduled-changes worker** applies `cancel`/`pause`/`resume` rows at `effective_at` (Phase 5 writes the rows; the worker that fires them lands here).
-- **Phase 9 (Outbound):** emit `subscription.created` / `.updated` / `.trial_will_end` from the same lifecycle hooks that already write the timeline in Phase 5.
+- ✅ **Phase 6:** real first charge + invoice; automatic-with-no-card hosted checkout links; renewal billing worker; trial-conversion worker; proration invoice lines; real Upcoming invoices / Payments on subscription and customer hubs.
+- ✅ **Phase 7:** inbound Nomba `payment_success` / `payment_failed` webhooks drive invoice/payment/subscription settlement instead of relying only on synchronous create-time assumptions.
+- ✅ **Phase 8:** incomplete-expiry, dunning retry, hard/soft decline handling, manual-invoice aging, terminal actions, and scheduled change application commands exist.
+- ✅ **Phase 9:** outbound events are emitted for core customer, payment method, subscription, and invoice lifecycle events.
+- ⬜ **Still deferred:** `subscription.trial_will_end` outbound event, editable dunning settings UI, and any deeper tax/discount/refund logic.
 
-**State-machine transition owners** (the machine is complete; these are the *callers* still to wire):
+**State-machine transition owners** (the machine is complete; these callers are now mostly wired):
 
 | Transition | Fires when | Caller wired in |
 |---|---|---|
@@ -184,7 +176,7 @@ Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charg
 
 ---
 
-## Phase 6 — Invoicing, charges & proration 🟡 (invoicing UI done; worker/proration deferred)
+## Phase 6 — Invoicing, charges & proration ✅ (core done)
 
 **Goal:** Money moves on a schedule; upgrades/downgrades prorate.
 
@@ -194,9 +186,13 @@ Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charg
 - **Real Nomba charge, not simulated.** `NombaCheckout::chargeTokenizedCard()` (`POST /v1/checkout/tokenized-card-payment`) + a follow-up `verifyOrderSucceeded()` per Nomba's own guidance — replaces Phase 5's `apply('activate')` simulation.
 - `App\Actions\Invoicing\CreateInvoice` — the shared primitive both subscriptions and one-off invoices build through (assigns sequential numbers from `team_settings`, snapshots `customer_snapshot` + `billing_address` at creation, computes totals). `App\Actions\Invoicing\ChargeInvoice` — charges an invoice against a stored `PaymentMethod`, always recording a `Payment` (succeeded or failed).
 - `App\Actions\Invoicing\CreateOneOffInvoice` — the "New invoice" one-off flow: a customer, one or more line items (catalog price or custom amount), and a collection-mode choice, built on `CreateInvoice`/`ChargeInvoice`.
-- **`CreateSubscription` rewired** (Phase 5's TODO(Phase 6) markers): a billed line now produces a real `Invoice`; automatic + card charges it for real via `ChargeInvoice` (charge runs **after** the creation DB transaction commits); automatic + no card and manual both still produce an open invoice with no charge attempt yet.
+- `App\Actions\Invoicing\CollectInvoice` + `GenerateInvoiceCheckout` — automatic collection charges a stored card when present; automatic-with-no-card generates a hosted checkout link to collect and tokenise a card; manual invoices point to hosted invoice payment.
+- **`CreateSubscription` rewired** (Phase 5's TODO(Phase 6) markers): billed lines produce real `Invoice` rows; automatic + card charges them for real via `ChargeInvoice`; automatic + no card and manual create open invoices with hosted payment paths.
+- **Workers/commands:** `subscriptions:bill-renewals`, `subscriptions:convert-trials`, and `subscriptions:apply-scheduled-changes` generate renewal invoices, convert trial items, and apply period-end schedule rows.
+- **Proration:** `UpdateSubscriptionItem` can produce proration lines when plan/quantity changes require a mid-cycle adjustment.
+- **PDF export:** merchant invoice detail supports generated invoice PDFs.
 - **`InvoiceController`** + `routes/invoices.php` — list, show, store, void, mark uncollectible. Gated on `invoices.view` / `invoices.manage` via `viewInvoices` / `manageInvoices` on `TeamPolicy` and `canViewInvoices` / `canManageInvoices` on `TeamPermissions`.
-- **Dashboard: drawers for create, pages for detail.** "New subscription" and "New invoice" are two-pane `Sheet` drawers opened from list pages and the customer hub. Invoice detail is a full Inertia page (`resources/js/pages/invoices/show.tsx`): operational overview, payment breakdown, line items, charge-attempt list, and a paper-style invoice document card (PDF export deferred).
+- **Dashboard: drawers for create, pages for detail.** "New subscription" and "New invoice" are two-pane `Sheet` drawers opened from list pages and the customer hub. Invoice detail is a full Inertia page (`resources/js/pages/invoices/show.tsx`): operational overview, payment breakdown, line items, charge-attempt list, paper-style invoice document card, and PDF export.
 - **Invoices** nav item (top-level sidebar, below Subscriptions) — sole billing list; no separate "Transactions" nav.
 - Wired Phase-5 placeholders to real data:
   - Subscription hub: **Upcoming invoices** (invoice rows, clickable → detail) + **Payments** (charge attempts via `Payment::toDashboardArray()`).
@@ -211,75 +207,99 @@ Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charg
 
 **Naming refactor (2026-07-06):** removed the interim "Transactions" dashboard layer (`TransactionController`, `CreateTransaction`, `routes/transactions.php`, `types/transactions.ts`, `/transactions` redirects). Canonical paths and vocabulary are documented in `schema.md` § Dashboard vocabulary.
 
-**Deferred to later in Phase 6 (not built yet):**
+**Still deferred / partial:**
 
-- **Period billing worker** — nothing generates a *renewal* invoice at `current_period_end` yet; only the first invoice (at creation) exists.
-- **Proration** — plan/quantity changes don't produce `invoice_lines` with `kind: proration`.
-- **Checkout link for open invoices** — automatic-with-no-card creates an open invoice; no hosted-checkout link yet.
-- **PDF export** — "Download PDF" action is stubbed on the invoice detail page; on-screen paper preview only.
+- Editable dunning/billing settings UI remains in Phase 8 polish; backend defaults are in place.
+- Advanced tax, discounts, refunds, metered usage, and price currency options remain in Phase 13/defer bucket.
 
-**Exit criteria:** ✅ a real charge succeeds against a stored card (subscription or one-off invoice) and is recorded as a `payment`; ✅ invoice list + detail pages with snapshots and void/uncollectible; ⬜ renewal generates an invoice automatically; ⬜ plan change produces a proration line.
+**Exit criteria:** ✅ a real charge succeeds against a stored card (subscription or one-off invoice) and is recorded as a `payment`; ✅ invoice list + detail pages with snapshots and void/uncollectible; ✅ renewal generates invoices automatically; ✅ plan/quantity changes can produce proration lines.
 
 ---
 
-## Phase 7 — Nomba inbound webhooks
+## Phase 7 — Nomba inbound webhooks ✅ (done)
 
 **Goal:** Payment outcomes drive subscription state (not just synchronous API responses).
 
-**Build:**
+**Built:**
 
-- Replace hardcoded webhook route with `POST /webhooks/nomba/{inbound_webhook_token}`
-- Resolve team from token; verify Nomba signature
-- Map events → update `payments`, `invoices`, `subscriptions` (paid, failed, etc.)
-- Idempotent processing (store processor reference)
+- `POST /webhooks/nomba/{token}` resolves the team/connection and verifies Nomba signatures before processing.
+- Temporary hackathon ingress path supports Nomba's fixed callback URL constraint by resolving teams from payload/account context.
+- `ProcessNombaInboundWebhook` maps payment success/failure into `payments`, `invoices`, and `subscriptions`.
+- Tokenized card data is captured from webhook payloads or cache and persisted through the shared payment-method action.
+- Duplicate events are idempotent via processor references and existing payment rows.
+- Covered by `tests/Feature/Nomba/NombaInboundWebhookTest.php` and `tests/Feature/Hackathon/NombaIngressTest.php`.
 
-**Exit criteria:** Simulated or real Nomba webhook moves invoice to `paid` and subscription to `active`.
+**Context:** Nomba webhook verification uses the deployment's configured Nomba mode (`NOMBA_MODE`, default `live`) rather than dynamically switching per payload.
+
+**Exit criteria:** ✅ simulated or real Nomba webhook moves invoice/payment/subscription state.
 
 ---
 
-## Phase 8 — Dunning & failed-payment recovery
+## Phase 8 — Dunning & failed-payment recovery ✅ (backend done)
 
 **Goal:** Hackathon “dunning sophistication” — retries and terminal actions.
 
-**Build:**
+**Built:**
 
-- `team_settings.dunning_config` — retry schedule, max attempts
-- Scheduler: `past_due` subs, retry charges with backoff
-- Hard vs soft decline classification (`payments.failure_code`)
-- Terminal actions: cancel, pause, or leave open (`incomplete_expired` path)
-- `scheduled_changes` for cancel-at-period-end
+- `team_settings.dunning_config` + `DunningConfig` defaults for retry schedule, max attempts, and terminal action.
+- Scheduled commands: `subscriptions:process-dunning`, `subscriptions:process-manual-dunning`, `subscriptions:expire-incomplete`, and `subscriptions:apply-scheduled-changes`.
+- Hard vs soft decline classification from `payments.failure_code`.
+- Terminal actions: cancel, pause, or leave open; incomplete subscriptions can expire.
+- Manual invoice aging is handled separately from automatic card retry.
+- Subscription hub exposes dunning metadata for operational visibility.
+- Covered by `tests/Feature/DunningTest.php` and scheduled-change tests.
 
-**Exit criteria:** Failed charge triggers retries; after max attempts subscription reaches configured terminal state.
+**Deferred:** dashboard UI for editing retry schedule / terminal action. Backend defaults are enough for the current live-focused demo.
+
+**Exit criteria:** ✅ failed charge triggers retries; after max attempts subscription reaches the configured terminal state.
 
 ---
 
-## Phase 9 — Outbound webhooks & events
+## Phase 9 — Outbound webhooks & events ✅ (core done)
 
 **Goal:** Downstream developers integrate without polling.
 
-**Build:**
+**Built:**
 
-- `events`, `webhook_endpoints`, `webhook_deliveries`
-- Emit on lifecycle: `subscription.created`, `subscription.updated`, `invoice.paid`, `invoice.payment_failed`, etc.
-- HMAC signing with endpoint secret; exponential backoff delivery worker
-- Dashboard: register webhook URL + signing secret; delivery log
+- `events`, `webhook_endpoints`, `webhook_deliveries`.
+- Lifecycle emission for `customer.created`, `payment_method.added`, `subscription.created`, `subscription.updated`, `invoice.paid`, and `invoice.payment_failed`.
+- HMAC signing with endpoint secret and `webhooks:deliver-pending` retry worker scheduled every minute.
+- Dashboard endpoint CRUD, delivery log, and retry visibility.
+- Covered by `tests/Feature/Webhooks/OutboundWebhookEndpointTest.php`, `OutboundWebhookDeliveryTest.php`, and `OutboundWebhookRetryTest.php`.
 
-**Exit criteria:** Integrator URL receives signed `invoice.paid` after successful charge.
+**Deferred:** `subscription.trial_will_end` event and public API CRUD for webhook endpoints. Endpoint management is dashboard-only for now.
+
+**Exit criteria:** ✅ integrator URL receives signed `invoice.paid` after successful charge.
 
 ---
 
-## Phase 10 — Billing API surface
+## Phase 10 — Billing API surface ✅ (core done; live-focused)
 
 **Goal:** API ergonomics for downstream developers.
 
-**Build:**
+**Built:**
 
-- Versioned API routes (`/api/v1/...`) authenticated with Bouclay secret key + team scope
-- Core resources: customers, products, prices, subscriptions, invoices
-- Idempotency-Key header on POST/PATCH
-- Consistent error shape; test vs live mode from key
+- Versioned API routes at `/api/v1/...`, authenticated with Bouclay secret keys and scoped to the key's team.
+- API middleware stack: request id assignment, secret-key auth, and `Idempotency-Key` enforcement on POST/PATCH.
+- Core resources:
+  - Customers, addresses, and payment methods
+  - Products, prices, and trial offers
+  - Subscriptions and lifecycle actions (`pause`, `resume`, `cancel`, `undo-cancel`, `retry-payment`, item update)
+  - Invoices (`void`, `mark-uncollectible`), payments, events, and checkout sessions
+- Hosted checkout sessions for API clients: create checkout → Nomba hosted page → callback → tokenized card + paid verification invoice.
+- Consistent response/error envelope through `ApiResponse` with request ids.
+- API money responses round-trip in major units, matching write inputs.
+- Feature tests under `tests/Feature/Api/V1/` cover auth, catalog, customers, invoices, subscriptions, idempotency, checkout sessions, amount units, pagination, and payment-method mode scoping.
 
-**Exit criteria:** Full happy path runnable via HTTP client (create customer → subscribe → receive webhook).
+**Current operating assumption (2026-07-07):** live mode is the focus. `NOMBA_MODE` defaults to `live`; test/live API key mode support exists for data scoping, but the demo and operational path should be validated against live Nomba credentials.
+
+**Still deferred / polish:**
+
+- Public API CRUD for webhook endpoints (dashboard-only today).
+- API docs / Postman collection / README examples (Phase 13).
+- Broader event API test coverage.
+
+**Exit criteria:** ✅ HTTP-client happy path is available: create customer → create/choose catalog → subscribe or create checkout session → Nomba callback/webhook updates billing state → outbound event can be delivered.
 
 ---
 
@@ -332,8 +352,9 @@ Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charg
 **Build:**
 
 - README API examples; Postman collection optional
-- Feature tests for state machine and dunning paths
+- API examples for live-mode happy path: create customer → catalog → checkout/subscription → webhook/event
 - Dashboard empty states, loading, error handling
+- Dunning settings UI (retry schedule + terminal action) if time allows
 
 **Explicitly defer (schema present, logic later):**
 
@@ -345,25 +366,25 @@ Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charg
 
 ---
 
-## Suggested timeline (hackathon)
+## Current Remaining Work (2026-07-07)
 
-| Order | Phase | Priority |
+The subscription engine is now past the original "build the core" phases. The main remaining work is demo integration and polish, not more billing primitives.
+
+| Priority | Work | Status |
 |---|---|---|
-| 1 | Phase 1 — Roles & permissions | P0 |
-| 2 | Phase 2 — Credentials | P0 |
-| 3 | Phase 3 — Catalog | P0 |
-| 4 | Phase 4 — Customers & PMs | P0 |
-| 5 | Phase 5 — Subscriptions | P0 |
-| 6 | Phase 7 — Inbound webhooks | P0 |
-| 7 | Phase 6 — Invoicing & charge | P0 |
-| 8 | Phase 8 — Dunning | P0 |
-| 9 | Phase 9 — Outbound webhooks | P0 |
-| 10 | Phase 12 — Reference app | P0 for demo |
-| 11 | Phase 10 — API polish | P1 |
-| 12 | Phase 11 — Portal | P1 |
-| 13 | Phase 13 — Polish | P1 |
+| P0 | Phase 12 — Reference integrator app ("Acme Notes") | Not started |
+| P0 | Live-mode smoke test: Nomba connection → catalog → API checkout/subscription → inbound webhook → outbound webhook | Needs full manual run |
+| P1 | Phase 13 API docs / README examples / optional Postman collection | Not started |
+| P1 | Portal polish: magic-link invite, catalog payment links, portal invoice PDF download | Deferred |
+| P1 | Dunning settings UI | Backend done; UI deferred |
+| P2 | Public API CRUD for webhook endpoints | Dashboard-only today |
+| P2 | `subscription.trial_will_end` outbound event | Deferred |
 
-Phases 6 and 7 can overlap once charge API works synchronously; inbound webhooks should land before relying on them for dunning.
+### Deployment Assumptions
+
+- Live mode is the current focus. `NOMBA_MODE` defaults to `live`; validate the demo against live Nomba credentials.
+- API keys still carry test/live mode for data scoping, but the hackathon path should be treated as live-first.
+- Hackathon Nomba ingress exists for fixed callback URL constraints. Keep it documented as temporary, not the long-term per-team webhook shape.
 
 ---
 
