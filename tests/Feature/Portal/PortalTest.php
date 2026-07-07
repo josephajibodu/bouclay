@@ -1,13 +1,19 @@
 <?php
 
+use App\Enums\CollectionMode;
 use App\Enums\InvoiceStatus;
+use App\Enums\PaymentStatus;
+use App\Enums\ScheduledChangeAction;
 use App\Enums\SubscriptionStatus;
 use App\Models\Customer;
 use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Subscription;
 use App\Models\Team;
+use App\Models\TeamProcessorConnection;
 use App\Models\User;
+use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('a customer receives a portal token when created', function () {
@@ -18,23 +24,25 @@ test('a customer receives a portal token when created', function () {
     expect($customer->portal_token)->toHaveLength(48);
 });
 
-test('the portal dashboard renders for a valid portal token', function () {
-    $team = Team::factory()->create(['name' => 'Acme Notes']);
-    $customer = Customer::factory()->for($team)->create([
-        'name' => 'Ada Lovelace',
-        'email' => 'ada@example.com',
-    ]);
+test('the portal entry redirects to the subscriptions list when there are multiple subscriptions', function () {
+    $team = Team::factory()->create();
+    $customer = Customer::factory()->for($team)->create();
+    Subscription::factory()->for($team)->for($customer)->count(2)->create();
 
     $this->get(route('portal.show', $customer->portal_token))
-        ->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->component('portal/dashboard')
-            ->where('business.name', 'Acme Notes')
-            ->where('customer.email', 'ada@example.com')
-            ->where('customer.name', 'Ada Lovelace')
-            ->where('paymentMethod', null)
-            ->has('subscriptions', 0)
-            ->has('openInvoices', 0));
+        ->assertRedirect(route('portal.subscriptions.index', $customer->portal_token));
+});
+
+test('the portal entry redirects to the subscription detail when there is only one', function () {
+    $team = Team::factory()->create();
+    $customer = Customer::factory()->for($team)->create();
+    $subscription = Subscription::factory()->for($team)->for($customer)->create();
+
+    $this->get(route('portal.show', $customer->portal_token))
+        ->assertRedirect(route('portal.subscriptions.show', [
+            'token' => $customer->portal_token,
+            'publicId' => $subscription->public_id,
+        ]));
 });
 
 test('an invalid portal token returns not found', function () {
@@ -49,19 +57,17 @@ test('archived customers cannot access the portal', function () {
 
     $customer->delete();
 
-    $this->get(route('portal.show', $token))
+    $this->get(route('portal.subscriptions.index', $token))
         ->assertNotFound();
 });
 
-test('the portal dashboard shows subscriptions payment method and open invoices', function () {
+test('the subscription detail page renders with paddle-style data', function () {
     $team = Team::factory()->create(['name' => 'Acme Notes', 'default_currency' => 'NGN']);
     $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
 
     $paymentMethod = PaymentMethod::factory()->for($team)->for($customer)->create([
         'brand' => 'Visa',
         'last4' => '4242',
-        'exp_month' => 12,
-        'exp_year' => 2030,
         'is_default' => true,
     ]);
 
@@ -70,27 +76,87 @@ test('the portal dashboard shows subscriptions payment method and open invoices'
     $subscription = Subscription::factory()->for($team)->for($customer)->create([
         'status' => SubscriptionStatus::Active,
         'current_period_end' => now()->addMonth(),
+        'payment_method_id' => $paymentMethod->id,
     ]);
 
-    $invoice = Invoice::factory()->for($team)->for($customer)->create([
-        'status' => InvoiceStatus::Open,
-        'currency' => 'NGN',
-        'amount_due' => 500000,
-        'total' => 500000,
-    ]);
-
-    $this->get(route('portal.show', $customer->portal_token))
+    $this->get(route('portal.subscriptions.show', [
+        'token' => $customer->portal_token,
+        'publicId' => $subscription->public_id,
+    ]))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->component('portal/dashboard')
-            ->where('paymentMethod.brand', 'Visa')
-            ->where('paymentMethod.last4', '4242')
-            ->has('subscriptions', 1)
-            ->where('subscriptions.0.publicId', $subscription->public_id)
-            ->where('subscriptions.0.status', 'active')
+            ->component('portal/subscriptions/show')
+            ->where('business.name', 'Acme Notes')
+            ->where('subscription.publicId', $subscription->public_id)
+            ->where('subscription.canCancel', true)
+            ->has('subscription.nextPayment')
+            ->has('subscription.recentPayments'));
+});
+
+test('the payments page lists succeeded payments and open invoices', function () {
+    $team = Team::factory()->create(['default_currency' => 'NGN']);
+    $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
+    $invoice = Invoice::factory()->for($team)->for($customer)->paid()->create([
+        'currency' => 'NGN',
+        'total' => 500000,
+        'amount_due' => 0,
+        'amount_paid' => 500000,
+    ]);
+
+    Payment::factory()->for($team)->for($customer)->for($invoice)->create([
+        'status' => PaymentStatus::Succeeded,
+        'amount' => 500000,
+        'currency' => 'NGN',
+        'processed_at' => now(),
+    ]);
+
+    $openInvoice = Invoice::factory()->for($team)->for($customer)->create([
+        'status' => InvoiceStatus::Open,
+        'currency' => 'NGN',
+        'amount_due' => 100000,
+        'total' => 100000,
+    ]);
+
+    $this->get(route('portal.payments.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('portal/payments/index')
+            ->has('payments', 1)
             ->has('openInvoices', 1)
-            ->where('openInvoices.0.publicId', $invoice->public_id)
-            ->where('openInvoices.0.payUrl', route('hosted.invoices.show', $invoice->public_id)));
+            ->where('openInvoices.0.publicId', $openInvoice->public_id));
+});
+
+test('the payment methods page renders saved cards', function () {
+    $team = Team::factory()->create();
+    $customer = Customer::factory()->for($team)->create();
+
+    PaymentMethod::factory()->for($team)->for($customer)->create([
+        'brand' => 'Visa',
+        'last4' => '4242',
+        'is_default' => true,
+    ]);
+
+    $this->get(route('portal.payment-methods.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('portal/payment-methods/index')
+            ->has('paymentMethods', 1)
+            ->where('paymentMethods.0.last4', '4242'));
+});
+
+test('the account page renders customer details', function () {
+    $team = Team::factory()->create(['name' => 'Acme Notes']);
+    $customer = Customer::factory()->for($team)->create([
+        'name' => 'Ada Lovelace',
+        'email' => 'ada@example.com',
+    ]);
+
+    $this->get(route('portal.account.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('portal/account/index')
+            ->where('customer.name', 'Ada Lovelace')
+            ->where('customer.email', 'ada@example.com'));
 });
 
 test('the customer hub exposes the portal url', function () {
@@ -108,17 +174,121 @@ test('the customer hub exposes the portal url', function () {
             ->where('portalUrl', $customer->portalUrl()));
 });
 
-test('new customers get a portal token via the store endpoint', function () {
-    $owner = User::factory()->create();
-    $team = Team::factory()->create();
+test('updating a payment method from the portal redirects to nomba checkout', function () {
+    $team = Team::factory()->create(['default_currency' => 'NGN']);
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
 
-    attachTeamOwner($team, $owner);
-    $owner->switchTeam($team);
+    fakeNombaCheckout('https://checkout.nomba.com/pay/portal-card');
 
-    $this->actingAs($owner)
-        ->post(route('customers.store'), ['email' => 'portal@example.com']);
-
-    $customer = Customer::query()->where('email', 'portal@example.com')->firstOrFail();
-
-    expect($customer->portal_token)->not->toBeEmpty();
+    $this->post(route('portal.payment-method.store', $customer->portal_token))
+        ->assertRedirect('https://checkout.nomba.com/pay/portal-card');
 });
+
+test('the portal payment method callback stores the card and attaches it to subscriptions', function () {
+    $team = Team::factory()->create(['default_currency' => 'NGN']);
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
+    $subscription = Subscription::factory()->for($team)->for($customer)->create([
+        'status' => SubscriptionStatus::Active,
+        'collection_mode' => CollectionMode::Automatic,
+        'payment_method_id' => null,
+    ]);
+
+    $ref = null;
+    fakePortalNomba($ref);
+
+    $this->post(route('portal.payment-method.store', $customer->portal_token));
+
+    $this->get(route('portal.payment-method.callback', $customer->portal_token).'?orderReference='.$ref)
+        ->assertRedirect(route('portal.payment-methods.index', $customer->portal_token));
+
+    $card = $customer->paymentMethods()->firstOrFail();
+
+    expect($card->processor_token)->toBe('tok_portal_test')
+        ->and($subscription->fresh()->payment_method_id)->toBe($card->id);
+});
+
+test('a customer can cancel their subscription at period end from the portal', function () {
+    $team = Team::factory()->create();
+    $customer = Customer::factory()->for($team)->create();
+    $subscription = Subscription::factory()->for($team)->for($customer)->create([
+        'status' => SubscriptionStatus::Active,
+        'current_period_end' => now()->addMonth(),
+    ]);
+
+    $this->post(route('portal.subscriptions.cancel', [
+        'token' => $customer->portal_token,
+        'publicId' => $subscription->public_id,
+    ]))->assertRedirect(route('portal.subscriptions.show', [
+        'token' => $customer->portal_token,
+        'publicId' => $subscription->public_id,
+    ]));
+
+    $subscription->refresh();
+
+    expect($subscription->status)->toBe(SubscriptionStatus::Active)
+        ->and($subscription->canceled_at)->not->toBeNull()
+        ->and($subscription->scheduledChanges()->count())->toBe(1)
+        ->and($subscription->scheduledChanges()->first()->action)->toBe(ScheduledChangeAction::Cancel);
+});
+
+test('a customer cannot cancel another customers subscription via the portal', function () {
+    $team = Team::factory()->create();
+    $customer = Customer::factory()->for($team)->create();
+    $otherCustomer = Customer::factory()->for($team)->create();
+    $foreign = Subscription::factory()->for($team)->for($otherCustomer)->create();
+
+    $this->post(route('portal.subscriptions.cancel', [
+        'token' => $customer->portal_token,
+        'publicId' => $foreign->public_id,
+    ]))->assertNotFound();
+});
+
+/**
+ * Fake Nomba checkout + token resolution for portal card update tests.
+ */
+function fakePortalNomba(?string &$capturedOrderReference): void
+{
+    Http::fake(function ($request) use (&$capturedOrderReference) {
+        $url = $request->url();
+
+        return match (true) {
+            str_contains($url, '/v1/auth/token/issue') => Http::response([
+                'code' => '00',
+                'data' => ['access_token' => 'fake-access-token'],
+            ]),
+
+            str_contains($url, '/v1/checkout/order') => (function () use ($request, &$capturedOrderReference) {
+                $capturedOrderReference = $request->data()['order']['orderReference'];
+
+                return Http::response([
+                    'code' => '00',
+                    'data' => [
+                        'checkoutLink' => 'https://checkout.nomba.com/pay/portal-card',
+                        'orderReference' => $capturedOrderReference,
+                    ],
+                ]);
+            })(),
+
+            str_contains($url, '/v1/transactions/accounts/single') => Http::response([
+                'code' => '00',
+                'data' => ['status' => 'SUCCESS'],
+            ]),
+
+            str_contains($url, '/v1/checkout/tokenized-card-data') => Http::response([
+                'code' => '00',
+                'data' => [
+                    'tokenizedCardDataList' => [[
+                        'tokenKey' => 'tok_portal_test',
+                        'cardType' => 'Visa',
+                        'cardPan' => '418745 **** **** 4242',
+                        'tokenExpirationDate' => '12/30',
+                    ]],
+                ],
+            ]),
+
+            default => Http::response(['code' => '99', 'description' => 'unexpected'], 500),
+        };
+    });
+}

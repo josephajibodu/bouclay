@@ -2,9 +2,14 @@
 
 namespace App\Http\Controllers\Portal;
 
+use App\Actions\Portal\BuildPortalContext;
 use App\Enums\InvoiceStatus;
+use App\Enums\PaymentStatus;
+use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
-use App\Models\Customer;
+use App\Models\Payment;
+use App\Models\Subscription;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -13,69 +18,133 @@ use Inertia\Response;
  */
 class PortalController extends Controller
 {
-    /**
-     * Show the read-only portal dashboard for a customer.
-     */
-    public function show(string $token): Response
+    public function __construct(private readonly BuildPortalContext $portal)
     {
-        $customer = Customer::query()
-            ->where('portal_token', $token)
-            ->with([
-                'team.settings',
-                'defaultPaymentMethod',
-                'subscriptions' => fn ($query) => $query->with('activeItems.product')->orderByDesc('created_at'),
-                'invoices' => fn ($query) => $query->with('lines')->orderByDesc('created_at'),
-            ])
+        //
+    }
+
+    /**
+     * Entry point — send customers to their subscription hub.
+     */
+    public function show(string $token): RedirectResponse
+    {
+        $customer = $this->portal->resolve($token);
+        $this->portal->loadSubscriptions($customer);
+
+        $visible = $customer->subscriptions->reject(fn (Subscription $subscription) => in_array($subscription->status, [
+            SubscriptionStatus::IncompleteExpired,
+        ], true));
+
+        if ($visible->count() === 1) {
+            return redirect()->route('portal.subscriptions.show', [
+                'token' => $token,
+                'publicId' => $visible->first()->public_id,
+            ]);
+        }
+
+        return redirect()->route('portal.subscriptions.index', $token);
+    }
+
+    /**
+     * List all subscriptions — Paddle-style hub when a customer has several.
+     */
+    public function subscriptions(string $token): Response
+    {
+        $customer = $this->portal->resolve($token);
+        $this->portal->loadSubscriptions($customer);
+
+        return Inertia::render('portal/subscriptions/index', [
+            ...$this->portal->shared($customer),
+            'subscriptions' => $customer->subscriptions
+                ->map(fn (Subscription $subscription) => $this->portal->subscriptionListItem($subscription))
+                ->all(),
+        ]);
+    }
+
+    /**
+     * Subscription detail — primary Paddle-style management screen.
+     */
+    public function subscription(string $token, string $publicId): Response
+    {
+        $customer = $this->portal->resolve($token);
+
+        $subscription = Subscription::query()
+            ->where('public_id', $publicId)
+            ->where('customer_id', $customer->id)
             ->firstOrFail();
 
-        abort_if($customer->trashed(), 404);
+        return Inertia::render('portal/subscriptions/show', [
+            ...$this->portal->shared($customer),
+            'subscription' => $this->portal->subscriptionDetail($subscription, $customer),
+        ]);
+    }
 
-        $team = $customer->team;
-        $defaultPaymentMethod = $customer->defaultPaymentMethod;
+    /**
+     * Full payment history for this customer.
+     */
+    public function payments(string $token): Response
+    {
+        $customer = $this->portal->resolve($token);
 
-        return Inertia::render('portal/dashboard', [
-            'business' => [
-                'name' => $team->name,
-                'line1' => $team->line1,
-                'line2' => $team->line2,
-                'city' => $team->city,
-                'postalCode' => $team->postal_code,
-                'country' => $team->country,
-                'website' => $team->website,
-            ],
-            'customer' => [
-                'name' => $customer->name,
-                'email' => $customer->email,
-            ],
-            'paymentMethod' => $defaultPaymentMethod !== null ? [
-                'brand' => $defaultPaymentMethod->brand,
-                'last4' => $defaultPaymentMethod->last4,
-                'expMonth' => $defaultPaymentMethod->exp_month,
-                'expYear' => $defaultPaymentMethod->exp_year,
-                'isExpired' => $defaultPaymentMethod->isExpired(),
-            ] : null,
-            'subscriptions' => $customer->subscriptions->map(fn ($subscription) => [
-                'publicId' => $subscription->public_id,
-                'status' => $subscription->status->value,
-                'planLabel' => $subscription->planLabel(),
-                'trialEndsAt' => $subscription->trial_ends_at?->toISOString(),
-                'currentPeriodEnd' => $subscription->current_period_end?->toISOString(),
-                'endsAt' => $subscription->canceled_at !== null ? $subscription->ends_at?->toISOString() : null,
-            ])->all(),
-            'openInvoices' => $customer->invoices
-                ->where('status', InvoiceStatus::Open)
-                ->map(fn ($invoice) => [
-                    'publicId' => $invoice->public_id,
-                    'number' => $invoice->number,
-                    'currency' => $invoice->currency,
-                    'amountDue' => $invoice->amount_due,
-                    'dueAt' => $invoice->due_at?->toISOString(),
-                    'createdAt' => $invoice->created_at?->toISOString(),
-                    'productsLabel' => $invoice->lines->pluck('description')->implode(', ') ?: '—',
-                    'payUrl' => route('hosted.invoices.show', $invoice->public_id),
-                ])
-                ->values()
+        $payments = Payment::query()
+            ->where('customer_id', $customer->id)
+            ->where('status', PaymentStatus::Succeeded)
+            ->with(['invoice.lines', 'paymentMethod'])
+            ->orderByDesc('processed_at')
+            ->limit(50)
+            ->get();
+
+        $openInvoices = $customer->invoices()
+            ->with('lines')
+            ->where('status', InvoiceStatus::Open)
+            ->orderByDesc('created_at')
+            ->get();
+
+        return Inertia::render('portal/payments/index', [
+            ...$this->portal->shared($customer),
+            'payments' => $payments
+                ->map(fn (Payment $payment) => $this->portal->paymentListItem($payment))
                 ->all(),
+            'openInvoices' => $openInvoices
+                ->map(fn ($invoice) => $this->portal->openInvoice($invoice))
+                ->all(),
+        ]);
+    }
+
+    /**
+     * Saved payment methods and card update entry point.
+     */
+    public function paymentMethods(string $token): Response
+    {
+        $customer = $this->portal->resolve($token);
+        $customer->load('paymentMethods');
+
+        return Inertia::render('portal/payment-methods/index', [
+            ...$this->portal->shared($customer),
+            'paymentMethods' => $customer->paymentMethods
+                ->sortByDesc('is_default')
+                ->values()
+                ->map(fn ($method) => [
+                    'brand' => $method->brand,
+                    'last4' => $method->last4,
+                    'expMonth' => $method->exp_month,
+                    'expYear' => $method->exp_year,
+                    'isDefault' => $method->is_default,
+                    'isExpired' => $method->isExpired(),
+                ])
+                ->all(),
+        ]);
+    }
+
+    /**
+     * Customer account details.
+     */
+    public function account(string $token): Response
+    {
+        $customer = $this->portal->resolve($token);
+
+        return Inertia::render('portal/account/index', [
+            ...$this->portal->shared($customer),
         ]);
     }
 }

@@ -13,13 +13,14 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('customers', function (Blueprint $table) {
-            // $table->string('portal_token', 64)->nullable()->unique()->after('public_id');
+            $table->string('portal_token', 64)->nullable()->unique()->after('public_id');
         });
 
-        foreach (Customer::withTrashed()->whereNull('portal_token')->get() as $customer) {
-            $customer->update(['portal_token' => Customer::generatePortalToken()]);
-        }
-
+        Customer::withTrashed()
+            ->whereNull('portal_token')
+            ->eachById(function (Customer $customer): void {
+                $customer->update(['portal_token' => Customer::generatePortalToken()]);
+            });
     }
 
     /**
