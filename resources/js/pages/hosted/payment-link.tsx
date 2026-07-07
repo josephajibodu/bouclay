@@ -1,6 +1,7 @@
 import { Form, Head } from '@inertiajs/react';
 import {
     AlertCircle,
+    ArrowLeft,
     Building2,
     CreditCard,
     Lock,
@@ -43,6 +44,7 @@ type HostedPaymentLink = {
         durationIterations: number;
         transitionPrice: HostedPaymentLink['price'];
     } | null;
+    returnUrl: string | null;
 };
 
 type Props = {
@@ -130,6 +132,17 @@ export default function HostedPaymentLink({
 
             <div className="mx-auto grid min-h-screen max-w-6xl lg:grid-cols-[1fr_440px]">
                 <section className="flex flex-col gap-10 px-6 py-8 sm:px-10 lg:px-12 lg:py-12">
+                    {paymentLink.returnUrl && (
+                        <a
+                            href={paymentLink.returnUrl}
+                            data-test="hosted-payment-link-return-link"
+                            className="inline-flex w-fit items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                            <ArrowLeft className="size-4" />
+                            Return to {paymentLink.business.name}
+                        </a>
+                    )}
+
                     <div className="flex items-center gap-3">
                         <div className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
                             {paymentLink.business.name.slice(0, 1)}

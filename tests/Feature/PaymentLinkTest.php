@@ -122,6 +122,42 @@ test('catalog trial offers include an existing hosted trial link', function () {
         );
 });
 
+test('the hosted payment link page surfaces the product return link', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+
+    $product->update(['website_url' => 'https://acme.example.com/app']);
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->get(route('hosted.payment-links.show', $paymentLink->public_id))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('hosted/payment-link')
+            ->where('paymentLink.returnUrl', 'https://acme.example.com/app'),
+        );
+});
+
+test('the hosted payment link page has no return link when the product has none set', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->get(route('hosted.payment-links.show', $paymentLink->public_id))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('hosted/payment-link')
+            ->where('paymentLink.returnUrl', null),
+        );
+});
+
 test('a hosted payment link accepts prefilled buyer details', function () {
     ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
 

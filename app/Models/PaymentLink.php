@@ -128,6 +128,7 @@ class PaymentLink extends Model
                     'label' => $trialOffer->transitionPrice->toPickerLabel(),
                 ],
             ] : null,
+            'returnUrl' => $this->product->website_url,
         ];
     }
 
