@@ -1,12 +1,17 @@
 <?php
 
+use App\Enums\InvoiceStatus;
+use App\Enums\OutboundEventType;
+use App\Enums\PaymentStatus;
+use App\Enums\SubscriptionStatus;
 use App\Models\Customer;
+use App\Models\Event;
 use App\Models\Invoice;
 use App\Models\PaymentLink;
 use App\Models\Price;
+use App\Models\Subscription;
 use App\Models\TeamProcessorConnection;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Mail;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('a product price row can create a reusable hosted payment link', function () {
@@ -72,9 +77,7 @@ test('a hosted payment link accepts prefilled buyer details', function () {
         );
 });
 
-test('a recurring payment link creates a subscription and starts Nomba checkout', function () {
-    Mail::fake();
-
+test('a recurring payment link stages an invoice and starts Nomba checkout without creating a subscription', function () {
     ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
     TeamProcessorConnection::factory()->for($team)->testConnected()->create();
     fakeNombaCheckout('https://checkout.nomba.com/pay/recurring-link');
@@ -92,13 +95,17 @@ test('a recurring payment link creates a subscription and starts Nomba checkout'
         ->assertRedirect('https://checkout.nomba.com/pay/recurring-link');
 
     $customer = Customer::query()->where('email', 'ada@example.com')->firstOrFail();
-    $subscription = $customer->subscriptions()->firstOrFail();
-    $invoice = $subscription->invoices()->with('lines')->firstOrFail();
+    $invoice = $customer->invoices()->with('lines')->firstOrFail();
 
-    expect($subscription->items()->firstOrFail()->price_id)->toBe($price->id)
+    expect($customer->subscriptions()->count())->toBe(0)
+        ->and(Subscription::query()->count())->toBe(0)
+        ->and($invoice->subscription_id)->toBeNull()
         ->and($invoice->lines->first()->price_id)->toBe($price->id)
         ->and($invoice->lines->first()->total)->toBe($price->unit_amount)
-        ->and($invoice->custom_data['checkout_link'])->toBe('https://checkout.nomba.com/pay/recurring-link');
+        ->and($invoice->custom_data['checkout_link'])->toBe('https://checkout.nomba.com/pay/recurring-link')
+        ->and($invoice->custom_data['pending_subscription']['payment_link_id'])->toBe($paymentLink->public_id)
+        ->and($invoice->custom_data['pending_subscription']['price_id'])->toBe($price->id)
+        ->and(Event::query()->where('type', OutboundEventType::SubscriptionCreated)->count())->toBe(0);
 
     Http::assertSent(function ($request) use ($price) {
         if (! str_contains($request->url(), '/v1/checkout/order')) {
@@ -111,6 +118,43 @@ test('a recurring payment link creates a subscription and starts Nomba checkout'
             && $order['customerEmail'] === 'ada@example.com'
             && $order['allowedPaymentMethods'] === ['Card'];
     });
+});
+
+test('a recurring payment link creates the subscription only after hosted payment succeeds', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout('https://checkout.nomba.com/pay/recurring-link');
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+        'name' => 'Ada Lovelace',
+        'email' => 'ADA@example.com',
+    ])->assertRedirect('https://checkout.nomba.com/pay/recurring-link');
+
+    expect(Subscription::query()->count())->toBe(0);
+
+    $invoice = Invoice::query()->firstOrFail();
+    $orderReference = (string) $invoice->custom_data['checkout_order_reference'];
+
+    $this->get(route('hosted.checkout.callback', ['orderReference' => $orderReference]))
+        ->assertRedirect(route('hosted.invoices.show', $invoice->public_id));
+
+    $subscription = Subscription::query()->with(['items', 'paymentMethod'])->firstOrFail();
+    $invoice->refresh()->load('payments');
+
+    expect($subscription->status)->toBe(SubscriptionStatus::Active)
+        ->and($subscription->items->first()->price_id)->toBe($price->id)
+        ->and($subscription->payment_method_id)->not->toBeNull()
+        ->and($invoice->subscription_id)->toBe($subscription->id)
+        ->and($invoice->status)->toBe(InvoiceStatus::Paid)
+        ->and($invoice->payments->first()->status)->toBe(PaymentStatus::Succeeded)
+        ->and($invoice->custom_data)->not->toHaveKey('pending_subscription')
+        ->and(Event::query()->where('type', OutboundEventType::SubscriptionCreated)->count())->toBe(1);
 });
 
 test('a one-time payment link creates an invoice and starts Nomba checkout', function () {

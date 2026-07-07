@@ -49,7 +49,7 @@ class HostedInvoiceController extends Controller
                 invoice: $invoice,
                 tokenizeCard: $invoice->collection_mode === CollectionMode::Automatic,
                 allowedPaymentMethods: $invoice->collection_mode === CollectionMode::Automatic ? ['Card'] : null,
-                setDefaultPaymentMethod: $invoice->subscription_id !== null,
+                setDefaultPaymentMethod: $invoice->subscription_id !== null || is_array($invoice->custom_data['pending_subscription'] ?? null),
             );
         } catch (InvalidArgumentException $exception) {
             return back()->with('paymentMessage', $exception->getMessage());

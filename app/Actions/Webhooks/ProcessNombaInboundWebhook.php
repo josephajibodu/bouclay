@@ -4,6 +4,7 @@ namespace App\Actions\Webhooks;
 
 use App\Actions\Invoicing\SettleSubscriptionOnInvoicePayment;
 use App\Actions\PaymentMethods\StoreTokenizedPaymentMethod;
+use App\Actions\Subscriptions\CreateSubscriptionFromPaymentLinkInvoice;
 use App\Enums\ApiKeyMode;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentProcessor;
@@ -28,6 +29,7 @@ class ProcessNombaInboundWebhook
         private readonly NombaModeResolver $modeResolver,
         private readonly ClassifyPaymentFailure $classifyFailure,
         private readonly EmitInvoicePaymentFailed $emitInvoicePaymentFailed,
+        private readonly CreateSubscriptionFromPaymentLinkInvoice $createPaymentLinkSubscription,
     ) {
         //
     }
@@ -76,6 +78,13 @@ class ProcessNombaInboundWebhook
             }
 
             if ($invoice->status === InvoiceStatus::Paid) {
+                $payment = $invoice->payments()
+                    ->where('status', PaymentStatus::Succeeded)
+                    ->latest('id')
+                    ->first();
+
+                $payment?->loadMissing('paymentMethod');
+                $this->createPaymentLinkSubscription->handle($invoice, $payment?->paymentMethod);
                 $this->settleSubscription->onPaymentSucceeded($invoice);
 
                 return;
@@ -91,6 +100,9 @@ class ProcessNombaInboundWebhook
                 ->first();
 
             if ($existingPayment?->status === PaymentStatus::Succeeded) {
+                $existingPayment->loadMissing('paymentMethod');
+                $this->createPaymentLinkSubscription->handle($invoice, $existingPayment->paymentMethod);
+                $invoice->refresh();
                 $invoice->markPaid($existingPayment);
                 $this->settleSubscription->onPaymentSucceeded($invoice);
 
@@ -136,8 +148,10 @@ class ProcessNombaInboundWebhook
                 ]);
             }
 
-            $invoice->markPaid($payment);
+            $this->createPaymentLinkSubscription->handle($invoice, $paymentMethod);
+            $invoice->refresh();
             $this->attachPaymentMethodToSubscription($invoice, $paymentMethod);
+            $invoice->markPaid($payment);
             $this->settleSubscription->onPaymentSucceeded($invoice);
             $this->clearCheckoutCaches($orderReference);
         });

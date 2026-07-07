@@ -3,6 +3,7 @@
 namespace App\Actions\Invoicing;
 
 use App\Actions\PaymentMethods\StoreTokenizedPaymentMethod;
+use App\Actions\Subscriptions\CreateSubscriptionFromPaymentLinkInvoice;
 use App\Enums\ApiKeyMode;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentProcessor;
@@ -27,6 +28,7 @@ class CompleteHostedCheckoutPayment
         private readonly ResolveNombaTokenizedCard $resolveTokenizedCard,
         private readonly StoreTokenizedPaymentMethod $storePaymentMethod,
         private readonly SettleSubscriptionOnInvoicePayment $settleSubscription,
+        private readonly CreateSubscriptionFromPaymentLinkInvoice $createPaymentLinkSubscription,
     ) {
         //
     }
@@ -47,6 +49,10 @@ class CompleteHostedCheckoutPayment
                 ->find($existingPayment->invoice_id);
 
             if ($invoice instanceof Invoice) {
+                $existingPayment->loadMissing('paymentMethod');
+                $this->createPaymentLinkSubscription->handle($invoice, $existingPayment->paymentMethod);
+                $invoice->refresh();
+
                 if ($invoice->status === InvoiceStatus::Open) {
                     $invoice->markPaid($existingPayment);
                 }
@@ -93,6 +99,10 @@ class CompleteHostedCheckoutPayment
                 ->first();
 
             if ($existingPayment?->status === PaymentStatus::Succeeded) {
+                $existingPayment->loadMissing('paymentMethod');
+                $this->createPaymentLinkSubscription->handle($invoice, $existingPayment->paymentMethod);
+                $invoice->refresh();
+
                 if ($invoice->status === InvoiceStatus::Open) {
                     $invoice->markPaid($existingPayment);
                 }
@@ -158,11 +168,13 @@ class CompleteHostedCheckoutPayment
                         (bool) ($intent['set_default'] ?? false),
                     );
 
-                    $this->attachPaymentMethodToSubscription($invoice, $paymentMethod);
                 }
             }
 
             $payment = $this->recordPayment($team, $invoice, $orderReference, $paymentMethod, $idempotencyKey);
+            $this->createPaymentLinkSubscription->handle($invoice, $paymentMethod);
+            $invoice->refresh();
+            $this->attachPaymentMethodToSubscription($invoice, $paymentMethod);
             $invoice->markPaid($payment);
             $this->settleSubscription->onPaymentSucceeded($invoice);
             $this->clearCheckoutCaches($orderReference);
@@ -197,11 +209,11 @@ class CompleteHostedCheckoutPayment
         ]);
     }
 
-    private function attachPaymentMethodToSubscription(Invoice $invoice, PaymentMethod $paymentMethod): void
+    private function attachPaymentMethodToSubscription(Invoice $invoice, ?PaymentMethod $paymentMethod): void
     {
         $subscription = $invoice->subscription;
 
-        if ($subscription === null || $subscription->payment_method_id !== null) {
+        if ($subscription === null || $paymentMethod === null || $subscription->payment_method_id !== null) {
             return;
         }
 

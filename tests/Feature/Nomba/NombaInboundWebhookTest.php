@@ -2,9 +2,13 @@
 
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceStatus;
+use App\Enums\OutboundEventType;
 use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionItemStatus;
 use App\Enums\SubscriptionStatus;
+use App\Models\Event;
+use App\Models\Invoice;
+use App\Models\PaymentLink;
 use App\Models\PaymentMethod;
 use App\Models\Subscription;
 use App\Models\Team;
@@ -91,6 +95,46 @@ test('duplicate payment_success webhooks are idempotent', function () {
     postSignedNombaWebhook($connection, $payload)->assertOk();
 
     expect($invoice->fresh()->payments()->count())->toBe(1);
+});
+
+test('a payment_success webhook creates a payment link subscription only after payment confirmation', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
+        'nomba_test_webhook_secret' => 'whsec_test_secret',
+    ]);
+    fakeNombaCheckout('https://checkout.nomba.com/pay/recurring-link');
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+        'email' => 'buyer@example.com',
+    ])->assertRedirect('https://checkout.nomba.com/pay/recurring-link');
+
+    expect(Subscription::query()->count())->toBe(0);
+
+    $invoice = Invoice::query()->firstOrFail();
+    $orderReference = (string) $invoice->custom_data['checkout_order_reference'];
+    $payload = nombaPaymentSuccessPayload($orderReference, $connection->nomba_test_account_id);
+
+    postSignedNombaWebhook($connection, $payload, 'whsec_test_secret')
+        ->assertOk()
+        ->assertJson(['received' => true]);
+
+    $subscription = Subscription::query()->with(['items', 'paymentMethod'])->firstOrFail();
+    $invoice->refresh()->load('payments');
+
+    expect($subscription->status)->toBe(SubscriptionStatus::Active)
+        ->and($subscription->items->first()->price_id)->toBe($price->id)
+        ->and($subscription->payment_method_id)->not->toBeNull()
+        ->and($invoice->subscription_id)->toBe($subscription->id)
+        ->and($invoice->status)->toBe(InvoiceStatus::Paid)
+        ->and($invoice->payments->first()->status)->toBe(PaymentStatus::Succeeded)
+        ->and(Event::query()->where('type', OutboundEventType::SubscriptionCreated)->count())->toBe(1)
+        ->and(Cache::missing("nomba_checkout:{$orderReference}"))->toBeTrue();
 });
 
 test('a payment_failed webhook on a renewal invoice moves an active subscription to past due', function () {
