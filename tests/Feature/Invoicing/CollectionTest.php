@@ -224,6 +224,26 @@ test('a successful renewal charge recovers a past due subscription to active', f
         ->and($subscription->invoices()->latest('id')->firstOrFail()->status)->toBe(InvoiceStatus::Paid);
 });
 
+test('hosted invoice pay redirects to nomba checkout', function () {
+    ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = invoiceFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout('https://checkout.nomba.com/pay/test-hosted');
+
+    Mail::fake();
+
+    $this->actingAs($owner)
+        ->post(route('invoices.store'), [
+            'customer_id' => $customer->id,
+            'collection_mode' => 'manual',
+            'items' => [['price_id' => $price->id]],
+        ]);
+
+    $invoice = $customer->invoices()->firstOrFail();
+
+    $this->post(route('hosted.invoices.pay', $invoice->public_id))
+        ->assertRedirect('https://checkout.nomba.com/pay/test-hosted');
+});
+
 test('a duplicate hosted checkout callback is idempotent', function () {
     ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
     TeamProcessorConnection::factory()->for($team)->testConnected()->create();

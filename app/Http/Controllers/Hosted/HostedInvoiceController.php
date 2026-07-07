@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 use InvalidArgumentException;
+use Symfony\Component\HttpFoundation\Response as HttpFoundationResponse;
 
 /**
  * Customer-facing hosted invoice page and checkout entry points — no auth.
@@ -36,7 +37,7 @@ class HostedInvoiceController extends Controller
     /**
      * Start Nomba hosted checkout for this invoice and redirect the customer.
      */
-    public function pay(string $publicId, GenerateInvoiceCheckout $generateCheckout): RedirectResponse
+    public function pay(string $publicId, GenerateInvoiceCheckout $generateCheckout): RedirectResponse|HttpFoundationResponse
     {
         $invoice = $this->findInvoice($publicId);
 
@@ -54,7 +55,7 @@ class HostedInvoiceController extends Controller
             return back()->with('paymentMessage', $exception->getMessage());
         }
 
-        return redirect()->away($checkout['checkoutLink']);
+        return Inertia::location($checkout['checkoutLink']);
     }
 
     /**
