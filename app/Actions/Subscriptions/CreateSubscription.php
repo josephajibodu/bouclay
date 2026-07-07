@@ -4,10 +4,12 @@ namespace App\Actions\Subscriptions;
 
 use App\Actions\Invoicing\CollectInvoice;
 use App\Actions\Invoicing\CreateInvoice;
+use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Enums\BillingInterval;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
+use App\Enums\OutboundEventType;
 use App\Enums\SubscriptionItemStatus;
 use App\Enums\SubscriptionItemTrialStatus;
 use App\Enums\SubscriptionStatus;
@@ -41,6 +43,7 @@ class CreateSubscription
     public function __construct(
         private readonly CreateInvoice $createInvoice,
         private readonly CollectInvoice $collectInvoice,
+        private readonly EmitOutboundEvent $emitOutboundEvent,
     ) {
         //
     }
@@ -138,6 +141,14 @@ class CreateSubscription
 
             $this->collectInvoice->handle($team, $invoice, $paymentMethod);
         }
+
+        $subscription->loadMissing('customer');
+
+        $this->emitOutboundEvent->handle(
+            $team,
+            OutboundEventType::SubscriptionCreated,
+            ['object' => $subscription->toWebhookObject()],
+        );
 
         return $subscription;
     }

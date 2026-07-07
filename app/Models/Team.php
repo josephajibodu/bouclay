@@ -40,6 +40,8 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Product> $products
  * @property-read TeamSettings|null $settings
  * @property-read TeamProcessorConnection|null $processorConnection
+ * @property-read Collection<int, Event> $events
+ * @property-read Collection<int, WebhookEndpoint> $webhookEndpoints
  */
 #[Fillable([
     'name', 'slug', 'is_personal',
@@ -234,6 +236,26 @@ class Team extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * Get outbound billing events emitted for this team.
+     *
+     * @return HasMany<Event, $this>
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class);
+    }
+
+    /**
+     * Get integrator webhook endpoints registered by this team.
+     *
+     * @return HasMany<WebhookEndpoint, $this>
+     */
+    public function webhookEndpoints(): HasMany
+    {
+        return $this->hasMany(WebhookEndpoint::class);
     }
 
     /**

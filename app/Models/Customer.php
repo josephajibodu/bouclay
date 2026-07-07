@@ -156,6 +156,23 @@ class Customer extends Model
     }
 
     /**
+     * Serialise for integrator webhook payloads.
+     *
+     * @return array<string, mixed>
+     */
+    public function toWebhookObject(): array
+    {
+        return [
+            'publicId' => $this->public_id,
+            'email' => $this->email,
+            'name' => $this->name,
+            'currency' => $this->currency,
+            'externalRef' => $this->external_ref,
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

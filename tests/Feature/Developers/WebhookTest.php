@@ -20,7 +20,9 @@ test('the webhooks page shows an empty state before nomba is connected', functio
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('developers/webhooks')
-            ->where('connection', null),
+            ->where('connection', null)
+            ->has('endpoints', 0)
+            ->has('deliveries', 0),
         );
 });
 
@@ -40,6 +42,8 @@ test('the webhooks page shows the inbound url once nomba is connected', function
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('developers/webhooks')
+            ->has('endpoints')
+            ->has('deliveries')
             ->where('connection.inboundUrl', url("/webhooks/nomba/{$connection->inbound_webhook_token}"))
             ->where('connection.reachable', false)
             ->where('connection.testSecretSet', true)

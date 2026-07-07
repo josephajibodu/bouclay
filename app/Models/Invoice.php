@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Concerns\HasPublicId;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceStatus;
+use App\Enums\OutboundEventType;
 use Database\Factories\InvoiceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
@@ -129,12 +131,24 @@ class Invoice extends Model
      */
     public function markPaid(Payment $payment): void
     {
+        $wasPaid = $this->status === InvoiceStatus::Paid;
+
         $this->forceFill([
             'status' => InvoiceStatus::Paid,
             'amount_paid' => $this->total,
             'amount_due' => 0,
             'paid_at' => $payment->processed_at ?? now(),
         ])->save();
+
+        if (! $wasPaid) {
+            $this->loadMissing(['customer', 'subscription', 'team']);
+
+            app(EmitOutboundEvent::class)->handle(
+                $this->team,
+                OutboundEventType::InvoicePaid,
+                ['object' => $this->toWebhookObject($payment)],
+            );
+        }
     }
 
     /**
@@ -194,6 +208,39 @@ class Invoice extends Model
         }
 
         return route('hosted.invoices.show', $this->public_id);
+    }
+
+    /**
+     * Serialise for integrator webhook payloads.
+     *
+     * @return array<string, mixed>
+     */
+    public function toWebhookObject(?Payment $payment = null): array
+    {
+        return [
+            'publicId' => $this->public_id,
+            'number' => $this->number,
+            'status' => $this->status->value,
+            'billingReason' => $this->billing_reason->value,
+            'collectionMode' => $this->collection_mode->value,
+            'currency' => $this->currency,
+            'subtotal' => $this->subtotal,
+            'taxTotal' => $this->tax_total,
+            'total' => $this->total,
+            'amountPaid' => $this->amount_paid,
+            'amountDue' => $this->amount_due,
+            'paidAt' => $this->paid_at?->toISOString(),
+            'customer' => [
+                'publicId' => $this->customer->public_id,
+                'email' => $this->customer->email,
+                'name' => $this->customer->name,
+            ],
+            'subscription' => $this->subscription !== null ? [
+                'publicId' => $this->subscription->public_id,
+                'status' => $this->subscription->status->value,
+            ] : null,
+            'payment' => $payment?->toWebhookObject(),
+        ];
     }
 
     /**

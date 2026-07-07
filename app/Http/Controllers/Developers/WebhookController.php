@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Developers;
 
 use App\Enums\ApiKeyMode;
 use App\Http\Controllers\Controller;
+use App\Models\WebhookDelivery;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -27,7 +28,29 @@ class WebhookController extends Controller
 
         $connection = $team->processorConnection;
 
+        $endpoints = $team->webhookEndpoints()
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($endpoint) => [
+                'id' => $endpoint->id,
+                'publicId' => $endpoint->public_id,
+                'url' => $endpoint->url,
+                'active' => $endpoint->active,
+                'secretLastFour' => substr($endpoint->signing_secret, -4),
+                'createdAt' => $endpoint->created_at?->toISOString(),
+            ]);
+
+        $deliveries = WebhookDelivery::query()
+            ->whereHas('webhookEndpoint', fn ($query) => $query->where('team_id', $team->id))
+            ->with(['event', 'webhookEndpoint'])
+            ->orderByDesc('updated_at')
+            ->limit(50)
+            ->get()
+            ->map(fn (WebhookDelivery $delivery) => $delivery->toDashboardArray());
+
         return Inertia::render('developers/webhooks', [
+            'endpoints' => $endpoints,
+            'deliveries' => $deliveries,
             'connection' => $connection ? [
                 'inboundUrl' => $this->inboundUrlFor($connection->inbound_webhook_token),
                 'reachable' => $connection->webhook_verified_at !== null,

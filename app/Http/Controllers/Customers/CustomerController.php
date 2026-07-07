@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Customers;
 
 use App\Actions\Subscriptions\BuildSubscriptionCreateOptions;
+use App\Actions\Webhooks\EmitOutboundEvent;
+use App\Enums\OutboundEventType;
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Customers\StoreCustomerRequest;
@@ -67,7 +69,7 @@ class CustomerController extends Controller
      * rest optional (CUSTOMERS_DESIGN §6). Lands the user on the new
      * customer's detail page, where the next actions live.
      */
-    public function store(StoreCustomerRequest $request): RedirectResponse
+    public function store(StoreCustomerRequest $request, EmitOutboundEvent $emitOutboundEvent): RedirectResponse
     {
         $team = $request->user()->currentTeam;
 
@@ -80,6 +82,12 @@ class CustomerController extends Controller
             'currency' => $request->validated('currency'),
             'external_ref' => $request->validated('external_ref'),
         ]);
+
+        $emitOutboundEvent->handle(
+            $team,
+            OutboundEventType::CustomerCreated,
+            ['object' => $customer->toWebhookObject()],
+        );
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Customer created']);
 

@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Concerns\HasPublicId;
 use App\Enums\CollectionMode;
+use App\Enums\OutboundEventType;
 use App\Enums\SubscriptionItemStatus;
 use App\Enums\SubscriptionStatus;
 use App\Enums\TrialEndBehavior;
@@ -86,10 +88,22 @@ class Subscription extends Model
      */
     public function apply(string $action, mixed ...$args): SubscriptionState
     {
+        $previousStatus = $this->status;
+
         $next = $this->state()->{$action}(...$args);
 
         $this->status = $next->status();
         $this->save();
+
+        if ($previousStatus !== $this->status) {
+            $this->loadMissing(['customer', 'team']);
+
+            app(EmitOutboundEvent::class)->handle(
+                $this->team,
+                OutboundEventType::SubscriptionUpdated,
+                ['object' => $this->toWebhookObject()],
+            );
+        }
 
         return $next;
     }
@@ -191,6 +205,32 @@ class Subscription extends Model
         $extra = $items->count() - 1;
 
         return $extra > 0 ? "{$name} +{$extra} more" : $name;
+    }
+
+    /**
+     * Serialise for integrator webhook payloads.
+     *
+     * @return array<string, mixed>
+     */
+    public function toWebhookObject(): array
+    {
+        return [
+            'publicId' => $this->public_id,
+            'status' => $this->status->value,
+            'currency' => $this->currency,
+            'collectionMode' => $this->collection_mode->value,
+            'trialEndsAt' => $this->trial_ends_at?->toISOString(),
+            'currentPeriodStart' => $this->current_period_start?->toISOString(),
+            'currentPeriodEnd' => $this->current_period_end?->toISOString(),
+            'canceledAt' => $this->canceled_at?->toISOString(),
+            'endsAt' => $this->ends_at?->toISOString(),
+            'customer' => [
+                'publicId' => $this->customer->public_id,
+                'email' => $this->customer->email,
+                'name' => $this->customer->name,
+            ],
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
     }
 
     /**

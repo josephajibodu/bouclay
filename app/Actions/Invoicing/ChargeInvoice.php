@@ -2,6 +2,7 @@
 
 namespace App\Actions\Invoicing;
 
+use App\Actions\Webhooks\EmitInvoicePaymentFailed;
 use App\Enums\ApiKeyMode;
 use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
@@ -29,6 +30,7 @@ class ChargeInvoice
         private readonly NombaCheckout $checkout,
         private readonly NombaModeResolver $modeResolver,
         private readonly ClassifyPaymentFailure $classifyFailure,
+        private readonly EmitInvoicePaymentFailed $emitInvoicePaymentFailed,
     ) {
         //
     }
@@ -121,6 +123,8 @@ class ChargeInvoice
         ]);
 
         $invoice->recordFailedAttempt();
+
+        $this->emitInvoicePaymentFailed->handle($invoice, $payment);
 
         return $payment;
     }

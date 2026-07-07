@@ -40,3 +40,37 @@ export type WebhookConnection = {
     testSecretSet: boolean;
     liveSecretSet: boolean;
 };
+
+export type OutboundWebhookEndpoint = {
+    id: number;
+    publicId: string;
+    url: string;
+    active: boolean;
+    secretLastFour: string;
+    createdAt: string | null;
+};
+
+export type GeneratedWebhookSecret = {
+    id: number;
+    url: string;
+    secret: string;
+};
+
+export type WebhookDeliveryLogEntry = {
+    id: number;
+    publicId: string;
+    status: 'pending' | 'succeeded' | 'failed';
+    attempts: number;
+    nextAttemptAt: string | null;
+    updatedAt: string | null;
+    event: {
+        publicId: string;
+        type: string;
+        createdAt: string | null;
+    };
+    endpoint: {
+        id: number;
+        publicId: string;
+        url: string;
+    };
+};

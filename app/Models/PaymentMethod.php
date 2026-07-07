@@ -130,6 +130,32 @@ class PaymentMethod extends Model
     }
 
     /**
+     * Serialise for integrator webhook payloads.
+     *
+     * @return array<string, mixed>
+     */
+    public function toWebhookObject(): array
+    {
+        $this->loadMissing('customer');
+
+        return [
+            'publicId' => $this->public_id,
+            'processor' => $this->processor->value,
+            'type' => $this->type->value,
+            'brand' => $this->brand,
+            'last4' => $this->last4,
+            'expMonth' => $this->exp_month,
+            'expYear' => $this->exp_year,
+            'isDefault' => $this->is_default,
+            'status' => $this->status->value,
+            'customer' => [
+                'publicId' => $this->customer->public_id,
+            ],
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

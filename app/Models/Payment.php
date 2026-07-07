@@ -102,6 +102,33 @@ class Payment extends Model
     }
 
     /**
+     * Serialise for integrator webhook payloads.
+     *
+     * @return array<string, mixed>
+     */
+    public function toWebhookObject(): array
+    {
+        $this->loadMissing(['invoice', 'customer']);
+
+        return [
+            'publicId' => $this->public_id,
+            'status' => $this->status->value,
+            'amount' => $this->amount,
+            'currency' => $this->currency,
+            'failureCode' => $this->failure_code,
+            'failureReason' => $this->failure_reason,
+            'attemptNumber' => $this->attempt_number,
+            'processedAt' => $this->processed_at?->toISOString(),
+            'invoice' => [
+                'publicId' => $this->invoice->public_id,
+            ],
+            'customer' => [
+                'publicId' => $this->customer->public_id,
+            ],
+        ];
+    }
+
+    /**
      * Serialise a charge attempt for nested hub lists (subscription, customer).
      *
      * @return array<string, mixed>

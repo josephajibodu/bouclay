@@ -27,6 +27,7 @@ class ProcessNombaInboundWebhook
         private readonly StoreTokenizedPaymentMethod $storePaymentMethod,
         private readonly NombaModeResolver $modeResolver,
         private readonly ClassifyPaymentFailure $classifyFailure,
+        private readonly EmitInvoicePaymentFailed $emitInvoicePaymentFailed,
     ) {
         //
     }
@@ -189,10 +190,12 @@ class ProcessNombaInboundWebhook
                         'raw_response' => $payload,
                     ])->save();
                 }
+
+                $payment = $existingPayment;
             } else {
                 $classification = $this->classifyFailure->classify($this->failureReason($payload));
 
-                $invoice->payments()->create([
+                $payment = $invoice->payments()->create([
                     'team_id' => $invoice->team_id,
                     'customer_id' => $invoice->customer_id,
                     'processor' => PaymentProcessor::Nomba,
@@ -209,6 +212,7 @@ class ProcessNombaInboundWebhook
             }
 
             $invoice->recordFailedAttempt();
+            $this->emitInvoicePaymentFailed->handle($invoice, $payment);
             $this->settleSubscription->onAutomaticChargeFailed($invoice);
             $this->clearCheckoutCaches($orderReference);
         });
