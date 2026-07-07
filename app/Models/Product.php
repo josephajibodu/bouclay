@@ -22,6 +22,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $description
  * @property string|null $category
  * @property string|null $image_url
+ * @property string|null $website_url
  * @property CatalogStatus $status
  * @property array<string, mixed>|null $custom_data
  * @property Carbon|null $created_at
@@ -31,7 +32,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Price> $prices
  * @property-read Collection<int, TrialOffer> $trialOffers
  */
-#[Fillable(['team_id', 'name', 'description', 'category', 'image_url', 'status', 'custom_data'])]
+#[Fillable(['team_id', 'name', 'description', 'category', 'image_url', 'website_url', 'status', 'custom_data'])]
 class Product extends Model
 {
     /** @use HasFactory<ProductFactory> */

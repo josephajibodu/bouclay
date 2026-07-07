@@ -3,6 +3,7 @@ import {
     Check,
     ChevronLeft,
     Copy,
+    ExternalLink,
     Gift,
     MoreHorizontal,
     Pencil,
@@ -270,6 +271,27 @@ export default function ProductShow({
                             </span>
                         </p>
                     </div>
+                </div>
+                <div>
+                    <p className="text-xs text-muted-foreground">
+                        Return link
+                    </p>
+                    {product.websiteUrl ? (
+                        <a
+                            href={product.websiteUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                        >
+                            {product.websiteUrl}
+                            <ExternalLink className="size-3.5" />
+                        </a>
+                    ) : (
+                        <p className="text-sm font-medium text-muted-foreground">
+                            Not set — customers won't see a return link after
+                            paying for this product.
+                        </p>
+                    )}
                 </div>
             </section>
 

@@ -328,3 +328,45 @@ test('invoice pdf downloads from another team return 404', function () {
         ->get(route('invoices.pdf', $invoice))
         ->assertNotFound();
 });
+
+test('the hosted invoice page surfaces the billed product\'s return link', function () {
+    ['owner' => $owner, 'customer' => $customer, 'price' => $price, 'product' => $product] = invoiceFixture();
+
+    $product->update(['website_url' => 'https://acme.example.com/app']);
+
+    $this->actingAs($owner)
+        ->post(route('invoices.store'), [
+            'customer_id' => $customer->id,
+            'collection_mode' => 'manual',
+            'items' => [['price_id' => $price->id]],
+        ]);
+
+    $invoice = Invoice::query()->firstOrFail();
+
+    $this->get(route('hosted.invoices.show', $invoice->public_id))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('hosted/invoice')
+            ->where('invoice.returnUrl', 'https://acme.example.com/app'),
+        );
+});
+
+test('the hosted invoice page has no return link when the product has none set', function () {
+    ['owner' => $owner, 'customer' => $customer, 'price' => $price] = invoiceFixture();
+
+    $this->actingAs($owner)
+        ->post(route('invoices.store'), [
+            'customer_id' => $customer->id,
+            'collection_mode' => 'manual',
+            'items' => [['price_id' => $price->id]],
+        ]);
+
+    $invoice = Invoice::query()->firstOrFail();
+
+    $this->get(route('hosted.invoices.show', $invoice->public_id))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('hosted/invoice')
+            ->where('invoice.returnUrl', null),
+        );
+});

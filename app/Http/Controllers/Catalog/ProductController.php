@@ -139,6 +139,7 @@ class ProductController extends Controller
                 'name' => $product->name,
                 'description' => $product->description,
                 'category' => $product->category,
+                'websiteUrl' => $product->website_url,
                 'status' => $product->status,
                 'customData' => $product->custom_data,
                 'createdAt' => $product->created_at?->toISOString(),

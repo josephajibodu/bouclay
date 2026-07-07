@@ -20,6 +20,7 @@ class UpdateProductRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
             'category' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'website_url' => ['sometimes', 'nullable', 'url', 'max:255'],
             'status' => ['sometimes', Rule::enum(CatalogStatus::class)],
             'custom_data' => ['sometimes', 'nullable', 'array'],
             'custom_data.*' => ['nullable', 'string', 'max:500'],

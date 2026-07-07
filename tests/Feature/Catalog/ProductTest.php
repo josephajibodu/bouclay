@@ -130,3 +130,47 @@ test('product metadata can be updated', function () {
 
     expect($product->fresh()->custom_data)->toBe(['external_id' => 'acme-987']);
 });
+
+test('a product website url can be set and is shown on the product page', function () {
+    $owner = User::factory()->create();
+    $team = Team::factory()->create();
+    $product = Product::factory()->for($team)->create();
+
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $this
+        ->actingAs($owner)
+        ->patch(route('catalog.products.update', $product), [
+            'website_url' => 'https://acme.example.com/app',
+        ])
+        ->assertRedirect();
+
+    expect($product->fresh()->website_url)->toBe('https://acme.example.com/app');
+
+    $this
+        ->actingAs($owner)
+        ->get(route('catalog.products.show', $product))
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('catalog/show')
+            ->where('product.websiteUrl', 'https://acme.example.com/app'),
+        );
+});
+
+test('a product website url must be a valid url', function () {
+    $owner = User::factory()->create();
+    $team = Team::factory()->create();
+    $product = Product::factory()->for($team)->create();
+
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $this
+        ->actingAs($owner)
+        ->patch(route('catalog.products.update', $product), [
+            'website_url' => 'not-a-url',
+        ])
+        ->assertSessionHasErrors('website_url');
+
+    expect($product->fresh()->website_url)->toBeNull();
+});

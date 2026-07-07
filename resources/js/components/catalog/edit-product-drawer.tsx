@@ -94,6 +94,30 @@ export default function EditProductDrawer({
                                     />
                                     <InputError message={errors.category} />
                                 </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-product-website">
+                                        Website
+                                    </Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        Where customers land if they click
+                                        "return to site" after paying for
+                                        this product.
+                                    </p>
+                                    <Input
+                                        id="edit-product-website"
+                                        type="url"
+                                        name="website_url"
+                                        placeholder="https://example.com"
+                                        defaultValue={
+                                            product.websiteUrl ?? ''
+                                        }
+                                        data-test="edit-product-website"
+                                    />
+                                    <InputError
+                                        message={errors.website_url}
+                                    />
+                                </div>
                             </div>
 
                             <SheetFooter className="flex-row justify-end gap-2">

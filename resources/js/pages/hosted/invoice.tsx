@@ -1,5 +1,5 @@
 import { Form, Head } from '@inertiajs/react';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, ExternalLink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,7 @@ type HostedInvoice = {
     }>;
     canPay: boolean;
     payUrl: string;
+    returnUrl: string | null;
 };
 
 type Props = {
@@ -94,8 +95,22 @@ export default function HostedInvoice({
                 {isPaid && (
                     <Alert>
                         <CheckCircle2 className="size-4" />
-                        <AlertDescription>
-                            This invoice was paid on {formatDate(invoice.paidAt)}.
+                        <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                            <span>
+                                This invoice was paid on{' '}
+                                {formatDate(invoice.paidAt)}.
+                            </span>
+                            {invoice.returnUrl && (
+                                <Button asChild size="sm" variant="outline">
+                                    <a
+                                        href={invoice.returnUrl}
+                                        data-test="hosted-invoice-return-link"
+                                    >
+                                        Return to {invoice.business.name}
+                                        <ExternalLink />
+                                    </a>
+                                </Button>
+                            )}
                         </AlertDescription>
                     </Alert>
                 )}

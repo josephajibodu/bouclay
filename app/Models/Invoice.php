@@ -377,7 +377,20 @@ class Invoice extends Model
             ])->all(),
             'canPay' => $this->canBeCanceled(),
             'payUrl' => route('hosted.invoices.pay', $this->public_id),
+            'returnUrl' => $this->returnUrl(),
         ];
+    }
+
+    /**
+     * The merchant's "return to site" link for the customer after payment —
+     * the first billed product's `website_url`, in line order.
+     */
+    private function returnUrl(): ?string
+    {
+        return $this->lines
+            ->map(fn (InvoiceLine $line): ?string => $line->product?->website_url)
+            ->filter()
+            ->first();
     }
 
     /**

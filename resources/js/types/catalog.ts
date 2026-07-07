@@ -68,6 +68,7 @@ export type ProductDetail = {
     name: string;
     description: string | null;
     category: string | null;
+    websiteUrl: string | null;
     status: CatalogStatus;
     customData: Record<string, string> | null;
     createdAt: string | null;
