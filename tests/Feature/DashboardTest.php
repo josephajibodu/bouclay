@@ -1,6 +1,15 @@
 <?php
 
+use App\Enums\InvoiceStatus;
+use App\Enums\PaymentStatus;
+use App\Enums\SubscriptionStatus;
 use App\Models\ApiKey;
+use App\Models\Customer;
+use App\Models\Invoice;
+use App\Models\Payment;
+use App\Models\Price;
+use App\Models\Product;
+use App\Models\Subscription;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\TeamProcessorConnection;
@@ -46,6 +55,88 @@ test('authenticated users can visit the dashboard', function () {
         ->get(route('dashboard'));
 
     $response->assertOk();
+});
+
+test('dashboard includes a billing summary for the current team', function () {
+    $user = User::factory()->create();
+    $team = $user->currentTeam;
+    $team->update(['default_currency' => 'NGN']);
+
+    $customer = Customer::factory()
+        ->for($team)
+        ->create(['name' => 'Ada Lovelace', 'email' => 'ada@example.com']);
+    $product = Product::factory()->for($team)->create(['name' => 'Pro']);
+    Product::factory()->for($team)->create();
+    Price::factory()->for($team)->for($product)->create(['currency' => 'NGN']);
+
+    Subscription::factory()->for($team)->for($customer)->create(['status' => SubscriptionStatus::Active]);
+    Subscription::factory()->for($team)->for($customer)->trialing()->create();
+    Subscription::factory()->for($team)->for($customer)->create(['status' => SubscriptionStatus::PastDue]);
+    Subscription::factory()->for($team)->for($customer)->canceled()->create();
+
+    $openInvoice = Invoice::factory()
+        ->for($team)
+        ->for($customer)
+        ->create([
+            'status' => InvoiceStatus::Open,
+            'currency' => 'NGN',
+            'total' => 4000_00,
+            'amount_due' => 4000_00,
+        ]);
+    $paidInvoice = Invoice::factory()
+        ->for($team)
+        ->for($customer)
+        ->create([
+            'status' => InvoiceStatus::Paid,
+            'currency' => 'NGN',
+            'total' => 1500_00,
+            'amount_paid' => 1500_00,
+            'amount_due' => 0,
+            'paid_at' => now(),
+        ]);
+
+    Payment::factory()
+        ->for($team)
+        ->for($customer)
+        ->for($paidInvoice, 'invoice')
+        ->create([
+            'amount' => 1500_00,
+            'currency' => 'NGN',
+            'status' => PaymentStatus::Succeeded,
+            'processed_at' => now(),
+        ]);
+    Payment::factory()
+        ->for($team)
+        ->for($customer)
+        ->for($openInvoice, 'invoice')
+        ->failed()
+        ->create([
+            'amount' => 4000_00,
+            'currency' => 'NGN',
+            'processed_at' => now(),
+        ]);
+
+    $response = $this
+        ->actingAs($user)
+        ->get(route('dashboard'));
+
+    $response->assertInertia(fn (Assert $page) => $page
+        ->component('dashboard')
+        ->where('summary.currency', 'NGN')
+        ->where('summary.revenueLast30', 1500_00)
+        ->where('summary.successfulPaymentsLast30', 1)
+        ->where('summary.activeSubscriptions', 3)
+        ->where('summary.trialingSubscriptions', 1)
+        ->where('summary.pastDueSubscriptions', 1)
+        ->where('summary.customers', 1)
+        ->where('summary.activeProducts', 2)
+        ->where('summary.activePrices', 1)
+        ->where('summary.openInvoices', 1)
+        ->where('summary.openInvoiceAmountDue', 4000_00)
+        ->has('summary.recentPayments', 2)
+        ->has('summary.recentInvoices', 2)
+        ->where('summary.recentInvoices.0.customer.email', 'ada@example.com'),
+    );
 });
 
 test('dashboard includes pending invitations for the authenticated user', function () {

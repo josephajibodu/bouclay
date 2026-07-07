@@ -1,19 +1,46 @@
 import type { InertiaLinkProps } from '@inertiajs/react';
 import { Head, Link, usePage } from '@inertiajs/react';
-import { Check, ChevronRight } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+    Activity,
+    Box,
+    Check,
+    ChevronRight,
+    CreditCard,
+    FileText,
+    Receipt,
+    Users,
+} from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import {
+    INVOICE_STATUS_COLOR,
+    INVOICE_STATUS_LABEL,
+} from '@/components/invoices/invoice-status';
+import {
+    PAYMENT_STATUS_COLOR,
+    PAYMENT_STATUS_LABEL,
+} from '@/components/invoices/payment-status';
 import PendingInvitationsModal from '@/components/pending-invitations-modal';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
 import { cn } from '@/lib/utils';
 import { dashboard } from '@/routes';
+import { index as productsIndex } from '@/routes/catalog/products';
+import { index as customersIndex } from '@/routes/customers';
 import { edit as editGeneralSettings } from '@/routes/general';
-import type { DashboardInvitation, OnboardingState } from '@/types';
+import { index as invoicesIndex, show as showInvoice } from '@/routes/invoices';
+import { index as subscriptionsIndex } from '@/routes/subscriptions';
+import type {
+    DashboardInvitation,
+    DashboardSummary,
+    OnboardingState,
+} from '@/types';
 
 type Props = {
     pendingInvitations?: DashboardInvitation[];
     onboarding: OnboardingState | null;
+    summary: DashboardSummary;
 };
 
 type ChecklistItem = {
@@ -28,6 +55,7 @@ type ChecklistItem = {
 export default function Dashboard({
     pendingInvitations = [],
     onboarding,
+    summary,
 }: Props) {
     const { currentTeam } = usePage().props;
     const [showInvitations, setShowInvitations] = useState(
@@ -42,7 +70,8 @@ export default function Dashboard({
         : null;
 
     const [dismissed, setDismissed] = useState(
-        () => (dismissKey && sessionStorage.getItem(dismissKey) === '1') ?? false,
+        () =>
+            (dismissKey && sessionStorage.getItem(dismissKey) === '1') ?? false,
     );
     const [expanded, setExpanded] = useState(false);
 
@@ -64,7 +93,7 @@ export default function Dashboard({
                 key: 'nomba',
                 title: 'Connect your Nomba account',
                 description:
-                    "Bouclay never touches your money — Nomba does. Start with test keys, no risk.",
+                    'Bouclay never touches your money — Nomba does. Start with test keys, no risk.',
                 href: onboarding.links.nomba,
                 cta: 'Connect',
                 done: onboarding.nombaConnected,
@@ -185,23 +214,324 @@ export default function Dashboard({
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
                 <AnimatedHeight>{onboardingView}</AnimatedHeight>
 
-                <div className="grid auto-rows-min gap-4 md:grid-cols-3">
-                    <div className="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
-                        <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/20 dark:stroke-neutral-100/20" />
-                    </div>
-                    <div className="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
-                        <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/20 dark:stroke-neutral-100/20" />
-                    </div>
-                    <div className="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
-                        <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/20 dark:stroke-neutral-100/20" />
-                    </div>
-                </div>
-                <div className="relative min-h-[100vh] flex-1 overflow-hidden rounded-xl border border-sidebar-border/70 md:min-h-min dark:border-sidebar-border">
-                    <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/20 dark:stroke-neutral-100/20" />
-                </div>
+                <OverviewSummary summary={summary} />
             </div>
         </>
     );
+}
+
+function OverviewSummary({ summary }: { summary: DashboardSummary }) {
+    const metrics = [
+        {
+            key: 'revenue',
+            label: 'Revenue',
+            value: money(summary.revenueLast30, summary.currency),
+            helper: `${summary.successfulPaymentsLast30} successful payments in 30 days`,
+            icon: Receipt,
+            href: invoicesIndex(),
+            accent: 'border-emerald-200 bg-emerald-50/70 text-emerald-950 hover:bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-50',
+            iconAccent:
+                'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300',
+        },
+        {
+            key: 'subscriptions',
+            label: 'Active subscriptions',
+            value: summary.activeSubscriptions.toLocaleString(),
+            helper: `${summary.trialingSubscriptions} trialing · ${summary.pastDueSubscriptions} past due`,
+            icon: Activity,
+            href: subscriptionsIndex(),
+            accent: 'border-blue-200 bg-blue-50/70 text-blue-950 hover:bg-blue-50 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-50',
+            iconAccent:
+                'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300',
+        },
+        {
+            key: 'customers',
+            label: 'Customers',
+            value: summary.customers.toLocaleString(),
+            helper: 'People and businesses you bill',
+            icon: Users,
+            href: customersIndex(),
+            accent: 'border-violet-200 bg-violet-50/70 text-violet-950 hover:bg-violet-50 dark:border-violet-900/60 dark:bg-violet-950/20 dark:text-violet-50',
+            iconAccent:
+                'bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-300',
+        },
+        {
+            key: 'invoices',
+            label: 'Awaiting payment',
+            value: money(summary.openInvoiceAmountDue, summary.currency),
+            helper: `${summary.openInvoices} open invoices`,
+            icon: FileText,
+            href: invoicesIndex({ query: { status: 'open' } }),
+            accent: 'border-amber-200 bg-amber-50/70 text-amber-950 hover:bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-50',
+            iconAccent:
+                'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300',
+        },
+    ];
+
+    const hasRecentActivity =
+        summary.recentPayments.length > 0 || summary.recentInvoices.length > 0;
+
+    return (
+        <div className="flex w-full max-w-7xl flex-col gap-6">
+            <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                    <h1 className="text-2xl font-semibold">Overview</h1>
+                    <p className="text-sm text-muted-foreground">
+                        A quick read on your current billing setup and recent
+                        customer activity.
+                    </p>
+                </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {metrics.map((metric) => (
+                    <MetricCard
+                        key={metric.key}
+                        label={metric.label}
+                        value={metric.value}
+                        helper={metric.helper}
+                        icon={metric.icon}
+                        href={metric.href}
+                        accent={metric.accent}
+                        iconAccent={metric.iconAccent}
+                    />
+                ))}
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[minmax(28rem,0.95fr)_minmax(0,1.4fr)]">
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-6 dark:border-indigo-900/60 dark:bg-indigo-950/20">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                            <h2 className="font-semibold text-indigo-950 dark:text-indigo-50">
+                                Catalog readiness
+                            </h2>
+                            <p className="max-w-sm text-sm text-indigo-900/70 dark:text-indigo-200/70">
+                                Products and prices available for billing.
+                            </p>
+                        </div>
+                        <Button asChild variant="outline" size="sm">
+                            <Link href={productsIndex()}>View catalog</Link>
+                        </Button>
+                    </div>
+
+                    <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                        <Fact
+                            icon={Box}
+                            label="Active products"
+                            value={summary.activeProducts.toLocaleString()}
+                            className="border-indigo-200 bg-white/70 text-indigo-950 dark:border-indigo-900/60 dark:bg-background/40 dark:text-indigo-50"
+                        />
+                        <Fact
+                            icon={CreditCard}
+                            label="Active prices"
+                            value={summary.activePrices.toLocaleString()}
+                            className="border-sky-200 bg-white/70 text-sky-950 dark:border-sky-900/60 dark:bg-background/40 dark:text-sky-50"
+                        />
+                    </div>
+                </div>
+
+                <RecentPayments summary={summary} />
+            </div>
+
+            <RecentInvoices summary={summary} />
+
+            {!hasRecentActivity && (
+                <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                    Once you create invoices or collect payments, recent billing
+                    activity will appear here.
+                </div>
+            )}
+        </div>
+    );
+}
+
+function MetricCard({
+    label,
+    value,
+    helper,
+    icon: Icon,
+    href,
+    accent,
+    iconAccent,
+}: {
+    label: string;
+    value: string;
+    helper: string;
+    icon: LucideIcon;
+    href: NonNullable<InertiaLinkProps['href']>;
+    accent: string;
+    iconAccent: string;
+}) {
+    return (
+        <Link
+            href={href}
+            className={cn('rounded-xl border p-5 transition-colors', accent)}
+        >
+            <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                    <p className="text-sm opacity-70">{label}</p>
+                    <p className="text-2xl font-semibold">{value}</p>
+                </div>
+                <span className={cn('rounded-full p-2', iconAccent)}>
+                    <Icon className="size-4" />
+                </span>
+            </div>
+            <p className="mt-4 text-sm opacity-70">{helper}</p>
+        </Link>
+    );
+}
+
+function Fact({
+    icon: Icon,
+    label,
+    value,
+    className,
+}: {
+    icon: LucideIcon;
+    label: string;
+    value: string;
+    className?: string;
+}) {
+    return (
+        <div className={cn('rounded-lg border p-4', className)}>
+            <div className="flex items-center gap-2 text-sm opacity-70">
+                <Icon className="size-4" />
+                {label}
+            </div>
+            <p className="mt-3 text-2xl font-semibold">{value}</p>
+        </div>
+    );
+}
+
+function RecentPayments({ summary }: { summary: DashboardSummary }) {
+    return (
+        <div className="rounded-xl border p-6">
+            <div className="flex items-center justify-between gap-4">
+                <div>
+                    <h2 className="font-semibold">Recent payments</h2>
+                    <p className="text-sm text-muted-foreground">
+                        Latest charge attempts across invoices.
+                    </p>
+                </div>
+            </div>
+
+            {summary.recentPayments.length === 0 ? (
+                <EmptyActivity icon={CreditCard} label="No payments yet" />
+            ) : (
+                <div className="mt-4 divide-y rounded-lg border">
+                    {summary.recentPayments.map((payment) => (
+                        <div
+                            key={payment.id}
+                            className="flex items-center justify-between gap-4 p-4"
+                        >
+                            <div className="min-w-0">
+                                <p className="truncate font-medium">
+                                    {payment.customer.name ??
+                                        payment.customer.email}
+                                </p>
+                                <p className="truncate text-sm text-muted-foreground">
+                                    {payment.productsLabel}
+                                </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                                <p className="font-medium">
+                                    {money(payment.amount, payment.currency)}
+                                </p>
+                                <StatusBadge
+                                    label={PAYMENT_STATUS_LABEL[payment.status]}
+                                    color={PAYMENT_STATUS_COLOR[payment.status]}
+                                />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function RecentInvoices({ summary }: { summary: DashboardSummary }) {
+    return (
+        <div className="rounded-xl border p-6">
+            <div className="flex items-center justify-between gap-4">
+                <div>
+                    <h2 className="font-semibold">Recent invoices</h2>
+                    <p className="text-sm text-muted-foreground">
+                        The newest bills created for your customers.
+                    </p>
+                </div>
+                <Button asChild variant="outline" size="sm">
+                    <Link href={invoicesIndex()}>View invoices</Link>
+                </Button>
+            </div>
+
+            {summary.recentInvoices.length === 0 ? (
+                <EmptyActivity icon={FileText} label="No invoices yet" />
+            ) : (
+                <div className="mt-4 divide-y rounded-lg border">
+                    {summary.recentInvoices.map((invoice) => (
+                        <Link
+                            key={invoice.id}
+                            href={showInvoice(invoice.id)}
+                            className="flex items-center justify-between gap-4 p-4 transition-colors hover:bg-muted/30"
+                        >
+                            <div className="min-w-0">
+                                <p className="truncate font-medium">
+                                    {invoice.number ?? invoice.publicId}
+                                </p>
+                                <p className="truncate text-sm text-muted-foreground">
+                                    {invoice.customer.name ??
+                                        invoice.customer.email}
+                                </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                                <p className="font-medium">
+                                    {money(invoice.total, invoice.currency)}
+                                </p>
+                                <StatusBadge
+                                    label={INVOICE_STATUS_LABEL[invoice.status]}
+                                    color={INVOICE_STATUS_COLOR[invoice.status]}
+                                />
+                            </div>
+                        </Link>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function StatusBadge({ label, color }: { label: string; color: string }) {
+    return (
+        <Badge variant="secondary" className="mt-1 gap-1.5">
+            <span className={cn('size-1.5 rounded-full', color)} />
+            {label}
+        </Badge>
+    );
+}
+
+function EmptyActivity({
+    icon: Icon,
+    label,
+}: {
+    icon: LucideIcon;
+    label: string;
+}) {
+    return (
+        <div className="mt-4 flex items-center gap-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            <span className="rounded-full bg-muted p-2">
+                <Icon className="size-4" />
+            </span>
+            {label}
+        </div>
+    );
+}
+
+function money(amount: number, currency: string): string {
+    return `${currency} ${(amount / 100).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
 }
 
 /**
@@ -396,7 +726,9 @@ function OnboardingBanner({
                             key={item.key}
                             className={cn(
                                 'size-2 rounded-full transition-colors duration-300',
-                                item.done ? 'bg-emerald-500' : 'bg-muted-foreground/30',
+                                item.done
+                                    ? 'bg-emerald-500'
+                                    : 'bg-muted-foreground/30',
                             )}
                         />
                     ))}

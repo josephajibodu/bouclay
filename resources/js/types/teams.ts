@@ -1,3 +1,5 @@
+import type { InvoiceListItem, PaymentListItem } from './invoices';
+
 export type Team = {
     id: number;
     name: string;
@@ -57,6 +59,22 @@ export type DashboardInvitation = {
         name: string;
         slug: string;
     };
+};
+
+export type DashboardSummary = {
+    currency: string;
+    revenueLast30: number;
+    successfulPaymentsLast30: number;
+    activeSubscriptions: number;
+    trialingSubscriptions: number;
+    pastDueSubscriptions: number;
+    customers: number;
+    activeProducts: number;
+    activePrices: number;
+    openInvoices: number;
+    openInvoiceAmountDue: number;
+    recentPayments: PaymentListItem[];
+    recentInvoices: InvoiceListItem[];
 };
 
 export type OnboardingState = {
