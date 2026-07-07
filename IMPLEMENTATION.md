@@ -283,18 +283,31 @@ Create-time Phase 6 seams in `CreateSubscription` are **done** (real first charg
 
 ---
 
-## Phase 11 — Self-service portal (minimal)
+## Phase 11 — Self-service portal (minimal) 🟡 (slices 1–3 done; polish deferred)
 
 **Goal:** Hackathon “customer self-service portal” — thin, not a second product.
 
-**Build:**
+**Built (slices 1–3):**
 
-- Customer-facing pages or hosted portal links (team-branded minimal UI)
-- View subscription status, update payment method, cancel at period end
-- Authenticated by magic link or customer portal token
-- **Payment links** — a "Create payment link" action per price (seen in the Catalog price-row menu) that generates a shareable hosted checkout URL for that exact price, reusing this phase's hosted-portal UI shell
+- **`portal_token` on `customers`** — `HasPortalToken` concern; unique 64-char token generated on create; merchant **Copy portal link** on customer hub Actions menu (`Customer::portalUrl()`).
+- **Token auth, no login UI** — `GET /portal/{token}` resolves the customer; invalid/archived tokens → 404. No session, no password.
+- **Paddle-style multi-page portal** — sidebar nav, team-branded header, forced light theme (`.portal` scope in `app.css` so merchant dark mode doesn't bleed in):
+  - `/portal/{token}/subscriptions` — list active subscriptions
+  - `/portal/{token}/subscriptions/{publicId}` — detail + **Cancel at period end** (writes `scheduled_changes` row)
+  - `/portal/{token}/payments` — charge attempts
+  - `/portal/{token}/payment-methods` — stored cards + **Update payment method** (Nomba hosted checkout, ₦100 verification charge + tokenisation)
+  - `/portal/{token}/account` — customer profile
+- **Backend:** `BuildPortalContext` (shared data loading/serialization), `PortalController`, `PortalPaymentMethodController`, `PortalSubscriptionController`, `ResolvesPortalCustomer` concern; routes in `routes/portal.php`.
+- **Frontend:** `portal-layout.tsx`, `portal-card.tsx`, `cancel-subscription-dialog.tsx`; pages under `resources/js/pages/portal/`.
+- **Tests:** `tests/Feature/Portal/PortalTest.php` (14 cases — token auth, pages, cancel, payment-method flow).
 
-**Exit criteria:** End customer can cancel subscription without support.
+**Exit criteria:** End customer can cancel subscription without support. ✅
+
+**Deferred (slice 4 — polish):**
+
+- ⬜ **Magic-link email** — "Send portal invite" on customer hub Actions (email with portal URL).
+- ⬜ **Payment links** — "Create payment link" action per catalog price row → shareable hosted checkout URL for that exact price.
+- ⬜ PDF invoice download from portal payments page.
 
 ---
 

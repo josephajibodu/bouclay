@@ -1005,7 +1005,7 @@ How this page absorbs Phases 5–13 without a redesign:
 - **Invoices (P6):** ✅ the staged Invoices placeholder was replaced by a real invoice table in the *same slot*; rows link to `/invoices/{id}`. **Total spend** is in the Overview facts grid via `Customer::totalSpend()`. Charge attempts are *not* listed here — they appear on the subscription hub as **Payments**.
 - **Activity (P5–9):** the timeline's per-type renderer (§12) gains cases (`subscription.created`, `invoice.paid`, `payment.failed`) — additive, no structural change.
 - **Segments (later):** if the team eventually wants Stripe-style preset tabs ("Top customers", "High refunds"), they slot in *above* the search as a `Tabs` row — the exact seam Catalog reserved for "All prices." One tab strip, not an IA rework. We intentionally *don't* build these now (no data, and Paddle-simplicity is the current goal).
-- **Customer portal (P11):** the detail page's "Actions" gains a "Copy portal link" / "Send portal invite" item — a menu addition, not a page.
+- **Customer portal (P11):** ✅ "Copy portal link" is live on the Actions menu (`Customer::portalUrl()`). ⬜ "Send portal invite" (magic-link email) deferred to Phase 11 slice 4. The portal itself is a separate hosted area at `/portal/{token}` — subscriptions, payments, payment methods, account — not a tab on this page.
 - **Multi-currency, bank/wallet methods:** the PM row is already generic over `type`; the facts grid already shows per-customer currency. Both absorb Nomba's non-card instruments and multi-currency customers without new components.
 
 The governing promise: **the page's skeleton is its final skeleton.** Every later phase fills a reserved cell or adds a renderer case; none moves a wall.
