@@ -15,6 +15,7 @@ use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
 use App\Models\Team;
+use App\Support\DunningConfig;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -109,6 +110,7 @@ class CreateInvoice
                 'next_invoice_number' => 1,
                 'billing_timezone' => 'UTC',
                 'tax_behavior' => 'exclusive',
+                'dunning_config' => DunningConfig::defaults()->toArray(),
             ]);
 
         $number = $settings->invoice_prefix.'-'.$settings->next_invoice_number;

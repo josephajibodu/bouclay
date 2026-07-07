@@ -47,6 +47,7 @@ function legalTransitions(): array
         ],
         PastDueState::class => [
             'recover' => ActiveState::class,
+            'pause' => PausedState::class,
             'cancel' => CanceledState::class,
         ],
         PausedState::class => [

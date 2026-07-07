@@ -12,6 +12,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\TeamProcessorConnection;
+use App\Services\Invoicing\ClassifyPaymentFailure;
 use App\Services\Nomba\NombaModeResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,7 @@ class ProcessNombaInboundWebhook
         private readonly SettleSubscriptionOnInvoicePayment $settleSubscription,
         private readonly StoreTokenizedPaymentMethod $storePaymentMethod,
         private readonly NombaModeResolver $modeResolver,
+        private readonly ClassifyPaymentFailure $classifyFailure,
     ) {
         //
     }
@@ -178,13 +180,18 @@ class ProcessNombaInboundWebhook
 
             if ($existingPayment instanceof Payment) {
                 if ($existingPayment->status !== PaymentStatus::Failed) {
+                    $classification = $this->classifyFailure->classify($this->failureReason($payload));
+
                     $existingPayment->forceFill([
                         'status' => PaymentStatus::Failed,
+                        'failure_code' => $classification['code'],
                         'failure_reason' => $this->failureReason($payload),
                         'raw_response' => $payload,
                     ])->save();
                 }
             } else {
+                $classification = $this->classifyFailure->classify($this->failureReason($payload));
+
                 $invoice->payments()->create([
                     'team_id' => $invoice->team_id,
                     'customer_id' => $invoice->customer_id,
@@ -193,6 +200,7 @@ class ProcessNombaInboundWebhook
                     'amount' => $invoice->total,
                     'currency' => $invoice->currency,
                     'status' => PaymentStatus::Failed,
+                    'failure_code' => $classification['code'],
                     'failure_reason' => $this->failureReason($payload),
                     'attempt_number' => $invoice->payments()->count() + 1,
                     'idempotency_key' => hash('sha256', "invoice:{$invoice->id}:webhook-failed:{$orderReference}"),

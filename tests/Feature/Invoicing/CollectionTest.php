@@ -190,40 +190,6 @@ test('a declined renewal charge moves an active subscription to past due', funct
         ->and($invoice->payments()->firstOrFail()->status)->toBe(PaymentStatus::Failed);
 });
 
-test('a successful renewal charge recovers a past due subscription to active', function () {
-    Mail::fake();
-
-    ['team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
-    $card = PaymentMethod::factory()->for($team)->for($customer)->create();
-    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
-    fakeNombaCharge();
-
-    $subscription = Subscription::factory()
-        ->for($team)
-        ->for($customer)
-        ->create([
-            'collection_mode' => 'automatic',
-            'payment_method_id' => $card->id,
-            'status' => SubscriptionStatus::PastDue,
-            'current_period_start' => now()->subMonths(2),
-            'current_period_end' => now()->subDay(),
-        ]);
-
-    $subscription->items()->create([
-        'price_id' => $price->id,
-        'product_id' => $price->product_id,
-        'quantity' => 1,
-        'status' => SubscriptionItemStatus::Active,
-    ]);
-
-    $this->artisan('subscriptions:bill-renewals')->assertSuccessful();
-
-    $subscription->refresh();
-
-    expect($subscription->status)->toBe(SubscriptionStatus::Active)
-        ->and($subscription->invoices()->latest('id')->firstOrFail()->status)->toBe(InvoiceStatus::Paid);
-});
-
 test('hosted invoice pay redirects to nomba checkout', function () {
     ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = invoiceFixture();
     TeamProcessorConnection::factory()->for($team)->testConnected()->create();

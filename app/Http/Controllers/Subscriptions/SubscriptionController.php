@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Subscriptions;
 
+use App\Actions\Dunning\ResolveSubscriptionDunning;
+use App\Actions\Dunning\RetryPastDueInvoice;
 use App\Actions\Subscriptions\BuildSubscriptionCreateOptions;
 use App\Actions\Subscriptions\CreateSubscription;
 use App\Actions\Subscriptions\UpdateSubscriptionItem;
 use App\Enums\CatalogStatus;
+use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceStatus;
 use App\Enums\PriceType;
 use App\Enums\ScheduledChangeAction;
@@ -34,7 +37,7 @@ class SubscriptionController extends Controller
      * List the team's subscriptions — Paddle-thin: search, one status filter,
      * server-side paginated (SUBSCRIPTIONS_DESIGN §6).
      */
-    public function index(Request $request, BuildSubscriptionCreateOptions $createOptions): Response
+    public function index(Request $request, BuildSubscriptionCreateOptions $createOptions, ResolveSubscriptionDunning $dunning): Response
     {
         $team = $request->user()->currentTeam;
 
@@ -44,7 +47,16 @@ class SubscriptionController extends Controller
         $status = (string) $request->query('status', 'all_active');
 
         $subscriptions = $team->subscriptions()
-            ->with(['customer', 'activeItems.product'])
+            ->with([
+                'customer',
+                'activeItems.product',
+                'team.settings',
+                'invoices' => fn ($query) => $query
+                    ->where('status', InvoiceStatus::Open)
+                    ->where('billing_reason', InvoiceBillingReason::SubscriptionCycle)
+                    ->with('payments')
+                    ->orderByDesc('id'),
+            ])
             ->when($status !== 'all', function ($query) use ($status) {
                 $statuses = $status === 'all_active'
                     ? array_map(fn (SubscriptionStatus $s) => $s->value, SubscriptionStatus::activeSet())
@@ -66,7 +78,18 @@ class SubscriptionController extends Controller
             ->orderByDesc('created_at')
             ->paginate(25)
             ->withQueryString()
-            ->through(fn (Subscription $subscription) => $subscription->toListArray());
+            ->through(function (Subscription $subscription) use ($dunning) {
+                $row = $subscription->toListArray();
+                $summary = $dunning->handle($subscription);
+
+                if ($summary !== null && $summary['attempt'] !== null) {
+                    $row['dunningAttempt'] = $summary['attempt'];
+                    $row['dunningMaxAttempts'] = $summary['maxAttempts'];
+                    $row['dunningNextRetryAt'] = $summary['nextRetryAt'];
+                }
+
+                return $row;
+            });
 
         return Inertia::render('subscriptions/index', [
             'subscriptions' => $subscriptions,
@@ -106,7 +129,7 @@ class SubscriptionController extends Controller
     /**
      * The subscription detail hub (SUBSCRIPTIONS_DESIGN §8).
      */
-    public function show(Request $request, Subscription $subscription, BuildSubscriptionCreateOptions $createOptions): Response
+    public function show(Request $request, Subscription $subscription, BuildSubscriptionCreateOptions $createOptions, ResolveSubscriptionDunning $dunning): Response
     {
         $team = $request->user()->currentTeam;
 
@@ -116,6 +139,7 @@ class SubscriptionController extends Controller
 
         $subscription->load([
             'customer',
+            'team.settings',
             'paymentMethod',
             'items' => fn ($query) => $query->orderBy('created_at'),
             'items.product',
@@ -177,7 +201,32 @@ class SubscriptionController extends Controller
             ],
             'products' => $createOptions->handle($team)['products'],
             'paymentLink' => $paymentLink,
+            'dunning' => $dunning->handle($subscription),
         ]);
+    }
+
+    /**
+     * Manually retry collection on a past-due subscription's open invoice.
+     */
+    public function retryPayment(Request $request, Subscription $subscription, RetryPastDueInvoice $retry): RedirectResponse
+    {
+        $subscription = $this->authorizeManage($request, $subscription);
+
+        $result = $retry->handle($subscription, force: true);
+
+        $message = match ($result) {
+            'recovered' => 'Payment succeeded — subscription is active again.',
+            'retried' => 'Payment retry attempted.',
+            'exhausted' => 'Retries exhausted — the configured terminal action was applied.',
+            default => 'Nothing to retry right now.',
+        };
+
+        Inertia::flash('toast', [
+            'type' => $result === 'recovered' ? 'success' : ($result === 'skipped' ? 'info' : 'warning'),
+            'message' => $message,
+        ]);
+
+        return back();
     }
 
     /**

@@ -15,6 +15,7 @@ Route::prefix('subscriptions')
         Route::post('{subscription}/items/{item}', [SubscriptionController::class, 'updateItem'])->name('items.update');
         Route::post('{subscription}/pause', [SubscriptionController::class, 'pause'])->name('pause');
         Route::post('{subscription}/resume', [SubscriptionController::class, 'resume'])->name('resume');
+        Route::post('{subscription}/retry-payment', [SubscriptionController::class, 'retryPayment'])->name('retry-payment');
         Route::post('{subscription}/cancel', [SubscriptionController::class, 'cancel'])->name('cancel');
         Route::post('{subscription}/undo-cancel', [SubscriptionController::class, 'resumeSchedule'])->name('undo-cancel');
     });

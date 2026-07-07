@@ -26,7 +26,17 @@ export type SubscriptionListItem = {
     trialEndsAt: string | null;
     currentPeriodEnd: string | null;
     cancelsAt: string | null;
+    dunningAttempt?: number;
+    dunningMaxAttempts?: number;
+    dunningNextRetryAt?: string | null;
     createdAt: string | null;
+};
+
+export type SubscriptionDunning = {
+    attempt: number | null;
+    maxAttempts: number | null;
+    nextRetryAt: string | null;
+    canRetryNow: boolean;
 };
 
 export type SubscriptionFilters = {

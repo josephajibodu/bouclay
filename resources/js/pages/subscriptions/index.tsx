@@ -257,6 +257,19 @@ export default function SubscriptionsIndex({
                                                             )}
                                                         </p>
                                                     )}
+                                                    {row.status === 'past_due' &&
+                                                        row.dunningAttempt != null &&
+                                                        row.dunningMaxAttempts != null && (
+                                                            <p className="text-xs text-red-600 dark:text-red-400">
+                                                                retry{' '}
+                                                                {row.dunningAttempt}{' '}
+                                                                of{' '}
+                                                                {row.dunningMaxAttempts}
+                                                                {row.dunningNextRetryAt
+                                                                    ? ` · next ${formatDate(row.dunningNextRetryAt)}`
+                                                                    : ''}
+                                                            </p>
+                                                        )}
                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">

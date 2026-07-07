@@ -34,7 +34,7 @@ class RenewSubscription
 
     public function handle(Subscription $subscription): ?Invoice
     {
-        if (! in_array($subscription->status, [SubscriptionStatus::Active, SubscriptionStatus::PastDue], true)) {
+        if ($subscription->status !== SubscriptionStatus::Active) {
             return null;
         }
 

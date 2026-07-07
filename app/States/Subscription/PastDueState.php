@@ -22,6 +22,14 @@ final class PastDueState extends BaseSubscriptionState
         return $this->to(ActiveState::class);
     }
 
+    public function pause(?Carbon $resumesAt = null): SubscriptionState
+    {
+        $this->subscription->paused_at = Carbon::now();
+        $this->subscription->pause_resumes_at = $resumesAt;
+
+        return $this->to(PausedState::class);
+    }
+
     public function cancel(?CarbonInterface $endsAt = null): SubscriptionState
     {
         $this->subscription->canceled_at = Carbon::now();

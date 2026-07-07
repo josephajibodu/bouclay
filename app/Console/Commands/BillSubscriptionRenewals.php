@@ -18,7 +18,7 @@ class BillSubscriptionRenewals extends Command
         $count = 0;
 
         Subscription::query()
-            ->whereIn('status', [SubscriptionStatus::Active, SubscriptionStatus::PastDue])
+            ->where('status', SubscriptionStatus::Active)
             ->whereNotNull('current_period_end')
             ->where('current_period_end', '<=', now())
             ->orderBy('id')

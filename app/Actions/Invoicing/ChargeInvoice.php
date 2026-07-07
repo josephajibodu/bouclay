@@ -10,6 +10,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Team;
+use App\Services\Invoicing\ClassifyPaymentFailure;
 use App\Services\Nomba\NombaCheckout;
 use App\Services\Nomba\NombaModeResolver;
 use Illuminate\Support\Str;
@@ -27,6 +28,7 @@ class ChargeInvoice
     public function __construct(
         private readonly NombaCheckout $checkout,
         private readonly NombaModeResolver $modeResolver,
+        private readonly ClassifyPaymentFailure $classifyFailure,
     ) {
         //
     }
@@ -48,6 +50,8 @@ class ChargeInvoice
         if ($connection === null || $mode === null) {
             return $this->recordFailure($invoice, $paymentMethod, $orderReference, $idempotencyKey, $attemptNumber, 'Nomba is not connected for this team.');
         }
+
+        $invoice->loadMissing('customer');
 
         try {
             $result = $this->checkout->chargeTokenizedCard($connection, $mode, [
@@ -99,6 +103,8 @@ class ChargeInvoice
         int $attemptNumber,
         string $reason,
     ): Payment {
+        $classification = $this->classifyFailure->classify($reason);
+
         $payment = $invoice->payments()->create([
             'team_id' => $invoice->team_id,
             'customer_id' => $invoice->customer_id,
@@ -108,6 +114,7 @@ class ChargeInvoice
             'amount' => $invoice->total,
             'currency' => $invoice->currency,
             'status' => PaymentStatus::Failed,
+            'failure_code' => $classification['code'],
             'failure_reason' => $reason,
             'attempt_number' => $attemptNumber,
             'idempotency_key' => $idempotencyKey,

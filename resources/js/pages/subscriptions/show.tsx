@@ -44,13 +44,14 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { show as customerShow } from '@/routes/customers';
-import { cancel, index, pause, resume, undoCancel } from '@/routes/subscriptions';
+import { cancel, index, pause, resume, retryPayment, undoCancel } from '@/routes/subscriptions';
 import { show as invoiceShow } from '@/routes/invoices';
 import type {
     CreateProductOption,
     InvoiceSummary,
     PaymentListItem,
     SubscriptionDetail,
+    SubscriptionDunning,
     SubscriptionItem,
     SubscriptionScheduledChange,
     SubscriptionTimelineEvent,
@@ -68,6 +69,7 @@ type Props = {
     permissions: { canManage: boolean };
     paymentLink: string | null;
     products: CreateProductOption[];
+    dunning: SubscriptionDunning | null;
 };
 
 function formatDate(iso: string | null): string {
@@ -128,6 +130,7 @@ export default function SubscriptionShow({
     permissions,
     paymentLink,
     products,
+    dunning,
 }: Props) {
     const { canManage } = permissions;
     const [copied, setCopied] = useState(false);
@@ -160,6 +163,8 @@ export default function SubscriptionShow({
         router.post(resume(subscription.id).url, {}, { preserveScroll: true });
     const doUndoCancel = () =>
         router.post(undoCancel(subscription.id).url, {}, { preserveScroll: true });
+    const doRetryPayment = () =>
+        router.post(retryPayment(subscription.id).url, {}, { preserveScroll: true });
 
     const doCancel = (mode: 'immediately' | 'period_end') => {
         router.post(
@@ -264,8 +269,10 @@ export default function SubscriptionShow({
                 subscription={subscription}
                 scheduledCancel={scheduledCancel}
                 onUndoCancel={doUndoCancel}
+                onRetryPayment={doRetryPayment}
                 canManage={canManage}
                 paymentLink={paymentLink}
+                dunning={dunning}
             />
 
             {/* Overview */}
@@ -617,14 +624,18 @@ function StatusBanner({
     subscription,
     scheduledCancel,
     onUndoCancel,
+    onRetryPayment,
     canManage,
     paymentLink,
+    dunning,
 }: {
     subscription: SubscriptionDetail;
     scheduledCancel: SubscriptionScheduledChange | undefined;
     onUndoCancel: () => void;
+    onRetryPayment: () => void;
     canManage: boolean;
     paymentLink: string | null;
+    dunning: SubscriptionDunning | null;
 }) {
     if (scheduledCancel) {
         return (
@@ -669,12 +680,37 @@ function StatusBanner({
             return (
                 <Banner tone="red">
                     <span>
-                        A renewal payment failed. Bouclay will retry
-                        automatically. Update the card to recover sooner.
+                        A renewal payment failed.
+                        {dunning?.attempt != null && dunning.maxAttempts != null ? (
+                            <>
+                                {' '}
+                                Bouclay will retry automatically ({dunning.attempt}{' '}
+                                of {dunning.maxAttempts}
+                                {dunning.nextRetryAt
+                                    ? `, next on ${formatDate(dunning.nextRetryAt)}`
+                                    : ''}
+                                ). Update the card to recover sooner.
+                            </>
+                        ) : (
+                            ' Bouclay will retry automatically. Update the card to recover sooner.'
+                        )}
                     </span>
-                    {canManage && paymentLink && (
-                        <CopyPaymentLinkButton url={paymentLink} />
-                    )}
+                    <div className="flex shrink-0 items-center gap-2">
+                        {canManage && dunning?.canRetryNow && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={onRetryPayment}
+                                data-test="retry-payment"
+                            >
+                                <RefreshCw className="size-4" />
+                                Retry now
+                            </Button>
+                        )}
+                        {canManage && paymentLink && (
+                            <CopyPaymentLinkButton url={paymentLink} />
+                        )}
+                    </div>
                 </Banner>
             );
         case 'paused':
