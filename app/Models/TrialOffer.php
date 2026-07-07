@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
@@ -34,6 +35,7 @@ use Illuminate\Support\Carbon;
  * @property-read Price $trialPrice
  * @property-read Product|null $transitionProduct
  * @property-read Price $transitionPrice
+ * @property-read PaymentLink|null $paymentLink
  */
 #[Fillable([
     'team_id', 'name', 'product_id', 'trial_price_id',
@@ -107,6 +109,16 @@ class TrialOffer extends Model
     }
 
     /**
+     * Get the durable hosted checkout link for this trial offer, when one exists.
+     *
+     * @return HasOne<PaymentLink, $this>
+     */
+    public function paymentLink(): HasOne
+    {
+        return $this->hasOne(PaymentLink::class);
+    }
+
+    /**
      * Format this trial offer for the frontend.
      *
      * @return array<string, mixed>
@@ -132,6 +144,13 @@ class TrialOffer extends Model
             ],
             'durationIterations' => $this->duration_iterations,
             'active' => $this->active,
+            'paymentLink' => $this->relationLoaded('paymentLink') && $this->paymentLink !== null
+                ? [
+                    'id' => $this->paymentLink->public_id,
+                    'url' => $this->paymentLink->url(),
+                    'priceLabel' => $this->name,
+                ]
+                : null,
         ];
     }
 

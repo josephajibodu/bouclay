@@ -10,7 +10,9 @@ use App\Models\Invoice;
 use App\Models\PaymentLink;
 use App\Models\Price;
 use App\Models\Subscription;
+use App\Models\SubscriptionItemTrial;
 use App\Models\TeamProcessorConnection;
+use App\Models\TrialOffer;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -30,6 +32,40 @@ test('a product price row can create a reusable hosted payment link', function (
 
     $this->actingAs($owner)
         ->post(route('catalog.prices.payment-link', [$product, $price]))
+        ->assertRedirect();
+
+    expect(PaymentLink::query()->count())->toBe(1);
+});
+
+test('a trial offer can create a reusable hosted trial link', function () {
+    ['owner' => $owner, 'team' => $team, 'product' => $product, 'price' => $transitionPrice] = invoiceFixture();
+    $trialPrice = Price::factory()->for($team)->for($product)->free()->create([
+        'currency' => $transitionPrice->currency,
+        'billing_interval' => 'day',
+        'billing_frequency' => 14,
+    ]);
+    $trialOffer = TrialOffer::factory()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'trial_price_id' => $trialPrice->id,
+        'transition_product_id' => $product->id,
+        'transition_price_id' => $transitionPrice->id,
+    ]);
+
+    $this->actingAs($owner)
+        ->post(route('catalog.trials.payment-link', [$product, $trialOffer]))
+        ->assertRedirect();
+
+    $paymentLink = PaymentLink::query()->firstOrFail();
+
+    expect($paymentLink->team_id)->toBe($team->id)
+        ->and($paymentLink->product_id)->toBe($product->id)
+        ->and($paymentLink->price_id)->toBeNull()
+        ->and($paymentLink->trial_offer_id)->toBe($trialOffer->id)
+        ->and($paymentLink->url())->toBe(route('hosted.payment-links.show', $paymentLink->public_id));
+
+    $this->actingAs($owner)
+        ->post(route('catalog.trials.payment-link', [$product, $trialOffer]))
         ->assertRedirect();
 
     expect(PaymentLink::query()->count())->toBe(1);
@@ -55,6 +91,37 @@ test('catalog prices include an existing payment link', function () {
         );
 });
 
+test('catalog trial offers include an existing hosted trial link', function () {
+    ['owner' => $owner, 'team' => $team, 'product' => $product, 'price' => $transitionPrice] = invoiceFixture();
+    $trialPrice = Price::factory()->for($team)->for($product)->free()->create([
+        'currency' => $transitionPrice->currency,
+        'billing_interval' => 'day',
+        'billing_frequency' => 14,
+    ]);
+    $trialOffer = TrialOffer::factory()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'trial_price_id' => $trialPrice->id,
+        'transition_product_id' => $product->id,
+        'transition_price_id' => $transitionPrice->id,
+    ]);
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'trial_offer_id' => $trialOffer->id,
+    ]);
+
+    $this->actingAs($owner)
+        ->get(route('catalog.products.show', $product))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('catalog/show')
+            ->where('trials.0.paymentLink.id', $paymentLink->public_id)
+            ->where('trials.0.paymentLink.url', $paymentLink->url())
+            ->where('trials.0.paymentLink.priceLabel', $trialOffer->name)
+        );
+});
+
 test('a hosted payment link accepts prefilled buyer details', function () {
     ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
 
@@ -75,6 +142,54 @@ test('a hosted payment link accepts prefilled buyer details', function () {
             ->where('prefill.email', 'ADA@example.com')
             ->where('prefill.name', 'Ada Lovelace')
         );
+});
+
+test('a hosted trial link starts a trialing subscription without checkout or invoice', function () {
+    ['team' => $team, 'product' => $product, 'price' => $transitionPrice] = invoiceFixture();
+    Http::fake();
+    $trialPrice = Price::factory()->for($team)->for($product)->free()->create([
+        'currency' => $transitionPrice->currency,
+        'billing_interval' => 'day',
+        'billing_frequency' => 14,
+    ]);
+    $trialOffer = TrialOffer::factory()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'trial_price_id' => $trialPrice->id,
+        'transition_product_id' => $product->id,
+        'transition_price_id' => $transitionPrice->id,
+    ]);
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'trial_offer_id' => $trialOffer->id,
+    ]);
+
+    $this->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+        'name' => 'Ada Lovelace',
+        'email' => 'ADA@example.com',
+    ])->assertRedirect(route('hosted.payment-links.show', [
+        'publicId' => $paymentLink->public_id,
+        'trial_started' => 1,
+        'email' => 'ada@example.com',
+    ]));
+
+    $customer = Customer::query()->where('email', 'ada@example.com')->firstOrFail();
+    $subscription = Subscription::query()->with('items.currentTrial')->firstOrFail();
+    $trial = SubscriptionItemTrial::query()->firstOrFail();
+
+    expect($customer->name)->toBe('Ada Lovelace')
+        ->and($subscription->customer_id)->toBe($customer->id)
+        ->and($subscription->status)->toBe(SubscriptionStatus::Trialing)
+        ->and($subscription->payment_method_id)->toBeNull()
+        ->and($subscription->trial_ends_at?->toDateString())->toBe(now()->addDays(14)->toDateString())
+        ->and($subscription->items->first()->price_id)->toBe($trialPrice->id)
+        ->and($trial->trial_offer_id)->toBe($trialOffer->id)
+        ->and($trial->transition_price_id)->toBe($transitionPrice->id)
+        ->and(Invoice::query()->count())->toBe(0)
+        ->and(Event::query()->where('type', OutboundEventType::SubscriptionCreated)->count())->toBe(1);
+
+    Http::assertNothingSent();
 });
 
 test('a recurring payment link stages an invoice and starts Nomba checkout without creating a subscription', function () {

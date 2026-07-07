@@ -24,4 +24,5 @@ Route::prefix('catalog')
         Route::post('products/{product}/trials', [TrialOfferController::class, 'store'])->name('trials.store');
         Route::patch('products/{product}/trials/{trial_offer}', [TrialOfferController::class, 'update'])->name('trials.update');
         Route::delete('products/{product}/trials/{trial_offer}', [TrialOfferController::class, 'destroy'])->name('trials.destroy');
+        Route::post('products/{product}/trials/{trial_offer}/payment-link', [TrialOfferController::class, 'paymentLink'])->name('trials.payment-link');
     });

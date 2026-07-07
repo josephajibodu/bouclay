@@ -16,6 +16,7 @@ import { checkout } from '@/routes/hosted/payment-links';
 
 type HostedPaymentLink = {
     publicId: string;
+    kind: 'price' | 'trial_offer';
     business: {
         name: string;
         line1: string | null;
@@ -37,6 +38,11 @@ type HostedPaymentLink = {
         billingFrequency: number;
         label: string;
     };
+    trialOffer: {
+        name: string;
+        durationIterations: number;
+        transitionPrice: HostedPaymentLink['price'];
+    } | null;
 };
 
 type Props = {
@@ -46,6 +52,7 @@ type Props = {
         name: string;
     };
     checkoutError: string | null;
+    checkoutSuccess: string | null;
 };
 
 function money(amount: number, currency: string): string {
@@ -70,6 +77,16 @@ function priceCaption(price: HostedPaymentLink['price']): string {
     }
 
     return `Billed every ${period(price)} until canceled`;
+}
+
+function trialCaption(paymentLink: HostedPaymentLink): string {
+    const transitionPrice = paymentLink.trialOffer?.transitionPrice;
+
+    if (!transitionPrice) {
+        return priceCaption(paymentLink.price);
+    }
+
+    return `Free trial, then ${money(transitionPrice.unitAmount, transitionPrice.currency)} every ${period(transitionPrice)}`;
 }
 
 function dueTodayLabel(price: HostedPaymentLink['price']): string {
@@ -98,7 +115,9 @@ export default function HostedPaymentLink({
     paymentLink,
     prefill,
     checkoutError,
+    checkoutSuccess,
 }: Props) {
+    const isTrialOffer = paymentLink.kind === 'trial_offer';
     const recurringPeriod = period(paymentLink.price);
     const priceAmount = money(
         paymentLink.price.unitAmount,
@@ -130,9 +149,11 @@ export default function HostedPaymentLink({
                     <div className="max-w-xl space-y-8">
                         <div className="space-y-3">
                             <p className="text-sm text-muted-foreground">
-                                {paymentLink.price.type === 'recurring'
-                                    ? 'Subscribe to'
-                                    : 'Pay for'}
+                                {isTrialOffer
+                                    ? 'Start a free trial of'
+                                    : paymentLink.price.type === 'recurring'
+                                      ? 'Subscribe to'
+                                      : 'Pay for'}
                             </p>
                             <div>
                                 <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -166,9 +187,11 @@ export default function HostedPaymentLink({
                                                 {paymentLink.price.label}
                                             </p>
                                             <p className="mt-1 text-sm text-muted-foreground">
-                                                {priceCaption(
-                                                    paymentLink.price,
-                                                )}
+                                                {isTrialOffer
+                                                    ? trialCaption(paymentLink)
+                                                    : priceCaption(
+                                                          paymentLink.price,
+                                                      )}
                                             </p>
                                         </div>
                                         <p className="shrink-0 font-medium">
@@ -189,21 +212,30 @@ export default function HostedPaymentLink({
                                 </div>
                                 <div className="flex items-center justify-between border-t pt-3 text-base font-semibold">
                                     <span>
-                                        {dueTodayLabel(paymentLink.price)}
+                                        {isTrialOffer
+                                            ? 'Due today'
+                                            : dueTodayLabel(paymentLink.price)}
                                     </span>
                                     <span>{priceAmount}</span>
                                 </div>
                             </div>
                         </div>
 
-                        {paymentLink.price.type === 'recurring' && (
+                        {isTrialOffer && paymentLink.trialOffer ? (
+                            <p className="max-w-xl rounded-xl bg-muted/50 p-4 text-sm leading-6 text-muted-foreground">
+                                No card is required today. Your trial starts now
+                                and runs on {paymentLink.price.label}; at the
+                                end of the trial, it transitions to{' '}
+                                {paymentLink.trialOffer.transitionPrice.label}.
+                            </p>
+                        ) : paymentLink.price.type === 'recurring' ? (
                             <p className="max-w-xl rounded-xl bg-muted/50 p-4 text-sm leading-6 text-muted-foreground">
                                 This starts a recurring subscription with{' '}
                                 {paymentLink.business.name}. You will be charged{' '}
                                 {priceAmount} every {recurringPeriod} until the
                                 subscription is canceled.
                             </p>
-                        )}
+                        ) : null}
                     </div>
                 </section>
 
@@ -211,13 +243,25 @@ export default function HostedPaymentLink({
                     <div className="mx-auto max-w-md space-y-6 lg:sticky lg:top-12">
                         <div>
                             <h2 className="text-xl font-semibold">
-                                Complete checkout
+                                {isTrialOffer
+                                    ? 'Start your trial'
+                                    : 'Complete checkout'}
                             </h2>
                             <p className="mt-1 text-sm text-muted-foreground">
-                                Enter your contact details, then continue to
-                                Nomba to pay securely.
+                                {isTrialOffer
+                                    ? 'Enter your contact details. No card is required for this free trial.'
+                                    : 'Enter your contact details, then continue to Nomba to pay securely.'}
                             </p>
                         </div>
+
+                        {checkoutSuccess && (
+                            <Alert>
+                                <ShieldCheck className="size-4" />
+                                <AlertDescription>
+                                    {checkoutSuccess}
+                                </AlertDescription>
+                            </Alert>
+                        )}
 
                         {checkoutError && (
                             <Alert variant="destructive">
@@ -275,26 +319,50 @@ export default function HostedPaymentLink({
                                         </div>
                                     </div>
 
-                                    <div className="rounded-xl border bg-muted/30 p-4">
-                                        <div className="flex items-center justify-between gap-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex size-9 items-center justify-center rounded-md bg-background">
-                                                    <CreditCard className="size-4 text-muted-foreground" />
+                                    {isTrialOffer ? (
+                                        <div className="rounded-xl border bg-muted/30 p-4">
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex size-9 items-center justify-center rounded-md bg-background">
+                                                        <ShieldCheck className="size-4 text-muted-foreground" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-medium">
+                                                            No payment today
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            The merchant will
+                                                            bill after the trial
+                                                            ends.
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-medium">
-                                                        Pay with card
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Visa, Mastercard, and
-                                                        other Nomba-supported
-                                                        methods
-                                                    </p>
-                                                </div>
+                                                <ShieldCheck className="size-5 text-emerald-600" />
                                             </div>
-                                            <ShieldCheck className="size-5 text-emerald-600" />
                                         </div>
-                                    </div>
+                                    ) : (
+                                        <div className="rounded-xl border bg-muted/30 p-4">
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex size-9 items-center justify-center rounded-md bg-background">
+                                                        <CreditCard className="size-4 text-muted-foreground" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-medium">
+                                                            Pay with card
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Visa, Mastercard,
+                                                            and other
+                                                            Nomba-supported
+                                                            methods
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <ShieldCheck className="size-5 text-emerald-600" />
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
                                         <input
@@ -320,9 +388,9 @@ export default function HostedPaymentLink({
                                             className="mt-0.5 size-4 rounded border-input"
                                         />
                                         <span>
-                                            I agree to complete this purchase
-                                            with {paymentLink.business.name} and
-                                            authorize the payment shown above.
+                                            {isTrialOffer
+                                                ? `I agree to start this free trial with ${paymentLink.business.name}.`
+                                                : `I agree to complete this purchase with ${paymentLink.business.name} and authorize the payment shown above.`}
                                         </span>
                                     </label>
 
@@ -332,28 +400,37 @@ export default function HostedPaymentLink({
                                         disabled={processing}
                                     >
                                         {processing
-                                            ? 'Redirecting...'
-                                            : paymentLink.price.type ===
-                                                'recurring'
-                                              ? 'Subscribe'
-                                              : 'Pay now'}
+                                            ? isTrialOffer
+                                                ? 'Starting trial...'
+                                                : 'Redirecting...'
+                                            : isTrialOffer
+                                              ? 'Start free trial'
+                                              : paymentLink.price.type ===
+                                                  'recurring'
+                                                ? 'Subscribe'
+                                                : 'Pay now'}
                                     </Button>
 
-                                    <p className="text-center text-xs leading-5 text-muted-foreground">
-                                        You will review and enter card details
-                                        on Nomba before payment is completed.
-                                    </p>
+                                    {!isTrialOffer && (
+                                        <p className="text-center text-xs leading-5 text-muted-foreground">
+                                            You will review and enter card
+                                            details on Nomba before payment is
+                                            completed.
+                                        </p>
+                                    )}
                                 </>
                             )}
                         </Form>
 
-                        <div className="flex items-start gap-3 rounded-xl bg-background p-4 text-xs leading-5 text-muted-foreground">
-                            <Lock className="mt-0.5 size-4 shrink-0" />
-                            <p>
-                                Payment is completed securely on Nomba. Bouclay
-                                never sees your card details.
-                            </p>
-                        </div>
+                        {!isTrialOffer && (
+                            <div className="flex items-start gap-3 rounded-xl bg-background p-4 text-xs leading-5 text-muted-foreground">
+                                <Lock className="mt-0.5 size-4 shrink-0" />
+                                <p>
+                                    Payment is completed securely on Nomba.
+                                    Bouclay never sees your card details.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </section>
             </div>

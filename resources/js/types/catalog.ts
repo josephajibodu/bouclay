@@ -43,6 +43,7 @@ export type TrialOffer = {
     transitionPrice: PriceRef;
     durationIterations: number;
     active: boolean;
+    paymentLink: { id: string; url: string; priceLabel: string } | null;
 };
 
 export type OtherProduct = {

@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Catalog;
 
 use App\Actions\Catalog\CreateTrialOffer;
+use App\Enums\CatalogStatus;
+use App\Enums\PriceType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\SaveTrialOfferRequest;
+use App\Models\PaymentLink;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Team;
@@ -92,6 +95,58 @@ class TrialOfferController extends Controller
         $trial_offer->delete();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Trial removed']);
+
+        return back();
+    }
+
+    /**
+     * Create or retrieve the hosted checkout URL for this trial offer.
+     */
+    public function paymentLink(Request $request, Product $product, TrialOffer $trial_offer): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($product->team_id === $team->id && $trial_offer->product_id === $product->id, 404);
+
+        Gate::authorize('manageTrialOffers', $team);
+
+        $trial_offer->loadMissing(['trialPrice', 'transitionPrice']);
+
+        if (! $trial_offer->active
+            || $product->status === CatalogStatus::Archived
+            || $trial_offer->trialPrice->status === CatalogStatus::Archived
+            || $trial_offer->transitionPrice->status === CatalogStatus::Archived
+            || $trial_offer->trialPrice->type !== PriceType::Recurring
+            || ($trial_offer->trialPrice->unit_amount ?? 0) !== 0
+            || $trial_offer->transitionPrice->type !== PriceType::Recurring
+            || ($trial_offer->transitionPrice->unit_amount ?? 0) <= 0
+            || $trial_offer->trialPrice->currency !== $trial_offer->transitionPrice->currency) {
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => 'Trial links need an active free recurring trial price and a paid recurring transition price.',
+            ]);
+
+            return back();
+        }
+
+        $paymentLink = PaymentLink::query()->firstOrCreate(
+            [
+                'team_id' => $team->id,
+                'trial_offer_id' => $trial_offer->id,
+            ],
+            [
+                'product_id' => $product->id,
+                'active' => true,
+            ],
+        );
+
+        Inertia::flash('paymentLink', [
+            'url' => $paymentLink->url(),
+            'productName' => $product->name,
+            'priceLabel' => $trial_offer->name,
+        ]);
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Trial link ready']);
 
         return back();
     }

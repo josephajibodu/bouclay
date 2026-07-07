@@ -15,16 +15,18 @@ use Illuminate\Support\Carbon;
  * @property string $public_id
  * @property int $team_id
  * @property int $product_id
- * @property int $price_id
+ * @property int|null $price_id
+ * @property int|null $trial_offer_id
  * @property bool $active
  * @property array<string, mixed>|null $custom_data
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Team $team
  * @property-read Product $product
- * @property-read Price $price
+ * @property-read Price|null $price
+ * @property-read TrialOffer|null $trialOffer
  */
-#[Fillable(['team_id', 'product_id', 'price_id', 'active', 'custom_data'])]
+#[Fillable(['team_id', 'product_id', 'price_id', 'trial_offer_id', 'active', 'custom_data'])]
 class PaymentLink extends Model
 {
     use HasPublicId;
@@ -64,6 +66,16 @@ class PaymentLink extends Model
         return $this->belongsTo(Price::class);
     }
 
+    /**
+     * Get the trial offer this link starts, when this is a trial link.
+     *
+     * @return BelongsTo<TrialOffer, $this>
+     */
+    public function trialOffer(): BelongsTo
+    {
+        return $this->belongsTo(TrialOffer::class);
+    }
+
     public function url(): string
     {
         return route('hosted.payment-links.show', $this->public_id);
@@ -74,10 +86,14 @@ class PaymentLink extends Model
      */
     public function toHostedArray(): array
     {
-        $this->loadMissing(['team', 'product', 'price']);
+        $this->loadMissing(['team', 'product', 'price', 'trialOffer.trialPrice', 'trialOffer.transitionPrice']);
+
+        $trialOffer = $this->trialOffer;
+        $price = $trialOffer instanceof TrialOffer ? $trialOffer->trialPrice : $this->price;
 
         return [
             'publicId' => $this->public_id,
+            'kind' => $trialOffer instanceof TrialOffer ? 'trial_offer' : 'price',
             'business' => [
                 'name' => $this->team->name,
                 'line1' => $this->team->line1,
@@ -91,14 +107,27 @@ class PaymentLink extends Model
                 'description' => $this->product->description,
             ],
             'price' => [
-                'name' => $this->price->name,
-                'type' => $this->price->type->value,
-                'currency' => $this->price->currency,
-                'unitAmount' => $this->price->unit_amount,
-                'billingInterval' => $this->price->billing_interval?->value,
-                'billingFrequency' => $this->price->billing_frequency,
-                'label' => $this->price->toPickerLabel(),
+                'name' => $price?->name,
+                'type' => $price?->type->value,
+                'currency' => $price?->currency,
+                'unitAmount' => $price?->unit_amount,
+                'billingInterval' => $price?->billing_interval?->value,
+                'billingFrequency' => $price?->billing_frequency,
+                'label' => $price?->toPickerLabel(),
             ],
+            'trialOffer' => $trialOffer instanceof TrialOffer ? [
+                'name' => $trialOffer->name,
+                'durationIterations' => $trialOffer->duration_iterations,
+                'transitionPrice' => [
+                    'name' => $trialOffer->transitionPrice->name,
+                    'type' => $trialOffer->transitionPrice->type->value,
+                    'currency' => $trialOffer->transitionPrice->currency,
+                    'unitAmount' => $trialOffer->transitionPrice->unit_amount,
+                    'billingInterval' => $trialOffer->transitionPrice->billing_interval?->value,
+                    'billingFrequency' => $trialOffer->transitionPrice->billing_frequency,
+                    'label' => $trialOffer->transitionPrice->toPickerLabel(),
+                ],
+            ] : null,
         ];
     }
 

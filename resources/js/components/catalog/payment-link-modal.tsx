@@ -14,7 +14,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { paymentLink as createPaymentLink } from '@/routes/catalog/prices';
-import type { Price } from '@/types';
+import { paymentLink as createTrialPaymentLink } from '@/routes/catalog/trials';
+import type { Price, TrialOffer } from '@/types';
 
 type PaymentLinkPayload = {
     url: string;
@@ -26,6 +27,7 @@ type Props = {
     productId: number;
     productName: string;
     price: Price | null;
+    trial?: TrialOffer | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 };
@@ -34,6 +36,7 @@ export default function PaymentLinkModal({
     productId,
     productName,
     price,
+    trial = null,
     open,
     onOpenChange,
 }: Props) {
@@ -46,8 +49,15 @@ export default function PaymentLinkModal({
               productName,
               priceLabel: price.paymentLink.priceLabel,
           }
-        : null;
+        : trial?.paymentLink
+          ? {
+                url: trial.paymentLink.url,
+                productName,
+                priceLabel: trial.paymentLink.priceLabel,
+            }
+          : null;
     const visibleLink = link ?? existingLink;
+    const isTrialLink = trial !== null;
 
     useEffect(() => {
         return router.on('flash', (event) => {
@@ -68,12 +78,21 @@ export default function PaymentLinkModal({
     };
 
     const create = () => {
-        if (!price) {
+        if (!price && !trial) {
             return;
         }
 
+        const url =
+            trial !== null
+                ? createTrialPaymentLink({
+                      product: productId,
+                      trial_offer: trial.id,
+                  }).url
+                : createPaymentLink({ product: productId, price: price!.id })
+                      .url;
+
         router.post(
-            createPaymentLink({ product: productId, price: price.id }).url,
+            url,
             {},
             {
                 preserveScroll: true,
@@ -110,11 +129,13 @@ export default function PaymentLinkModal({
                 {visibleLink ? (
                     <>
                         <DialogHeader>
-                            <DialogTitle>Payment link</DialogTitle>
+                            <DialogTitle>
+                                {isTrialLink ? 'Trial link' : 'Payment link'}
+                            </DialogTitle>
                             <DialogDescription>
-                                Share this hosted checkout page anywhere. Buyers
-                                enter their email, then pay the exact catalog
-                                price on Nomba.
+                                {isTrialLink
+                                    ? 'Share this hosted trial page anywhere. Buyers enter their email and start the free trial without a card.'
+                                    : 'Share this hosted checkout page anywhere. Buyers enter their email, then pay the exact catalog price on Nomba.'}
                             </DialogDescription>
                         </DialogHeader>
 
@@ -173,19 +194,24 @@ export default function PaymentLinkModal({
                 ) : (
                     <>
                         <DialogHeader>
-                            <DialogTitle>Create payment link</DialogTitle>
+                            <DialogTitle>
+                                {isTrialLink
+                                    ? 'Create trial link'
+                                    : 'Create payment link'}
+                            </DialogTitle>
                             <DialogDescription>
-                                Create a reusable hosted checkout URL for this
-                                price. Customers can pay without you using the
-                                API.
+                                {isTrialLink
+                                    ? 'Create a reusable hosted URL for this trial offer. Customers can start the trial without you using the API.'
+                                    : 'Create a reusable hosted checkout URL for this price. Customers can pay without you using the API.'}
                             </DialogDescription>
                         </DialogHeader>
 
                         <div className="flex items-start gap-3 rounded-md border bg-muted/30 p-3 text-sm">
                             <LinkIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                             <p className="text-muted-foreground">
-                                The link creates the customer at checkout time
-                                and sends them to Nomba for secure payment.
+                                {isTrialLink
+                                    ? 'The link creates the customer and starts a trialing subscription immediately. No invoice or payment is created today.'
+                                    : 'The link creates the customer at checkout time and sends them to Nomba for secure payment.'}
                             </p>
                         </div>
 
@@ -200,11 +226,13 @@ export default function PaymentLinkModal({
                             <Button
                                 type="button"
                                 onClick={create}
-                                disabled={processing || !price}
+                                disabled={processing || (!price && !trial)}
                                 data-test="create-payment-link-submit"
                             >
                                 {processing && <Spinner />}
-                                Create payment link
+                                {isTrialLink
+                                    ? 'Create trial link'
+                                    : 'Create payment link'}
                             </Button>
                         </DialogFooter>
                     </>

@@ -112,7 +112,7 @@ class ProductController extends Controller
 
         $trials = TrialOffer::query()
             ->where('product_id', $product->id)
-            ->with(['trialPrice', 'transitionPrice', 'transitionProduct'])
+            ->with(['trialPrice', 'transitionPrice', 'transitionProduct', 'paymentLink'])
             ->get();
 
         // Other active products (with their active prices) — populates the

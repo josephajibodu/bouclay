@@ -86,6 +86,19 @@ export default function TrialDrawer({
         otherProducts.find((p) => String(p.id) === transitionProductId)
             ?.prices ?? [];
 
+    // `prices` only lists active prices — when editing, the trial's current
+    // selections may reference a price archived since. Keep those visible so
+    // editing doesn't appear to silently clear them.
+    const withCurrentSelection = (list: PriceRef[], current?: PriceRef) =>
+        current && !list.some((p) => p.id === current.id)
+            ? [...list, current]
+            : list;
+    const trialPriceOptions = withCurrentSelection(prices, trial?.trialPrice);
+    const sameProductTransitionPriceOptions = withCurrentSelection(
+        prices,
+        trial?.transitionPrice,
+    );
+
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
             {children && <SheetTrigger asChild>{children}</SheetTrigger>}
@@ -153,7 +166,7 @@ export default function TrialDrawer({
                                             <SelectValue placeholder="Choose a price" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {prices.map((price) => (
+                                            {trialPriceOptions.map((price) => (
                                                 <SelectItem
                                                     key={price.id}
                                                     value={String(price.id)}
@@ -249,7 +262,7 @@ export default function TrialDrawer({
                                         <SelectContent>
                                             {(transitionToDifferentProduct
                                                 ? transitionPricesForOtherProduct
-                                                : prices
+                                                : sameProductTransitionPriceOptions
                                             ).map((price) => (
                                                 <SelectItem
                                                     key={price.id}

@@ -104,11 +104,16 @@ export default function ProductShow({
     const [editTrialTarget, setEditTrialTarget] = useState<TrialOffer | null>(
         null,
     );
+    const [trialPaymentLinkTarget, setTrialPaymentLinkTarget] =
+        useState<TrialOffer | null>(null);
     const [removeTrialTarget, setRemoveTrialTarget] =
         useState<TrialOffer | null>(null);
 
     const activePrices = prices.filter((p) => p.status === 'active');
-    const priceRefs = prices.map((p) => ({ id: p.id, label: priceLabel(p) }));
+    const priceRefs = activePrices.map((p) => ({
+        id: p.id,
+        label: priceLabel(p),
+    }));
     const metadataEntries = Object.entries(product.customData ?? {});
 
     const copyId = async () => {
@@ -466,6 +471,24 @@ export default function ProductShow({
                                             >
                                                 Copy trial ID
                                             </DropdownMenuItem>
+                                            {permissions.canManageTrialOffers &&
+                                                trial.active && (
+                                                    <>
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem
+                                                            onSelect={() =>
+                                                                setTrialPaymentLinkTarget(
+                                                                    trial,
+                                                                )
+                                                            }
+                                                            data-test="create-trial-payment-link-trigger"
+                                                        >
+                                                            {trial.paymentLink
+                                                                ? 'View trial link'
+                                                                : 'Create trial link'}
+                                                        </DropdownMenuItem>
+                                                    </>
+                                                )}
                                         </DropdownMenuContent>
                                     </DropdownMenu>
                                 </div>
@@ -573,6 +596,16 @@ export default function ProductShow({
                 price={paymentLinkTarget}
                 open={paymentLinkTarget !== null}
                 onOpenChange={(open) => !open && setPaymentLinkTarget(null)}
+            />
+            <PaymentLinkModal
+                productId={product.id}
+                productName={product.name}
+                price={null}
+                trial={trialPaymentLinkTarget}
+                open={trialPaymentLinkTarget !== null}
+                onOpenChange={(open) =>
+                    !open && setTrialPaymentLinkTarget(null)
+                }
             />
             {editPriceTarget && (
                 <EditPriceDrawer
