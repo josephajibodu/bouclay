@@ -73,7 +73,7 @@ Authoritative schema: [`schema.md`](schema.md)
 - Product detail is a single scrollable page (info, pricing, trials, metadata), not tabs — every create/edit action opens a side drawer, never a navigation
 - All queries scoped by `team_id`
 
-**Defer:** timestamp-duration trials (`duration_type: timestamp` — ship `relative` only), volume pricing model (ship graduated only), **payment links** (a shareable, hosted checkout URL generated per price — the "Create payment link" action on a price row is a Phase 11 self-service-portal companion, since it needs the same hosted-checkout building block).
+**Defer:** timestamp-duration trials (`duration_type: timestamp` — ship `relative` only), volume pricing model (ship graduated only). **Payment links** (shareable hosted checkout URLs, per price and per free trial offer) shipped later as a Phase 11 companion — see Phase 11 below; paid trial offer links remain deferred.
 
 **Exit criteria:** Team creates “Pro” product with monthly price and optional trial offer. ✅
 
@@ -326,8 +326,13 @@ The Phase 5 state machine is still the lifecycle core. Most of the originally-ca
 **Deferred (slice 4 — polish):**
 
 - ⬜ **Magic-link email** — "Send portal invite" on customer hub Actions (email with portal URL).
-- ⬜ **Payment links** — "Create payment link" action per catalog price row → shareable hosted checkout URL for that exact price.
 - ⬜ PDF invoice download from portal payments page.
+
+**Built later (2026-07-07), out of Phase 11 order:**
+
+- ✅ **Payment links** — "Create payment link" action per catalog price row → shareable hosted checkout URL for that exact price (recurring or one-time). Checkout goes through the normal invoice + Nomba hosted-checkout path.
+- ✅ **Trial offer links — free trials only.** "Create trial link" on a trial offer generates a hosted URL that starts a `trialing` subscription immediately (no card, no invoice) via the shared `CreateSubscription` action. `StartPaymentLinkCheckout::assertCanCheckout()` rejects link creation/checkout unless the trial price is a free (`unit_amount = 0`) recurring price with a paid recurring transition price — paid trials (`unit_amount > 0`) are explicitly out of scope for now.
+  - ⬜ **Deferred: paid trial offer links.** A paid-trial link (e.g. ₦1,000/mo × 3, then ₦40,000/mo) needs a different checkout path than the free-trial one — due-today = intro price, checkout routes through Nomba to charge the intro price and card-tokenize, and the subscription starts `active` (not `trialing`) with trial metadata attached, converting at `trial_ends_at` the same way the Phase 6 trial-conversion worker already handles. Revisit when there's demand; the free-trial path (`CreateSubscription` direct, no Nomba) is not reusable as-is for this case.
 
 ---
 
@@ -375,7 +380,8 @@ The subscription engine is now past the original "build the core" phases. The ma
 | P0 | Phase 12 — Reference integrator app ("Acme Notes") | Not started |
 | P0 | Live-mode smoke test: Nomba connection → catalog → API checkout/subscription → inbound webhook → outbound webhook | Needs full manual run |
 | P1 | Phase 13 API docs / README examples / optional Postman collection | Not started |
-| P1 | Portal polish: magic-link invite, catalog payment links, portal invoice PDF download | Deferred |
+| P1 | Portal polish: magic-link invite, portal invoice PDF download | Deferred |
+| P2 | Paid trial offer links (intro-price checkout through Nomba) | Deferred — free trial links only for now |
 | P1 | Dunning settings UI | Backend done; UI deferred |
 | P2 | Public API CRUD for webhook endpoints | Dashboard-only today |
 | P2 | `subscription.trial_will_end` outbound event | Deferred |
