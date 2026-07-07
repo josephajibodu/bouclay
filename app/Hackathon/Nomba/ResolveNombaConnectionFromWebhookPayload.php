@@ -45,8 +45,13 @@ class ResolveNombaConnectionFromWebhookPayload
         // Account IDs are encrypted at rest — compare after decryption.
         return TeamProcessorConnection::query()
             ->get()
-            ->first(fn (TeamProcessorConnection $connection): bool => $connection->nomba_test_account_id === $accountId
-                || $connection->nomba_live_account_id === $accountId);
+            ->first(fn (TeamProcessorConnection $connection): bool =>
+                $connection->nomba_test_account_id === $accountId
+                || $connection->nomba_live_account_id === $accountId
+                || $connection->nomba_test_subaccount_id === $accountId
+                || $connection->nomba_live_subaccount_id === $accountId
+            );
+
     }
 
     private function resolveByFallbackTeamId(): ?TeamProcessorConnection
