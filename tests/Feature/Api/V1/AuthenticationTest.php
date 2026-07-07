@@ -13,7 +13,7 @@ test('a valid secret key authenticates api requests', function () {
         'email' => 'ada@example.com',
     ], apiHeaders($token, 'cust-create-1'))
         ->assertCreated()
-        ->assertJsonStructure(['data' => ['publicId', 'email'], 'meta' => ['requestId']]);
+        ->assertJsonStructure(['data' => ['id', 'email'], 'meta' => ['requestId']]);
 });
 
 test('missing bearer token returns 401', function () {

@@ -58,7 +58,7 @@ class CheckoutSessionController extends V1Controller
         }
 
         return $this->resource([
-            'publicId' => $checkout['orderReference'],
+            'id' => $checkout['orderReference'],
             'status' => 'open',
             'checkoutUrl' => $checkout['checkoutUrl'],
             'customerId' => $customer->public_id,
@@ -75,7 +75,7 @@ class CheckoutSessionController extends V1Controller
 
         if (is_array($completed) && ($completed['team_id'] ?? null) === $context->team->id) {
             return $this->resource([
-                'publicId' => $checkoutSession,
+                'id' => $checkoutSession,
                 'status' => 'complete',
                 'customerId' => Customer::query()->find($completed['customer_id'])?->public_id,
                 'mode' => $completed['mode'] ?? null,
@@ -90,7 +90,7 @@ class CheckoutSessionController extends V1Controller
         }
 
         return $this->resource([
-            'publicId' => $checkoutSession,
+            'id' => $checkoutSession,
             'status' => 'open',
             'customerId' => Customer::query()->find($payload['customer_id'])?->public_id,
             'mode' => $payload['mode'] ?? null,

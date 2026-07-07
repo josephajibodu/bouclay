@@ -35,6 +35,8 @@ Full data model: [`schema.md`](schema.md)
 
 Implementation roadmap: [`IMPLEMENTATION.md`](IMPLEMENTATION.md)
 
+Integrator API docs: [`docs/api/README.md`](docs/api/README.md) and [`docs/api/openapi.yaml`](docs/api/openapi.yaml)
+
 ## Local setup
 
 Requires PHP 8.4+, Composer, Node.js, and pnpm (or npm).

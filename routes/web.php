@@ -2,13 +2,23 @@
 
 use App\Http\Controllers\Auth\JoinInvitationController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Docs\ApiDocsController;
 use App\Http\Controllers\Hackathon\NombaIngressController;
 use App\Http\Controllers\Teams\TeamInvitationController;
 use App\Http\Controllers\Webhooks\NombaInboundController;
 use App\Http\Middleware\EnsureCurrentTeam;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'welcome')->name('home');
+
+Route::get('docs/api', ApiDocsController::class)->name('docs.api');
+Route::get('docs/api/openapi.yaml', fn (): Response => response(
+    File::get(base_path('docs/api/openapi.yaml')),
+    200,
+    ['Content-Type' => 'application/yaml; charset=UTF-8'],
+))->name('docs.api.openapi');
 
 Route::get('dashboard', DashboardController::class)
     ->middleware(['auth', 'verified', EnsureCurrentTeam::class])

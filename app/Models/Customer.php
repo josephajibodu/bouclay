@@ -186,12 +186,17 @@ class Customer extends Model
             : null;
 
         return [
-            ...$this->toWebhookObject(),
+            'id' => $this->public_id,
+            'email' => $this->email,
+            'name' => $this->name,
+            'currency' => $this->currency,
+            'externalRef' => $this->external_ref,
+            'createdAt' => $this->created_at?->toISOString(),
             'phone' => $this->phone,
             'status' => $this->trashed() ? 'archived' : 'active',
             'customData' => $this->custom_data,
             'defaultPaymentMethod' => $defaultPaymentMethod !== null
-                ? ['publicId' => $defaultPaymentMethod->public_id]
+                ? ['id' => $defaultPaymentMethod->public_id]
                 : null,
             'archivedAt' => $this->deleted_at?->toISOString(),
         ];

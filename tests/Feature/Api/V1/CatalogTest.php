@@ -20,7 +20,7 @@ test('products prices and trial offers can be created and listed via api', funct
     ], apiHeaders($token, 'prod-create-1'));
 
     $productResponse->assertCreated();
-    $productId = $productResponse->json('data.publicId');
+    $productId = $productResponse->json('data.id');
 
     $this->getJson('/api/v1/products', apiHeaders($token))
         ->assertOk()
@@ -30,7 +30,7 @@ test('products prices and trial offers can be created and listed via api', funct
 
     $this->getJson('/api/v1/prices/'.$price->public_id, apiHeaders($token))
         ->assertOk()
-        ->assertJsonPath('data.publicId', $price->public_id);
+        ->assertJsonPath('data.id', $price->public_id);
 
     $regularPrice = Price::factory()->for($team)->for(Product::find($price->product_id))->create([
         'currency' => 'NGN',

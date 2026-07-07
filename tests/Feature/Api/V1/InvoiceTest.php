@@ -20,7 +20,7 @@ test('one off invoices can be created and voided via api', function () {
     ], apiHeaders($token, 'inv-create-1'));
 
     $create->assertCreated();
-    $invoiceId = $create->json('data.publicId');
+    $invoiceId = $create->json('data.id');
 
     $this->getJson('/api/v1/invoices', apiHeaders($token))
         ->assertOk()

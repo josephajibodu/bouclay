@@ -104,7 +104,7 @@ class Product extends Model
     public function toApiObject(): array
     {
         return [
-            'publicId' => $this->public_id,
+            'id' => $this->public_id,
             'name' => $this->name,
             'description' => $this->description,
             'category' => $this->category,

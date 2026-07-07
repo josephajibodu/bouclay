@@ -35,7 +35,7 @@ test('payment method list and delete are scoped to the api key mode', function (
     $this->getJson("/api/v1/customers/{$customer->public_id}/payment-methods", apiHeaders($testToken))
         ->assertOk()
         ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.publicId', $testMethod->public_id);
+        ->assertJsonPath('data.0.id', $testMethod->public_id);
 
     $this->getJson("/api/v1/customers/{$customer->public_id}/payment-methods/{$liveMethod->public_id}", apiHeaders($testToken))
         ->assertNotFound();
@@ -48,7 +48,7 @@ test('payment method list and delete are scoped to the api key mode', function (
     $this->getJson("/api/v1/customers/{$customer->public_id}/payment-methods", apiHeaders($liveToken))
         ->assertOk()
         ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.publicId', $liveMethod->public_id);
+        ->assertJsonPath('data.0.id', $liveMethod->public_id);
 });
 
 test('live api key includes legacy payment methods with missing mode', function () {
@@ -63,7 +63,7 @@ test('live api key includes legacy payment methods with missing mode', function 
     $this->getJson("/api/v1/customers/{$customer->public_id}/payment-methods", apiHeaders($liveToken))
         ->assertOk()
         ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.publicId', $legacyMethod->public_id);
+        ->assertJsonPath('data.0.id', $legacyMethod->public_id);
 
     $this->getJson("/api/v1/customers/{$customer->public_id}/payment-methods/{$legacyMethod->public_id}", apiHeaders($liveToken))
         ->assertOk();

@@ -21,7 +21,7 @@ test('checkout session creates invoice-backed intent and completes via hosted ca
         ->assertJsonPath('data.status', 'open')
         ->assertJsonPath('data.checkoutUrl', 'https://checkout.nomba.com/pay/api-session');
 
-    $orderReference = $create->json('data.publicId');
+    $orderReference = $create->json('data.id');
 
     $intent = Cache::get("nomba_checkout:{$orderReference}");
 

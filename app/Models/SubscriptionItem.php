@@ -133,7 +133,7 @@ class SubscriptionItem extends Model
         $this->loadMissing(['product', 'price']);
 
         return [
-            'publicId' => $this->public_id,
+            'id' => $this->public_id,
             'productId' => $this->product->public_id,
             'priceId' => $this->price->public_id,
             'quantity' => $this->quantity,

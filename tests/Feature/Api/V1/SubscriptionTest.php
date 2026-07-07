@@ -90,7 +90,7 @@ test('happy path creates customer subscribes and emits subscription created even
     ], apiHeaders($token, 'happy-customer'));
 
     $customerResponse->assertCreated();
-    $customerPublicId = $customerResponse->json('data.publicId');
+    $customerPublicId = $customerResponse->json('data.id');
 
     $this->postJson('/api/v1/subscriptions', [
         'customer' => $customerPublicId,

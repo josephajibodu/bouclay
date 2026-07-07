@@ -219,7 +219,7 @@ class Invoice extends Model
     public function toWebhookObject(?Payment $payment = null): array
     {
         return [
-            'publicId' => $this->public_id,
+            'id' => $this->public_id,
             'number' => $this->number,
             'status' => $this->status->value,
             'billingReason' => $this->billing_reason->value,
@@ -232,12 +232,12 @@ class Invoice extends Model
             'amountDue' => $this->amount_due,
             'paidAt' => $this->paid_at?->toISOString(),
             'customer' => [
-                'publicId' => $this->customer->public_id,
+                'id' => $this->customer->public_id,
                 'email' => $this->customer->email,
                 'name' => $this->customer->name,
             ],
             'subscription' => $this->subscription !== null ? [
-                'publicId' => $this->subscription->public_id,
+                'id' => $this->subscription->public_id,
                 'status' => $this->subscription->status->value,
             ] : null,
             'payment' => $payment?->toWebhookObject(),
@@ -254,7 +254,7 @@ class Invoice extends Model
         $this->loadMissing(['customer', 'subscription', 'lines']);
 
         return [
-            'publicId' => $this->public_id,
+            'id' => $this->public_id,
             'number' => $this->number,
             'status' => $this->status->value,
             'billingReason' => $this->billing_reason->value,
@@ -267,12 +267,12 @@ class Invoice extends Model
             'amountDue' => ApiMoney::toMajorUnits($this->amount_due),
             'paidAt' => $this->paid_at?->toISOString(),
             'customer' => [
-                'publicId' => $this->customer->public_id,
+                'id' => $this->customer->public_id,
                 'email' => $this->customer->email,
                 'name' => $this->customer->name,
             ],
             'subscription' => $this->subscription !== null ? [
-                'publicId' => $this->subscription->public_id,
+                'id' => $this->subscription->public_id,
                 'status' => $this->subscription->status->value,
             ] : null,
             'payment' => null,

@@ -137,8 +137,20 @@ class Payment extends Model
     public function toApiObject(): array
     {
         return [
-            ...$this->toWebhookObject(),
+            'id' => $this->public_id,
+            'status' => $this->status->value,
             'amount' => ApiMoney::toMajorUnits($this->amount),
+            'currency' => $this->currency,
+            'failureCode' => $this->failure_code,
+            'failureReason' => $this->failure_reason,
+            'attemptNumber' => $this->attempt_number,
+            'processedAt' => $this->processed_at?->toISOString(),
+            'invoice' => [
+                'id' => $this->invoice->public_id,
+            ],
+            'customer' => [
+                'id' => $this->customer->public_id,
+            ],
             'createdAt' => $this->created_at?->toISOString(),
         ];
     }

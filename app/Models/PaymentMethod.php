@@ -162,7 +162,23 @@ class PaymentMethod extends Model
      */
     public function toApiObject(): array
     {
-        return $this->toWebhookObject();
+        $this->loadMissing('customer');
+
+        return [
+            'id' => $this->public_id,
+            'processor' => $this->processor->value,
+            'type' => $this->type->value,
+            'brand' => $this->brand,
+            'last4' => $this->last4,
+            'expMonth' => $this->exp_month,
+            'expYear' => $this->exp_year,
+            'isDefault' => $this->is_default,
+            'status' => $this->status->value,
+            'customer' => [
+                'id' => $this->customer->public_id,
+            ],
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
     }
 
     /**

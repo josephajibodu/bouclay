@@ -138,7 +138,7 @@ class Price extends Model
         $this->loadMissing(['product', 'tiers']);
 
         return [
-            'publicId' => $this->public_id,
+            'id' => $this->public_id,
             'productId' => $this->product->public_id,
             'name' => $this->name,
             'type' => $this->type->value,

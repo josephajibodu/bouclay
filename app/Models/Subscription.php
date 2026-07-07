@@ -243,10 +243,24 @@ class Subscription extends Model
         $this->loadMissing(['customer', 'paymentMethod', 'items.product', 'items.price', 'scheduledChanges']);
 
         return [
-            ...$this->toWebhookObject(),
+            'id' => $this->public_id,
+            'status' => $this->status->value,
+            'currency' => $this->currency,
+            'collectionMode' => $this->collection_mode->value,
+            'trialEndsAt' => $this->trial_ends_at?->toISOString(),
+            'currentPeriodStart' => $this->current_period_start?->toISOString(),
+            'currentPeriodEnd' => $this->current_period_end?->toISOString(),
+            'canceledAt' => $this->canceled_at?->toISOString(),
+            'endsAt' => $this->ends_at?->toISOString(),
+            'customer' => [
+                'id' => $this->customer->public_id,
+                'email' => $this->customer->email,
+                'name' => $this->customer->name,
+            ],
+            'createdAt' => $this->created_at?->toISOString(),
             'trialEndBehavior' => $this->trial_end_behavior?->value,
             'paymentMethod' => $this->paymentMethod !== null
-                ? ['publicId' => $this->paymentMethod->public_id]
+                ? ['id' => $this->paymentMethod->public_id]
                 : null,
             'items' => $this->items->map(fn (SubscriptionItem $item) => $item->toApiObject())->all(),
             'scheduledChanges' => $this->scheduledChanges

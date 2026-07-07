@@ -14,29 +14,29 @@ test('customers can be created listed updated archived and restored via api', fu
     $create->assertCreated()
         ->assertJsonPath('data.email', 'ada@example.com');
 
-    $publicId = $create->json('data.publicId');
+    $customerId = $create->json('data.id');
 
     $this->getJson('/api/v1/customers', apiHeaders($token))
         ->assertOk()
         ->assertJsonCount(1, 'data');
 
-    $this->getJson("/api/v1/customers/{$publicId}", apiHeaders($token))
+    $this->getJson("/api/v1/customers/{$customerId}", apiHeaders($token))
         ->assertOk()
-        ->assertJsonPath('data.publicId', $publicId);
+        ->assertJsonPath('data.id', $customerId);
 
-    $this->patchJson("/api/v1/customers/{$publicId}", [
+    $this->patchJson("/api/v1/customers/{$customerId}", [
         'name' => 'Ada O.',
     ], apiHeaders($token, 'cust-crud-patch'))
         ->assertOk()
         ->assertJsonPath('data.name', 'Ada O.');
 
-    $this->postJson("/api/v1/customers/{$publicId}/archive", [], apiHeaders($token, 'cust-crud-archive'))
+    $this->postJson("/api/v1/customers/{$customerId}/archive", [], apiHeaders($token, 'cust-crud-archive'))
         ->assertOk()
         ->assertJsonPath('data.status', 'archived');
 
-    expect(Customer::withTrashed()->where('public_id', $publicId)->first()?->trashed())->toBeTrue();
+    expect(Customer::withTrashed()->where('public_id', $customerId)->first()?->trashed())->toBeTrue();
 
-    $this->postJson("/api/v1/customers/{$publicId}/restore", [], apiHeaders($token, 'cust-crud-restore'))
+    $this->postJson("/api/v1/customers/{$customerId}/restore", [], apiHeaders($token, 'cust-crud-restore'))
         ->assertOk()
         ->assertJsonPath('data.status', 'active');
 });

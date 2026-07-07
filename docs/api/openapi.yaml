@@ -1,0 +1,2115 @@
+openapi: 3.1.0
+info:
+  title: Bouclay API
+  version: 1.0.0
+  summary: Integrator API for Bouclay subscriptions, invoices, payments, and webhooks.
+  description: |
+    Bouclay is a managed recurring-billing layer on top of Nomba. Integrators use
+    the API to manage customers, catalog, subscriptions, invoices, payment-method
+    checkout sessions, payments, and outbound event history.
+servers:
+  - url: https://bouclay.test/api/v1
+    description: Local Herd development
+security:
+  - SecretKeyAuth: []
+tags:
+  - name: Customers
+  - name: Customer addresses
+  - name: Payment methods
+  - name: Catalog
+  - name: Trial offers
+  - name: Subscriptions
+  - name: Invoices
+  - name: Payments
+  - name: Events
+  - name: Checkout sessions
+paths:
+  /customers:
+    get:
+      tags: [Customers]
+      operationId: listCustomers
+      summary: List customers
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, archived]
+            default: active
+      responses:
+        "200":
+          $ref: "#/components/responses/CustomerList"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Customers]
+      operationId: createCustomer
+      summary: Create a customer
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomerRequest"
+            examples:
+              createCustomer:
+                value:
+                  email: ada@example.com
+                  name: Ada Obi
+                  currency: NGN
+                  externalRef: acct_123
+      responses:
+        "201":
+          $ref: "#/components/responses/Customer"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+    get:
+      tags: [Customers]
+      operationId: retrieveCustomer
+      summary: Retrieve a customer
+      responses:
+        "200":
+          $ref: "#/components/responses/Customer"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Customers]
+      operationId: updateCustomer
+      summary: Update a customer
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCustomerRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Customer"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}/archive:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+    post:
+      tags: [Customers]
+      operationId: archiveCustomer
+      summary: Archive a customer
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Customer"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}/restore:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+    post:
+      tags: [Customers]
+      operationId: restoreCustomer
+      summary: Restore an archived customer
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Customer"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}/addresses:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+    get:
+      tags: [Customer addresses]
+      operationId: listCustomerAddresses
+      summary: List customer addresses
+      responses:
+        "200":
+          $ref: "#/components/responses/AddressList"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Customer addresses]
+      operationId: createCustomerAddress
+      summary: Create a customer address
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAddressRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/Address"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}/addresses/{address}:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+      - $ref: "#/components/parameters/AddressId"
+    get:
+      tags: [Customer addresses]
+      operationId: retrieveCustomerAddress
+      summary: Retrieve a customer address
+      responses:
+        "200":
+          $ref: "#/components/responses/Address"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Customer addresses]
+      operationId: updateCustomerAddress
+      summary: Update a customer address
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Address"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}/payment-methods:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+    get:
+      tags: [Payment methods]
+      operationId: listCustomerPaymentMethods
+      summary: List customer payment methods
+      responses:
+        "200":
+          $ref: "#/components/responses/PaymentMethodList"
+        "404":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}/payment-methods/{paymentMethod}:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+      - $ref: "#/components/parameters/PaymentMethodId"
+    get:
+      tags: [Payment methods]
+      operationId: retrieveCustomerPaymentMethod
+      summary: Retrieve a customer payment method
+      responses:
+        "200":
+          $ref: "#/components/responses/PaymentMethod"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Payment methods]
+      operationId: deleteCustomerPaymentMethod
+      summary: Delete a customer payment method
+      responses:
+        "204":
+          description: Payment method deleted.
+        "404":
+          $ref: "#/components/responses/Error"
+  /products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: List products
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, archived]
+      responses:
+        "200":
+          $ref: "#/components/responses/ProductList"
+    post:
+      tags: [Catalog]
+      operationId: createProduct
+      summary: Create a product
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/Product"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /products/{product}:
+    parameters:
+      - $ref: "#/components/parameters/ProductId"
+    get:
+      tags: [Catalog]
+      operationId: retrieveProduct
+      summary: Retrieve a product
+      responses:
+        "200":
+          $ref: "#/components/responses/Product"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Catalog]
+      operationId: updateProduct
+      summary: Update a product
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProductRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Product"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /products/{product}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ProductId"
+    post:
+      tags: [Catalog]
+      operationId: archiveProduct
+      summary: Archive a product
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Product"
+        "400":
+          $ref: "#/components/responses/Error"
+  /prices:
+    get:
+      tags: [Catalog]
+      operationId: listPrices
+      summary: List prices
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+        - name: productId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, archived, all]
+      responses:
+        "200":
+          $ref: "#/components/responses/PriceList"
+  /products/{product}/prices:
+    parameters:
+      - $ref: "#/components/parameters/ProductId"
+    post:
+      tags: [Catalog]
+      operationId: createPrice
+      summary: Create a price for a product
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/Price"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /prices/{price}:
+    parameters:
+      - $ref: "#/components/parameters/PriceId"
+    get:
+      tags: [Catalog]
+      operationId: retrievePrice
+      summary: Retrieve a price
+      responses:
+        "200":
+          $ref: "#/components/responses/Price"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Catalog]
+      operationId: updatePrice
+      summary: Update a price
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePriceRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/Price"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /prices/{price}/archive:
+    parameters:
+      - $ref: "#/components/parameters/PriceId"
+    post:
+      tags: [Catalog]
+      operationId: archivePrice
+      summary: Archive a price
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Price"
+        "400":
+          $ref: "#/components/responses/Error"
+  /trial-offers:
+    get:
+      tags: [Trial offers]
+      operationId: listTrialOffers
+      summary: List trial offers
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+        - name: productId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/TrialOfferList"
+  /products/{product}/trial-offers:
+    parameters:
+      - $ref: "#/components/parameters/ProductId"
+    post:
+      tags: [Trial offers]
+      operationId: createTrialOffer
+      summary: Create a trial offer for a product
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrialOfferRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/TrialOffer"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /trial-offers/{trialOffer}:
+    parameters:
+      - $ref: "#/components/parameters/TrialOfferId"
+    get:
+      tags: [Trial offers]
+      operationId: retrieveTrialOffer
+      summary: Retrieve a trial offer
+      responses:
+        "200":
+          $ref: "#/components/responses/TrialOffer"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Trial offers]
+      operationId: updateTrialOffer
+      summary: Update a trial offer
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTrialOfferRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/TrialOffer"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /subscriptions:
+    get:
+      tags: [Subscriptions]
+      operationId: listSubscriptions
+      summary: List subscriptions
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: customerId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/SubscriptionList"
+    post:
+      tags: [Subscriptions]
+      operationId: createSubscription
+      summary: Create a subscription
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubscriptionRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/Subscription"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /subscriptions/{subscription}:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionId"
+    get:
+      tags: [Subscriptions]
+      operationId: retrieveSubscription
+      summary: Retrieve a subscription
+      responses:
+        "200":
+          $ref: "#/components/responses/Subscription"
+        "404":
+          $ref: "#/components/responses/Error"
+  /subscriptions/{subscription}/pause:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionId"
+    post:
+      tags: [Subscriptions]
+      operationId: pauseSubscription
+      summary: Pause a subscription
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resumesAt:
+                  type:
+                    - string
+                    - "null"
+                  format: date-time
+      responses:
+        "200":
+          $ref: "#/components/responses/Subscription"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /subscriptions/{subscription}/resume:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionId"
+    post:
+      tags: [Subscriptions]
+      operationId: resumeSubscription
+      summary: Resume a subscription
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Subscription"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /subscriptions/{subscription}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionId"
+    post:
+      tags: [Subscriptions]
+      operationId: cancelSubscription
+      summary: Cancel a subscription
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode:
+                  type: string
+                  enum: [immediately, period_end]
+      responses:
+        "200":
+          $ref: "#/components/responses/Subscription"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /subscriptions/{subscription}/undo-cancel:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionId"
+    post:
+      tags: [Subscriptions]
+      operationId: undoCancelSubscription
+      summary: Undo a scheduled cancellation
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Subscription"
+        "400":
+          $ref: "#/components/responses/Error"
+  /subscriptions/{subscription}/retry-payment:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionId"
+    post:
+      tags: [Subscriptions]
+      operationId: retrySubscriptionPayment
+      summary: Retry the past-due invoice payment for a subscription
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Subscription"
+        "400":
+          $ref: "#/components/responses/Error"
+  /subscriptions/{subscription}/items/{item}:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionId"
+      - $ref: "#/components/parameters/SubscriptionItemId"
+    patch:
+      tags: [Subscriptions]
+      operationId: updateSubscriptionItem
+      summary: Update a subscription item
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000
+                priceId:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Subscription"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /invoices:
+    get:
+      tags: [Invoices]
+      operationId: listInvoices
+      summary: List invoices
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: customerId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/InvoiceList"
+    post:
+      tags: [Invoices]
+      operationId: createInvoice
+      summary: Create a one-off invoice
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvoiceRequest"
+      responses:
+        "201":
+          $ref: "#/components/responses/Invoice"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /invoices/{invoice}:
+    parameters:
+      - $ref: "#/components/parameters/InvoiceId"
+    get:
+      tags: [Invoices]
+      operationId: retrieveInvoice
+      summary: Retrieve an invoice
+      responses:
+        "200":
+          $ref: "#/components/responses/Invoice"
+        "404":
+          $ref: "#/components/responses/Error"
+  /invoices/{invoice}/void:
+    parameters:
+      - $ref: "#/components/parameters/InvoiceId"
+    post:
+      tags: [Invoices]
+      operationId: voidInvoice
+      summary: Void an invoice
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Invoice"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /invoices/{invoice}/mark-uncollectible:
+    parameters:
+      - $ref: "#/components/parameters/InvoiceId"
+    post:
+      tags: [Invoices]
+      operationId: markInvoiceUncollectible
+      summary: Mark an invoice uncollectible
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Invoice"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /payments:
+    get:
+      tags: [Payments]
+      operationId: listPayments
+      summary: List payments
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+        - name: invoiceId
+          in: query
+          schema:
+            type: string
+        - name: customerId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/PaymentList"
+  /payments/{payment}:
+    parameters:
+      - $ref: "#/components/parameters/PaymentId"
+    get:
+      tags: [Payments]
+      operationId: retrievePayment
+      summary: Retrieve a payment
+      responses:
+        "200":
+          $ref: "#/components/responses/Payment"
+        "404":
+          $ref: "#/components/responses/Error"
+  /events:
+    get:
+      tags: [Events]
+      operationId: listEvents
+      summary: List outbound events
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+        - name: type
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/EventList"
+  /events/{event}:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    get:
+      tags: [Events]
+      operationId: retrieveEvent
+      summary: Retrieve an outbound event
+      responses:
+        "200":
+          $ref: "#/components/responses/Event"
+        "404":
+          $ref: "#/components/responses/Error"
+  /checkout-sessions:
+    post:
+      tags: [Checkout sessions]
+      operationId: createCheckoutSession
+      summary: Create a hosted checkout session for payment-method tokenization
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer]
+              properties:
+                customer:
+                  type: string
+                setDefault:
+                  type: boolean
+                  default: true
+      responses:
+        "201":
+          $ref: "#/components/responses/CheckoutSession"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /checkout-sessions/{checkoutSession}:
+    parameters:
+      - $ref: "#/components/parameters/CheckoutSessionId"
+    get:
+      tags: [Checkout sessions]
+      operationId: retrieveCheckoutSession
+      summary: Retrieve a checkout session
+      responses:
+        "200":
+          $ref: "#/components/responses/CheckoutSession"
+        "404":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    SecretKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Bouclay secret key
+      description: Use a Bouclay secret key. Publishable keys are rejected by server-side API endpoints.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: Required for POST and PATCH requests. Replays identical method + path + body requests and rejects mismatched re-use.
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    After:
+      name: after
+      in: query
+      schema:
+        type: string
+      description: Return results after this public ID cursor.
+    Before:
+      name: before
+      in: query
+      schema:
+        type: string
+      description: Return results before this public ID cursor. Cannot be combined with after.
+    CustomerId:
+      name: customer
+      in: path
+      required: true
+      schema:
+        type: string
+      example: cus_123
+    AddressId:
+      name: address
+      in: path
+      required: true
+      schema:
+        type: integer
+      example: 1
+    PaymentMethodId:
+      name: paymentMethod
+      in: path
+      required: true
+      schema:
+        type: string
+      example: pm_123
+    ProductId:
+      name: product
+      in: path
+      required: true
+      schema:
+        type: string
+      example: prod_123
+    PriceId:
+      name: price
+      in: path
+      required: true
+      schema:
+        type: string
+      example: prc_123
+    TrialOfferId:
+      name: trialOffer
+      in: path
+      required: true
+      schema:
+        type: string
+      example: tro_123
+    SubscriptionId:
+      name: subscription
+      in: path
+      required: true
+      schema:
+        type: string
+      example: sub_123
+    SubscriptionItemId:
+      name: item
+      in: path
+      required: true
+      schema:
+        type: string
+      example: si_123
+    InvoiceId:
+      name: invoice
+      in: path
+      required: true
+      schema:
+        type: string
+      example: inv_123
+    PaymentId:
+      name: payment
+      in: path
+      required: true
+      schema:
+        type: string
+      example: pay_123
+    EventId:
+      name: event
+      in: path
+      required: true
+      schema:
+        type: string
+      example: evt_123
+    CheckoutSessionId:
+      name: checkoutSession
+      in: path
+      required: true
+      schema:
+        type: string
+      example: chk_123
+  responses:
+    Error:
+      description: Structured API error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Customer:
+      description: Customer response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Customer"
+    CustomerList:
+      description: Customer list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Customer"
+    Address:
+      description: Address response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Address"
+    AddressList:
+      description: Address list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Address"
+    PaymentMethod:
+      description: Payment method response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/PaymentMethod"
+    PaymentMethodList:
+      description: Payment method list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PaymentMethod"
+    Product:
+      description: Product response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Product"
+    ProductList:
+      description: Product list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Product"
+    Price:
+      description: Price response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Price"
+    PriceList:
+      description: Price list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Price"
+    TrialOffer:
+      description: Trial offer response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/TrialOffer"
+    TrialOfferList:
+      description: Trial offer list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrialOffer"
+    Subscription:
+      description: Subscription response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Subscription"
+    SubscriptionList:
+      description: Subscription list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Subscription"
+    Invoice:
+      description: Invoice response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Invoice"
+    InvoiceList:
+      description: Invoice list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Invoice"
+    Payment:
+      description: Payment response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Payment"
+    PaymentList:
+      description: Payment list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Payment"
+    Event:
+      description: Event response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Event"
+    EventList:
+      description: Event list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Event"
+    CheckoutSession:
+      description: Checkout session response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/CheckoutSession"
+  schemas:
+    ResourceEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+        meta:
+          $ref: "#/components/schemas/Meta"
+    ListEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+        meta:
+          allOf:
+            - $ref: "#/components/schemas/Meta"
+            - type: object
+              properties:
+                pagination:
+                  $ref: "#/components/schemas/Pagination"
+    Meta:
+      type: object
+      required: [requestId]
+      properties:
+        requestId:
+          type: string
+          example: req_550e8400-e29b-41d4-a716-446655440000
+    Pagination:
+      type: object
+      required: [hasMore]
+      properties:
+        hasMore:
+          type: boolean
+        previous:
+          type: string
+        next:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [error, meta]
+      properties:
+        error:
+          type: object
+          required: [type, code, detail]
+          properties:
+            type:
+              type: string
+              example: request_error
+            code:
+              type: string
+              enum:
+                - authentication_failed
+                - permission_denied
+                - invalid_field
+                - invalid_cursor
+                - idempotency_conflict
+                - conflict
+                - not_found
+                - request_error
+            detail:
+              type: string
+            errors:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+        meta:
+          $ref: "#/components/schemas/Meta"
+    CreateCustomerRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type:
+            - string
+            - "null"
+        phone:
+          type:
+            - string
+            - "null"
+        currency:
+          type:
+            - string
+            - "null"
+          minLength: 3
+          maxLength: 3
+          example: NGN
+        externalRef:
+          type:
+            - string
+            - "null"
+        customData:
+          $ref: "#/components/schemas/CustomData"
+    UpdateCustomerRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type:
+            - string
+            - "null"
+        phone:
+          type:
+            - string
+            - "null"
+        currency:
+          type:
+            - string
+            - "null"
+          minLength: 3
+          maxLength: 3
+          example: NGN
+        externalRef:
+          type:
+            - string
+            - "null"
+        customData:
+          $ref: "#/components/schemas/CustomData"
+    Customer:
+      type: object
+      required: [id, email, status, createdAt]
+      properties:
+        id:
+          type: string
+          example: cus_123
+        email:
+          type: string
+          format: email
+        name:
+          type:
+            - string
+            - "null"
+        currency:
+          type:
+            - string
+            - "null"
+        externalRef:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        phone:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum: [active, archived]
+        customData:
+          $ref: "#/components/schemas/CustomData"
+        defaultPaymentMethod:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: string
+        archivedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    AddressRequest:
+      type: object
+      required: [type, line1, country]
+      properties:
+        type:
+          type: string
+          enum: [billing, shipping]
+        name:
+          type:
+            - string
+            - "null"
+        line1:
+          type: string
+        line2:
+          type:
+            - string
+            - "null"
+        city:
+          type:
+            - string
+            - "null"
+        region:
+          type:
+            - string
+            - "null"
+        postalCode:
+          type:
+            - string
+            - "null"
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+        phone:
+          type:
+            - string
+            - "null"
+        isDefault:
+          type: boolean
+    Address:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        name:
+          type:
+            - string
+            - "null"
+        line1:
+          type: string
+        line2:
+          type:
+            - string
+            - "null"
+        city:
+          type:
+            - string
+            - "null"
+        region:
+          type:
+            - string
+            - "null"
+        postalCode:
+          type:
+            - string
+            - "null"
+        country:
+          type: string
+        phone:
+          type:
+            - string
+            - "null"
+        isDefault:
+          type: boolean
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    UpdateAddressRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [billing, shipping]
+        name:
+          type:
+            - string
+            - "null"
+        line1:
+          type: string
+        line2:
+          type:
+            - string
+            - "null"
+        city:
+          type:
+            - string
+            - "null"
+        region:
+          type:
+            - string
+            - "null"
+        postalCode:
+          type:
+            - string
+            - "null"
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+        phone:
+          type:
+            - string
+            - "null"
+        isDefault:
+          type: boolean
+    PaymentMethod:
+      type: object
+      properties:
+        id:
+          type: string
+        processor:
+          type: string
+          example: nomba
+        type:
+          type: string
+        brand:
+          type:
+            - string
+            - "null"
+        last4:
+          type:
+            - string
+            - "null"
+        expMonth:
+          type:
+            - integer
+            - "null"
+        expYear:
+          type:
+            - integer
+            - "null"
+        isDefault:
+          type: boolean
+        status:
+          type: string
+        customer:
+          type: object
+          properties:
+            id:
+              type: string
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    CreateProductRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        category:
+          type:
+            - string
+            - "null"
+        customData:
+          $ref: "#/components/schemas/CustomData"
+        price:
+          $ref: "#/components/schemas/PriceRequest"
+    UpdateProductRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        category:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum: [active, archived]
+        customData:
+          $ref: "#/components/schemas/CustomData"
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        category:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum: [active, archived]
+        customData:
+          $ref: "#/components/schemas/CustomData"
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        archivedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        priceIds:
+          type: array
+          items:
+            type: string
+        trialOfferIds:
+          type: array
+          items:
+            type: string
+    PriceRequest:
+      type: object
+      required: [type, pricingModel]
+      properties:
+        name:
+          type:
+            - string
+            - "null"
+        type:
+          type: string
+          enum: [one_time, recurring]
+        pricingModel:
+          type: string
+          enum: [standard, graduated]
+        unitAmount:
+          $ref: "#/components/schemas/MajorAmount"
+        currency:
+          type:
+            - string
+            - "null"
+          minLength: 3
+          maxLength: 3
+        billingInterval:
+          type:
+            - string
+            - "null"
+          enum: [day, week, month, year, null]
+        billingFrequency:
+          type: integer
+          minimum: 1
+          default: 1
+        customData:
+          $ref: "#/components/schemas/CustomData"
+    UpdatePriceRequest:
+      type: object
+      properties:
+        name:
+          type:
+            - string
+            - "null"
+        unitAmount:
+          $ref: "#/components/schemas/MajorAmount"
+        status:
+          type: string
+          enum: [active, archived]
+        customData:
+          $ref: "#/components/schemas/CustomData"
+    Price:
+      type: object
+      properties:
+        id:
+          type: string
+        productId:
+          type: string
+        name:
+          type:
+            - string
+            - "null"
+        type:
+          type: string
+          enum: [one_time, recurring]
+        pricingModel:
+          type: string
+          enum: [standard, graduated]
+        unitAmount:
+          $ref: "#/components/schemas/MajorAmount"
+        currency:
+          type: string
+        billingInterval:
+          type:
+            - string
+            - "null"
+        billingFrequency:
+          type: integer
+        taxMode:
+          type: string
+        status:
+          type: string
+          enum: [active, archived]
+        customData:
+          $ref: "#/components/schemas/CustomData"
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        tiers:
+          type: array
+          items:
+            type: object
+            properties:
+              tierIndex:
+                type: integer
+              upTo:
+                type:
+                  - integer
+                  - "null"
+              unitAmount:
+                $ref: "#/components/schemas/MajorAmount"
+              flatAmount:
+                $ref: "#/components/schemas/MajorAmount"
+    TrialOfferRequest:
+      type: object
+      required: [name, trialPriceId, transitionPriceId, durationIterations]
+      properties:
+        name:
+          type: string
+        trialPriceId:
+          type: string
+        transitionPriceId:
+          type: string
+        transitionToDifferentProduct:
+          type: boolean
+          default: false
+        transitionProductId:
+          type: string
+        durationIterations:
+          type: integer
+          minimum: 1
+    UpdateTrialOfferRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        trialPriceId:
+          type: string
+        transitionPriceId:
+          type: string
+        transitionToDifferentProduct:
+          type: boolean
+        transitionProductId:
+          type: string
+        durationIterations:
+          type: integer
+          minimum: 1
+        active:
+          type: boolean
+    TrialOffer:
+      type: object
+      properties:
+        id:
+          type: string
+        productId:
+          type: string
+        name:
+          type: string
+        trialPriceId:
+          type: string
+        transitionPriceId:
+          type: string
+        transitionToDifferentProduct:
+          type: boolean
+        transitionProductId:
+          type:
+            - string
+            - "null"
+        durationIterations:
+          type: integer
+        active:
+          type: boolean
+        customData:
+          $ref: "#/components/schemas/CustomData"
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    CreateSubscriptionRequest:
+      type: object
+      required: [customer, collectionMode, items]
+      properties:
+        customer:
+          type: string
+        collectionMode:
+          type: string
+          enum: [automatic, manual]
+        paymentMethod:
+          type: string
+        trialEndBehavior:
+          type: string
+          enum: [cancel, pause, create_invoice]
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              priceId:
+                type: string
+              price:
+                type: string
+                description: Backward-compatible alias accepted by the API.
+              trialOffer:
+                type: string
+              quantity:
+                type: integer
+                minimum: 1
+                default: 1
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        currency:
+          type: string
+        collectionMode:
+          type: string
+          enum: [automatic, manual]
+        trialEndsAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        currentPeriodStart:
+          type:
+            - string
+            - "null"
+          format: date-time
+        currentPeriodEnd:
+          type:
+            - string
+            - "null"
+          format: date-time
+        canceledAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        endsAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        customer:
+          $ref: "#/components/schemas/NestedCustomer"
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        trialEndBehavior:
+          type:
+            - string
+            - "null"
+        paymentMethod:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubscriptionItem"
+        scheduledChanges:
+          type: array
+          items:
+            type: object
+            properties:
+              action:
+                type: string
+              effectiveAt:
+                type:
+                  - string
+                  - "null"
+                format: date-time
+    SubscriptionItem:
+      type: object
+      properties:
+        id:
+          type: string
+        productId:
+          type: string
+        priceId:
+          type: string
+        quantity:
+          type: integer
+        status:
+          type: string
+    CreateInvoiceRequest:
+      type: object
+      required: [customer, collectionMode, items]
+      properties:
+        customer:
+          type: string
+        collectionMode:
+          type: string
+          enum: [automatic, manual]
+        paymentMethod:
+          type: string
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              priceId:
+                type: string
+              description:
+                type: string
+              unitAmount:
+                $ref: "#/components/schemas/MajorAmount"
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 1000
+                default: 1
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+        number:
+          type: string
+        status:
+          type: string
+        billingReason:
+          type: string
+        collectionMode:
+          type: string
+          enum: [automatic, manual]
+        currency:
+          type: string
+        subtotal:
+          $ref: "#/components/schemas/MajorAmount"
+        taxTotal:
+          $ref: "#/components/schemas/MajorAmount"
+        total:
+          $ref: "#/components/schemas/MajorAmount"
+        amountPaid:
+          $ref: "#/components/schemas/MajorAmount"
+        amountDue:
+          $ref: "#/components/schemas/MajorAmount"
+        paidAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        customer:
+          $ref: "#/components/schemas/NestedCustomer"
+        subscription:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: string
+            status:
+              type: string
+        payment:
+          type:
+            - object
+            - "null"
+        dueAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              description:
+                type: string
+              quantity:
+                type: integer
+              unitAmount:
+                $ref: "#/components/schemas/MajorAmount"
+              total:
+                $ref: "#/components/schemas/MajorAmount"
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        amount:
+          $ref: "#/components/schemas/MajorAmount"
+        currency:
+          type: string
+        failureCode:
+          type:
+            - string
+            - "null"
+        failureReason:
+          type:
+            - string
+            - "null"
+        attemptNumber:
+          type: integer
+        processedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        invoice:
+          type: object
+          properties:
+            id:
+              type: string
+        customer:
+          type: object
+          properties:
+            id:
+              type: string
+        createdAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          example: subscription.created
+        created:
+          type:
+            - string
+            - "null"
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+    CheckoutSession:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [open, complete]
+        checkoutUrl:
+          type: string
+          format: uri
+        customerId:
+          type:
+            - string
+            - "null"
+        mode:
+          type:
+            - string
+            - "null"
+          enum: [test, live, null]
+    NestedCustomer:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type:
+            - string
+            - "null"
+    MajorAmount:
+      type:
+        - number
+        - "null"
+      minimum: 0
+      description: Major currency units. For example, 15000 means NGN 15,000.
+    CustomData:
+      type:
+        - object
+        - "null"
+      additionalProperties: true

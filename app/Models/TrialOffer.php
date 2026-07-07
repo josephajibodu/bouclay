@@ -145,7 +145,7 @@ class TrialOffer extends Model
         $this->loadMissing(['product', 'trialPrice', 'transitionPrice', 'transitionProduct']);
 
         return [
-            'publicId' => $this->public_id,
+            'id' => $this->public_id,
             'productId' => $this->product->public_id,
             'name' => $this->name,
             'trialPriceId' => $this->trialPrice->public_id,
