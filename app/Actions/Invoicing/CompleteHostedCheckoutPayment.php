@@ -210,6 +210,17 @@ class CompleteHostedCheckoutPayment
 
     private function clearCheckoutCaches(string $orderReference): void
     {
+        /** @var array<string, mixed>|null $intent */
+        $intent = Cache::get("nomba_checkout:{$orderReference}");
+
+        if (is_array($intent) && ! empty($intent['api_checkout_session'])) {
+            Cache::put("nomba_checkout_completed:{$orderReference}", [
+                'team_id' => $intent['team_id'],
+                'customer_id' => $intent['customer_id'],
+                'mode' => $intent['mode'],
+            ], now()->addDays(7));
+        }
+
         Cache::forget("nomba_checkout:{$orderReference}");
         Cache::forget("nomba_token:{$orderReference}");
     }

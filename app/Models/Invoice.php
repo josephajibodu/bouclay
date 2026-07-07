@@ -8,6 +8,7 @@ use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceStatus;
 use App\Enums\OutboundEventType;
+use App\Support\Api\ApiMoney;
 use Database\Factories\InvoiceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
@@ -240,6 +241,49 @@ class Invoice extends Model
                 'status' => $this->subscription->status->value,
             ] : null,
             'payment' => $payment?->toWebhookObject(),
+        ];
+    }
+
+    /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        $this->loadMissing(['customer', 'subscription', 'lines']);
+
+        return [
+            'publicId' => $this->public_id,
+            'number' => $this->number,
+            'status' => $this->status->value,
+            'billingReason' => $this->billing_reason->value,
+            'collectionMode' => $this->collection_mode->value,
+            'currency' => $this->currency,
+            'subtotal' => ApiMoney::toMajorUnits($this->subtotal),
+            'taxTotal' => ApiMoney::toMajorUnits($this->tax_total),
+            'total' => ApiMoney::toMajorUnits($this->total),
+            'amountPaid' => ApiMoney::toMajorUnits($this->amount_paid),
+            'amountDue' => ApiMoney::toMajorUnits($this->amount_due),
+            'paidAt' => $this->paid_at?->toISOString(),
+            'customer' => [
+                'publicId' => $this->customer->public_id,
+                'email' => $this->customer->email,
+                'name' => $this->customer->name,
+            ],
+            'subscription' => $this->subscription !== null ? [
+                'publicId' => $this->subscription->public_id,
+                'status' => $this->subscription->status->value,
+            ] : null,
+            'payment' => null,
+            'dueAt' => $this->due_at?->toISOString(),
+            'createdAt' => $this->created_at?->toISOString(),
+            'lines' => $this->lines->map(fn (InvoiceLine $line) => [
+                'description' => $line->description,
+                'quantity' => $line->quantity,
+                'unitAmount' => ApiMoney::toMajorUnits($line->unit_amount),
+                'total' => ApiMoney::toMajorUnits($line->total),
+            ])->all(),
         ];
     }
 

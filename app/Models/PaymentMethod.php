@@ -156,6 +156,16 @@ class PaymentMethod extends Model
     }
 
     /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        return $this->toWebhookObject();
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

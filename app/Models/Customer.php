@@ -173,6 +173,31 @@ class Customer extends Model
     }
 
     /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        $this->loadMissing('paymentMethods');
+
+        $defaultPaymentMethod = $this->default_payment_method_id !== null
+            ? $this->paymentMethods->firstWhere('id', $this->default_payment_method_id)
+            : null;
+
+        return [
+            ...$this->toWebhookObject(),
+            'phone' => $this->phone,
+            'status' => $this->trashed() ? 'archived' : 'active',
+            'customData' => $this->custom_data,
+            'defaultPaymentMethod' => $defaultPaymentMethod !== null
+                ? ['publicId' => $defaultPaymentMethod->public_id]
+                : null,
+            'archivedAt' => $this->deleted_at?->toISOString(),
+        ];
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

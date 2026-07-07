@@ -95,4 +95,25 @@ class Product extends Model
             'custom_data' => 'array',
         ];
     }
+
+    /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        return [
+            'publicId' => $this->public_id,
+            'name' => $this->name,
+            'description' => $this->description,
+            'category' => $this->category,
+            'status' => $this->trashed()
+                ? CatalogStatus::Archived->value
+                : ($this->status?->value ?? CatalogStatus::Active->value),
+            'customData' => $this->custom_data,
+            'createdAt' => $this->created_at?->toISOString(),
+            'archivedAt' => $this->deleted_at?->toISOString(),
+        ];
+    }
 }

@@ -1,6 +1,9 @@
 <?php
 
 use App\Actions\Invoicing\ChargeInvoice;
+use App\Enums\ApiKeyKind;
+use App\Enums\ApiKeyMode;
+use App\Models\ApiKey;
 use App\Models\Customer;
 use App\Models\Price;
 use App\Models\Product;
@@ -256,4 +259,48 @@ function fakeNombaCheckout(string $checkoutLink = 'https://checkout.nomba.com/pa
             ],
         ]),
     ]);
+}
+
+/**
+ * @return array{token: string, team: Team, apiKey: ApiKey}
+ */
+function apiAuthFixture(?ApiKeyMode $mode = ApiKeyMode::Test): array
+{
+    $user = User::factory()->create();
+    $team = Team::factory()->create();
+    attachTeamOwner($team, $user);
+
+    $generated = ApiKey::generate($mode, ApiKeyKind::Secret);
+
+    $apiKey = ApiKey::factory()->create([
+        'team_id' => $team->id,
+        'created_by' => $user->id,
+        'mode' => $mode,
+        'kind' => ApiKeyKind::Secret,
+        'hashed_secret' => $generated['hashedSecret'],
+        'last_four' => $generated['lastFour'],
+    ]);
+
+    return [
+        'token' => $generated['key'],
+        'team' => $team,
+        'apiKey' => $apiKey,
+    ];
+}
+
+/**
+ * @return array<string, string>
+ */
+function apiHeaders(string $token, ?string $idempotencyKey = null): array
+{
+    $headers = [
+        'Authorization' => 'Bearer '.$token,
+        'Accept' => 'application/json',
+    ];
+
+    if ($idempotencyKey !== null) {
+        $headers['Idempotency-Key'] = $idempotencyKey;
+    }
+
+    return $headers;
 }

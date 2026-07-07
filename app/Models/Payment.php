@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Concerns\HasPublicId;
 use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
+use App\Support\Api\ApiMoney;
 use Database\Factories\PaymentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -125,6 +126,20 @@ class Payment extends Model
             'customer' => [
                 'publicId' => $this->customer->public_id,
             ],
+        ];
+    }
+
+    /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        return [
+            ...$this->toWebhookObject(),
+            'amount' => ApiMoney::toMajorUnits($this->amount),
+            'createdAt' => $this->created_at?->toISOString(),
         ];
     }
 

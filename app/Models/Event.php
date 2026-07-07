@@ -57,6 +57,16 @@ class Event extends Model
     }
 
     /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        return $this->toWebhookPayload();
+    }
+
+    /**
      * Get the team that owns this event.
      *
      * @return BelongsTo<Team, $this>

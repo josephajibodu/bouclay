@@ -8,6 +8,7 @@ use App\Enums\CatalogStatus;
 use App\Enums\PriceType;
 use App\Enums\PricingModel;
 use App\Enums\TaxMode;
+use App\Support\Api\ApiMoney;
 use Database\Factories\PriceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
@@ -124,6 +125,38 @@ class Price extends Model
                     'flatAmount' => $tier->flat_amount !== null ? $tier->flat_amount / 100 : null,
                 ])->all()
                 : [],
+        ];
+    }
+
+    /**
+     * Serialise for the public Billing API (amounts in major units).
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        $this->loadMissing(['product', 'tiers']);
+
+        return [
+            'publicId' => $this->public_id,
+            'productId' => $this->product->public_id,
+            'name' => $this->name,
+            'type' => $this->type->value,
+            'pricingModel' => $this->pricing_model->value,
+            'unitAmount' => ApiMoney::toMajorUnits($this->unit_amount),
+            'currency' => $this->currency,
+            'billingInterval' => $this->billing_interval?->value,
+            'billingFrequency' => $this->billing_frequency,
+            'taxMode' => $this->tax_mode->value,
+            'status' => $this->status->value,
+            'customData' => $this->custom_data,
+            'createdAt' => $this->created_at?->toISOString(),
+            'tiers' => $this->tiers->map(fn (PriceTier $tier) => [
+                'tierIndex' => $tier->tier_index,
+                'upTo' => $tier->up_to,
+                'unitAmount' => ApiMoney::toMajorUnits($tier->unit_amount),
+                'flatAmount' => ApiMoney::toMajorUnits($tier->flat_amount),
+            ])->all(),
         ];
     }
 

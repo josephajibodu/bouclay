@@ -234,6 +234,31 @@ class Subscription extends Model
     }
 
     /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        $this->loadMissing(['customer', 'paymentMethod', 'items.product', 'items.price', 'scheduledChanges']);
+
+        return [
+            ...$this->toWebhookObject(),
+            'trialEndBehavior' => $this->trial_end_behavior?->value,
+            'paymentMethod' => $this->paymentMethod !== null
+                ? ['publicId' => $this->paymentMethod->public_id]
+                : null,
+            'items' => $this->items->map(fn (SubscriptionItem $item) => $item->toApiObject())->all(),
+            'scheduledChanges' => $this->scheduledChanges
+                ->whereNull('applied_at')
+                ->map(fn ($change) => [
+                    'action' => $change->action->value,
+                    'effectiveAt' => $change->effective_at?->toISOString(),
+                ])->values()->all(),
+        ];
+    }
+
+    /**
      * Serialise a row for the subscriptions list (SUBSCRIPTIONS_DESIGN §6).
      *
      * @return array<string, mixed>

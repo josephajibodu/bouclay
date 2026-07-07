@@ -2,6 +2,7 @@
 
 namespace App\Actions\Invoicing;
 
+use App\Enums\ApiKeyMode;
 use App\Exceptions\Nomba\NombaConnectionException;
 use App\Models\Invoice;
 use App\Models\Team;
@@ -36,6 +37,7 @@ class GenerateInvoiceCheckout
         bool $tokenizeCard = false,
         ?array $allowedPaymentMethods = null,
         bool $setDefaultPaymentMethod = false,
+        ?ApiKeyMode $mode = null,
     ): array {
         $invoice->loadMissing('customer');
 
@@ -44,7 +46,7 @@ class GenerateInvoiceCheckout
         }
 
         $connection = $team->processorConnection;
-        $mode = $this->modeResolver->forConnection($connection);
+        $mode ??= $this->modeResolver->forConnection($connection);
 
         if ($connection === null || $mode === null) {
             throw new InvalidArgumentException('Connect Nomba before collecting payment for this invoice.');
@@ -83,6 +85,9 @@ class GenerateInvoiceCheckout
             ]),
         ])->save();
 
-        return $result;
+        return [
+            'checkoutLink' => $result['checkoutLink'],
+            'orderReference' => $orderReference,
+        ];
     }
 }

@@ -136,6 +136,30 @@ class TrialOffer extends Model
     }
 
     /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        $this->loadMissing(['product', 'trialPrice', 'transitionPrice', 'transitionProduct']);
+
+        return [
+            'publicId' => $this->public_id,
+            'productId' => $this->product->public_id,
+            'name' => $this->name,
+            'trialPriceId' => $this->trialPrice->public_id,
+            'transitionPriceId' => $this->transitionPrice->public_id,
+            'transitionToDifferentProduct' => $this->transition_to_different_product,
+            'transitionProductId' => $this->transitionProduct?->public_id,
+            'durationIterations' => $this->duration_iterations,
+            'active' => $this->active,
+            'customData' => $this->custom_data,
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

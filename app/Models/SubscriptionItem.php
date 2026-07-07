@@ -124,6 +124,24 @@ class SubscriptionItem extends Model
     }
 
     /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        $this->loadMissing(['product', 'price']);
+
+        return [
+            'publicId' => $this->public_id,
+            'productId' => $this->product->public_id,
+            'priceId' => $this->price->public_id,
+            'quantity' => $this->quantity,
+            'status' => $this->status->value,
+        ];
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

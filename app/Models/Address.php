@@ -92,6 +92,29 @@ class Address extends Model
     }
 
     /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        return [
+            'id' => $this->id,
+            'type' => $this->type->value,
+            'name' => $this->name,
+            'line1' => $this->line1,
+            'line2' => $this->line2,
+            'city' => $this->city,
+            'region' => $this->region,
+            'postalCode' => $this->postal_code,
+            'country' => $this->country,
+            'phone' => $this->phone,
+            'isDefault' => $this->is_default,
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
