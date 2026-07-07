@@ -170,3 +170,89 @@ test('the trial conversion command swaps a paid trial item to its transition pri
         ->and($subscription->trial_ends_at)->toBeNull()
         ->and($subscription->invoices()->count())->toBe(0);
 });
+
+test('paid trial renewals bill the intro price until the transition cycle', function () {
+    ['owner' => $owner, 'team' => $team, 'customer' => $customer] = subscriptionFixture();
+
+    $product = Product::factory()->for($team)->create();
+    $introPrice = Price::factory()->for($team)->for($product)->create([
+        'unit_amount' => 100_000,
+        'currency' => $customer->currency,
+        'billing_interval' => 'month',
+        'billing_frequency' => 1,
+    ]);
+    $regularPrice = Price::factory()->for($team)->for($product)->create([
+        'unit_amount' => 4_000_000,
+        'currency' => $customer->currency,
+        'billing_interval' => 'month',
+        'billing_frequency' => 1,
+    ]);
+    $offer = TrialOffer::factory()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'trial_price_id' => $introPrice->id,
+        'transition_product_id' => $product->id,
+        'transition_price_id' => $regularPrice->id,
+        'duration_iterations' => 3,
+    ]);
+    $card = PaymentMethod::factory()->for($team)->for($customer)->create();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCharge();
+
+    $this->travelTo(now()->startOfDay());
+
+    $this->actingAs($owner)
+        ->post(route('subscriptions.store'), [
+            'customer_id' => $customer->id,
+            'collection_mode' => 'automatic',
+            'payment_method_id' => $card->id,
+            'items' => [['kind' => 'trial', 'trial_offer_id' => $offer->id]],
+        ])
+        ->assertRedirect();
+
+    $subscription = Subscription::query()->with(['items.currentTrial', 'invoices.lines'])->firstOrFail();
+    $item = $subscription->items->first();
+
+    expect($subscription->status)->toBe(SubscriptionStatus::Active)
+        ->and($item->price_id)->toBe($introPrice->id)
+        ->and($subscription->trial_ends_at?->toDateString())->toBe(now()->addMonths(3)->toDateString())
+        ->and($subscription->invoices->first()->lines->first()->price_id)->toBe($introPrice->id);
+
+    $this->travelTo(now()->addMonth());
+
+    $this->artisan('subscriptions:bill-renewals')->assertSuccessful();
+
+    $subscription->refresh()->load(['items.currentTrial', 'invoices.lines']);
+    $introRenewal = $subscription->invoices()->with('lines')->latest('id')->firstOrFail();
+
+    expect($subscription->items->first()->price_id)->toBe($introPrice->id)
+        ->and($subscription->items->first()->currentTrial)->not->toBeNull()
+        ->and($introRenewal->lines->first()->price_id)->toBe($introPrice->id);
+
+    $this->travelTo(now()->addMonth());
+
+    $this->artisan('subscriptions:bill-renewals')->assertSuccessful();
+
+    $subscription->refresh()->load(['items.currentTrial', 'invoices.lines']);
+    $secondIntroRenewal = $subscription->invoices()->with('lines')->latest('id')->firstOrFail();
+
+    expect($subscription->items->first()->price_id)->toBe($introPrice->id)
+        ->and($subscription->items->first()->currentTrial)->not->toBeNull()
+        ->and($secondIntroRenewal->lines->first()->price_id)->toBe($introPrice->id);
+
+    $this->travelTo(now()->addMonth());
+
+    $this->artisan('subscriptions:bill-renewals')->assertSuccessful();
+
+    $subscription->refresh()->load(['items.currentTrial', 'invoices.lines']);
+    $transitionRenewal = $subscription->invoices()->with('lines')->latest('id')->firstOrFail();
+
+    expect($subscription->items->first()->price_id)->toBe($regularPrice->id)
+        ->and($subscription->items->first()->currentTrial)->toBeNull()
+        ->and($subscription->trial_ends_at)->toBeNull()
+        ->and($transitionRenewal->billing_reason)->toBe(InvoiceBillingReason::SubscriptionCycle)
+        ->and($transitionRenewal->lines->first()->price_id)->toBe($regularPrice->id)
+        ->and($subscription->invoices()->count())->toBe(4);
+
+    $this->travelBack();
+});

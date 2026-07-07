@@ -9,6 +9,7 @@ use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\SubscriptionItemStatus;
+use App\Enums\SubscriptionItemTrialStatus;
 use App\Enums\SubscriptionStatus;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
@@ -16,6 +17,7 @@ use App\Models\Price;
 use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
+use App\Models\SubscriptionItemTrial;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -46,6 +48,10 @@ class RenewSubscription
 
         /** @var Invoice|null $invoice */
         $invoice = DB::transaction(function () use ($subscription): ?Invoice {
+            $this->convertDueTrials($subscription);
+            $subscription->unsetRelation('items');
+            $subscription->load('items.price.product');
+
             $lines = $this->buildRenewalLines($subscription);
 
             if ($lines === []) {
@@ -95,12 +101,42 @@ class RenewSubscription
         return $invoice;
     }
 
+    private function convertDueTrials(Subscription $subscription): void
+    {
+        SubscriptionItemTrial::query()
+            ->where('status', SubscriptionItemTrialStatus::Active)
+            ->where('ends_at', '<=', now())
+            ->whereHas('subscriptionItem', fn ($query) => $query->where('subscription_id', $subscription->id))
+            ->with(['subscriptionItem', 'transitionPrice'])
+            ->orderBy('id')
+            ->each(function (SubscriptionItemTrial $trial): void {
+                $trial->subscriptionItem->forceFill([
+                    'price_id' => $trial->transitionPrice->id,
+                    'product_id' => $trial->transitionPrice->product_id,
+                ])->save();
+
+                $trial->forceFill([
+                    'status' => SubscriptionItemTrialStatus::Converted,
+                    'converted_at' => Carbon::now(),
+                ])->save();
+            });
+
+        $earliestEnd = SubscriptionItemTrial::query()
+            ->where('status', SubscriptionItemTrialStatus::Active)
+            ->whereHas('subscriptionItem', fn ($query) => $query->where('subscription_id', $subscription->id))
+            ->min('ends_at');
+
+        $subscription->forceFill([
+            'trial_ends_at' => $earliestEnd !== null ? Carbon::parse((string) $earliestEnd) : null,
+        ])->save();
+    }
+
     /**
      * @return list<array{subscriptionItem: SubscriptionItem, price: Price, product: Product, kind: InvoiceLineKind, description: string, unitAmount: int, quantity: int}>
      */
     private function buildRenewalLines(Subscription $subscription): array
     {
-        return $subscription->items
+        return array_values($subscription->items
             ->filter(fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active)
             ->map(function (SubscriptionItem $item): array {
                 $price = $item->price;
@@ -116,8 +152,7 @@ class RenewSubscription
                     'quantity' => $item->quantity,
                 ];
             })
-            ->values()
-            ->all();
+            ->all());
     }
 
     private function resolvePaymentMethod(Subscription $subscription): ?PaymentMethod
