@@ -6,7 +6,6 @@ import {
     CreditCard,
     FileText,
     KeyRound,
-    RadioTower,
     RefreshCcw,
     Repeat2,
     ShieldCheck,
@@ -128,14 +127,9 @@ export default function Welcome() {
                     </nav>
                 </header>
 
-                <section className="mx-auto grid w-full max-w-7xl gap-12 px-6 py-16 lg:grid-cols-[minmax(0,1fr)_28rem] lg:items-center lg:px-8 lg:py-24">
+                <section className="mx-auto grid w-full max-w-7xl gap-12 px-6 py-10 lg:grid-cols-[minmax(0,1fr)_28rem] lg:items-center lg:px-8 lg:py-16">
                     <div className="max-w-3xl">
-                        <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-sm text-muted-foreground shadow-sm">
-                            <RadioTower className="size-4 text-primary" />
-                            Managed recurring billing for Nomba integrators
-                        </div>
-
-                        <h1 className="mt-8 text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
+                        <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
                             Stop rebuilding subscriptions around payment
                             primitives.
                         </h1>
