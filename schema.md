@@ -1,6 +1,6 @@
 # Bouclay — Database Schema
 
-Processor-agnostic subscription billing engine (Laravel). This is the authoritative data model: every table, field, type, relationship, and enum. It supersedes the Figma "Plan Board". Built on the Stripe/Paddle billing model — Laravel Cashier Paddle only ships four tables (`customers`, `subscriptions`, `subscription_items`, `transactions`) because Paddle is the merchant-of-record and owns the catalog; Bouclay *is* the engine, so it models everything Paddle keeps server-side.
+Processor-agnostic subscription billing engine (Laravel). This is the authoritative data model: every table, field, type, relationship, and enum. It supersedes the Figma "Plan Board". Built on the Stripe/Paddle billing model for the transactional core — Laravel Cashier Paddle only ships four tables (`customers`, `subscriptions`, `subscription_items`, `transactions`) because Paddle is the merchant-of-record and owns the catalog; Bouclay *is* the engine, so it models everything Paddle keeps server-side. The catalog layer additionally borrows Recurly's separate **Plan** entity (`Product → Plan → Price`) so a single product can hold multiple named tiers, each with its own priced, trial-capable variants.
 
 ---
 
@@ -55,10 +55,11 @@ erDiagram
     teams ||--o{ api_keys : issues
     teams ||--o{ customers : owns
     teams ||--o{ products : owns
+    teams ||--o{ plans : owns
+    teams ||--o{ entitlements : defines
     teams ||--o{ subscriptions : owns
     teams ||--o{ invoices : owns
     teams ||--o{ discounts : defines
-    teams ||--o{ trial_offers : defines
     teams ||--o{ events : emits
     teams ||--o{ webhook_endpoints : registers
     teams ||--o{ idempotency_keys : tracks
@@ -66,21 +67,27 @@ erDiagram
     users ||--o{ team_members : belongs
     users }o--o| teams : currentTeam
 
+    customers }o--o| customers : parent_account
     customers ||--o{ addresses : has
     customers ||--o{ payment_methods : has
     customers ||--o{ subscriptions : holds
     customers ||--o{ invoices : billed_on
     customers ||--o{ payments : pays
-    customers ||--o{ subscription_item_trials : redeems
+    customers ||--o{ price_trial_redemptions : redeems
     customers ||--o{ discount_redemptions : redeems
     payment_methods }o--o| addresses : billed_to
 
-    products ||--o{ prices : priced_by
-    products ||--o{ trial_offers : offers
+    products ||--o{ plans : contains
+    plans ||--o{ prices : priced_by
     prices ||--o{ price_tiers : tiered_by
     prices ||--o{ price_currency_options : priced_in
-    prices ||--o{ trial_offers : trial_price_for
-    prices ||--o{ trial_offers : transition_price_for
+    prices ||--o{ price_phases : phased_from
+    prices ||--o{ price_phases : charged_during
+    prices ||--o{ price_trial_redemptions : redeemed_as
+
+    entitlements ||--o{ entitlement_grants : granted_via
+    plans ||--o{ entitlement_grants : grants
+    products ||--o{ entitlement_grants : grants
 
     subscriptions ||--o{ subscription_items : contains
     subscriptions ||--o{ scheduled_changes : schedules
@@ -89,14 +96,14 @@ erDiagram
     subscriptions }o--o| payment_methods : charges
     subscriptions }o--o| discounts : discounted_by
     subscription_items }o--|| prices : references
+    subscription_items }o--|| plans : references
     subscription_items }o--|| products : references
-    subscription_items ||--o| subscription_item_trials : current_trial
 
-    trial_offers ||--o{ subscription_item_trials : applied_as
     discounts ||--o{ discount_redemptions : redeemed_as
 
     invoices ||--o{ invoice_lines : itemized_by
     invoices ||--o{ payments : settled_by
+    invoices }o--|| customers : billed_to
     payment_methods ||--o{ payments : used_for
     payments ||--o{ refunds : refunded_by
     invoice_lines }o--o| prices : from
@@ -335,6 +342,7 @@ The end-customers being billed.
 | locale | string | yes | e.g. `en`, `fr` |
 | country | char(2) | yes | ISO-3166 |
 | default_payment_method_id | ulid | yes | FK → payment_methods (see migration order — added after payment_methods exists) |
+| parent_customer_id | ulid | yes | FK → customers (self); reserved for future parent/child billing (Recurly Account Hierarchy) — unused in MVP logic, cheap to reserve now vs. expensive to retrofit onto historical invoice rows later |
 | custom_data | json | yes | |
 | created_at / updated_at / deleted_at | timestamp | yes | SoftDeletes |
 
@@ -385,7 +393,7 @@ Tokenised payment instruments. Processor-agnostic.
 
 ## 3. Catalog & Pricing
 
-Stripe/Paddle model: **Product → Price**. A "plan" is a product whose prices are recurring. A price describes the *shape* of a charge; the money lives on the price for simple models and in `price_tiers` / `price_currency_options` for the complex ones.
+`Product → Plan → Price`. Product is a grouping/display container. Plan is the named tier a customer actually picks — "Cursor Pro" — and owns only identity and lifecycle. Price is the billable variant of that plan: interval × currency × amount, plus its own trial config, because different variants of the same plan (monthly vs. yearly) commonly need different cadence and different trial treatment. One product holds many plans; one plan holds many prices.
 
 ### `products`
 
@@ -401,14 +409,29 @@ Stripe/Paddle model: **Product → Price**. A "plan" is a product whose prices a
 | custom_data | json | yes | |
 | created_at / updated_at / deleted_at | timestamp | yes | SoftDeletes |
 
-### `prices`
+### `plans`
+The tier. Deliberately thin — no `billing_interval`, no `pricing_model`, no trial fields here; all of that varies per billable variant and lives on `prices`.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
 | team_id | ulid | no | FK → teams |
 | product_id | ulid | no | FK → products |
-| name | string | yes | e.g. "Standard monthly" |
+| code | string | yes | merchant-facing identifier |
+| name | string | no | what shows in the picker — "Cursor Pro" |
+| status | string | no | enum: `draft` / `active` / `archived` |
+| custom_data | json | yes | |
+| created_at / updated_at | timestamp | no | |
+
+### `prices`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| team_id | ulid | no | FK → teams |
+| product_id | ulid | no | FK → products (denormalised — always resolvable whether or not `plan_id` is set) |
+| plan_id | ulid | yes | FK → plans; set when this price is a variant of a plan, null for a one-time price sold directly off the product with no plan involved |
+| name | string | yes | e.g. "Pro Monthly" |
 | type | string | no | enum: `recurring` / `one_time` |
 | pricing_model | string | no | enum: `standard` / `tiered` / `volume` / `graduated` / `package` |
 | unit_amount | bigInteger | yes | minor units; used for `standard` + `package`; null for tiered/volume/graduated |
@@ -419,6 +442,10 @@ Stripe/Paddle model: **Product → Price**. A "plan" is a product whose prices a
 | tax_mode | string | no | enum: `inclusive` / `exclusive` / `account`; default `account` |
 | status | string | no | enum: `active` / `archived` |
 | version | integer | no | default 1; bump to grandfather existing subscribers |
+| trial_length | integer | yes | null = no trial on this price |
+| trial_unit | string | yes | enum: `day` / `week` / `month`; null when `trial_length` is null |
+| trial_requires_payment_info | boolean | no | default false — mirrors the `missing_payment_method` framing used on `subscriptions.trial_end_behavior` |
+| trial_once_per_customer | boolean | no | default true — anti-abuse toggle, enforced via `price_trial_redemptions` |
 | custom_data | json | yes | |
 | created_at / updated_at | timestamp | no | |
 
@@ -450,9 +477,75 @@ Present one logical price in many currencies instead of a row per currency. If u
 | currency | char(3) | no | unique with price_id |
 | unit_amount | bigInteger | no | minor units |
 
+### `price_phases`
+The generalized mechanism for anything beyond a simple trial: a paid multi-iteration trial, a transition to a different plan/price when a trial ends, or a genuine multi-step ramp schedule. Deliberately named for the *price* it's scoped to, not "ramp" — same underlying shape as Stripe subscription-schedule phases or Recurly's `PlanPhase`, adapted to Bouclay's Plan→Price split.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| price_id | ulid | no | FK → prices — the "home" price this schedule is attached to (what a subscription_item nominally references, e.g. "Pro Monthly") |
+| sequence | smallInteger | no | 0-based ordering |
+| charge_price_id | ulid | no | FK → prices — the price actually charged during this phase; distinct from `price_id` because a phase can charge a trial-priced row, or **a price under a different plan entirely** for "transition to a different plan after trial" — no dedicated `transition_plan_id` field needed |
+| duration_interval | string | no | enum: `day` / `week` / `month` / `year` |
+| duration_count | integer | no | |
+| created_at / updated_at | timestamp | no | |
+
+A simple trial (`prices.trial_length` set) never touches this table. A phased trial is phase 0 (`charge_price_id` = a trial-priced row) → phase 1 (`charge_price_id` = the regular price, possibly under a different plan). A genuine 3+ step ramp is just more rows.
+
+### `price_trial_redemptions`
+The one piece of trial state worth its own durable row: enforcing `trial_once_per_customer`.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| price_id | ulid | no | FK → prices |
+| customer_id | ulid | no | FK → customers |
+| subscription_item_id | ulid | no | FK → subscription_items |
+| redeemed_at | timestamp | no | |
+
 ---
 
-## 4. Subscriptions
+## 4. Entitlements
+
+Decoupled access-control layer. What a customer can *access* is a separate concept from what they've *paid for* — an entitlement is a named capability, granted by one or more Plans/Products, checked independently of invoice/payment state, so application access logic never has to reach into billing internals.
+
+### `entitlements`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| team_id | ulid | no | FK → teams |
+| code | string | no | unique with team_id; the key application code checks against |
+| name | string | no | |
+| description | text | yes | |
+| created_at / updated_at | timestamp | no | |
+
+### `entitlement_grants`
+Polymorphic join — one entitlement can be granted by multiple Plans/Products; one Plan/Product can grant multiple entitlements.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| entitlement_id | ulid | no | FK → entitlements |
+| grantor_type | string | no | enum: `plan` / `product` |
+| grantor_id | ulid | no | polymorphic target, scoped by `grantor_type` |
+| created_at | timestamp | no | |
+
+---
+
+## 5. Trials & Phased Pricing
+
+Simple trials live directly on `prices.trial_length` / `trial_unit` / `trial_requires_payment_info` (§3) — a price either has a trial or it doesn't, no separate catalog object for the common case. Free vs. paid is inferred from the trial-phase price (`unit_amount = 0` → free); whether a card is required at signup is `trial_requires_payment_info`.
+
+Complex cases — a paid multi-iteration trial, a transition to a different plan's price when the trial ends, or a true multi-step ramp — use `price_phases` (§3): an ordered `(charge_price_id, duration)` list anchored to a price.
+
+`subscription_items.trial_ends_at` and `current_phase_sequence` (§6) track where one subscription item is in this, snapshotted at creation so a later edit to the catalog doesn't rewrite an active subscriber's history. `subscriptions.trial_ends_at` stays the denormalised clock the billing/access workers read (earliest active item trial end). `price_trial_redemptions` (§3) is the durable row kept purely for `trial_once_per_customer` anti-abuse.
+
+**State-machine threading**: free trial (`unit_amount = 0` during the trial phase, no payment method required) → subscription starts in `trialing`, skips `incomplete`. Paid trial (`unit_amount > 0`) → payment captured at signup, subscription follows the normal `incomplete → active` path (paid trials are treated as active, not trialing). At `trial_ends_at` (or a phase boundary) → the item's effective price swaps, subscription → `active` (or `canceled`/`paused` per `trial_end_behavior` if no payment method).
+
+---
+
+## 6. Subscriptions
 
 ### `subscriptions`
 
@@ -470,7 +563,7 @@ Present one logical price in many currencies instead of a row per currency. If u
 | billing_anchor | string | yes | e.g. month-end anchor metadata |
 | current_period_start | timestamp | yes | |
 | current_period_end | timestamp | yes | next renewal charge fires here |
-| trial_ends_at | timestamp | yes | denormalised clock; mirrors the earliest active `subscription_item_trials.ends_at` on this sub |
+| trial_ends_at | timestamp | yes | denormalised clock; mirrors the earliest active `subscription_items.trial_ends_at` on this sub |
 | trial_end_behavior | string | yes | enum: `cancel` / `pause` / `create_invoice`; when trial ends without a payment method (Stripe `missing_payment_method`) |
 | billing_cycle_anchor_on_trial_end | string | yes | enum: `now` / `unchanged`; default `now` — reset anchor when trial transitions to regular price |
 | paused_at | timestamp | yes | |
@@ -488,9 +581,13 @@ A subscription carries many priced items (base + add-ons).
 | id | ulid | no | PK |
 | subscription_id | ulid | no | FK → subscriptions |
 | price_id | ulid | no | FK → prices |
+| plan_id | ulid | no | FK → plans (denormalised, alongside `price_id`) |
 | product_id | ulid | no | FK → products (denormalised) |
+| kind | string | no | enum: `plan` / `addon`; default `plan` — distinguishes the base charge from add-ons |
 | quantity | integer | no | default 1 |
 | status | string | no | enum: `active` / `removed` |
+| trial_ends_at | timestamp | yes | snapshotted from `price.trial_length`/`trial_unit` at creation — a later edit to the price's trial fields doesn't rewrite history for already-active items |
+| current_phase_sequence | smallInteger | yes | null unless this item is progressing through `price_phases` |
 | created_at / updated_at | timestamp | no | |
 
 ### `scheduled_changes`
@@ -508,65 +605,7 @@ Future cancel / pause / resume at the next boundary (the Paddle "borrow" pattern
 
 ---
 
-## 5. Trial offers
-
-Stripe models trials as **trial offers** — a catalog object that attaches a trial price to a product for a limited duration, then transitions to a regular price. Bouclay mirrors that split:
-
-- **`trial_offers`** — reusable catalog definition (Stripe `Trial Offer`; the "Create trial" form).
-- **`subscription_item_trials`** — the applied instance on one subscription item (Stripe `items[].current_trial`).
-
-There is no separate `trials` table. Free vs paid is inferred from the trial price (`unit_amount = 0` → free). Whether a card is required at signup is a **subscription** setting (`trial_end_behavior`), not a field on the offer.
-
-`subscriptions.trial_ends_at` stays as the denormalised clock the billing/access workers read (earliest active item trial end).
-
-### `trial_offers` (catalog definition)
-
-| Column | Type | Null | Notes |
-|---|---|---|---|
-| id | ulid | no | PK |
-| team_id | ulid | no | FK → teams |
-| name | string | no | appears on receipts/invoices (form: "Name") |
-| product_id | ulid | no | FK → products (form: "Product") |
-| trial_price_id | ulid | no | FK → prices; recurring price charged during the trial — set `unit_amount = 0` for free trials (form: "Trial price") |
-| transition_to_different_product | boolean | no | default false (form: "Transition to a different product when trial ends") |
-| transition_product_id | ulid | yes | FK → products; required when `transition_to_different_product = true` |
-| transition_price_id | ulid | no | FK → prices; price the item moves to when the trial ends (form: "Price when trial ends") |
-| duration_type | string | no | enum: `relative` / `timestamp`; `relative` = N billing intervals of `trial_price_id`, `timestamp` = fixed end date |
-| duration_iterations | integer | yes | for `relative`; number of times the trial price repeats (form: "Repeat N times"); null when `duration_type = timestamp` |
-| duration_ends_at | timestamp | yes | for `timestamp`; absolute trial end; null when `duration_type = relative` |
-| once_per_customer | boolean | no | default true; anti-abuse, enforced via `subscription_item_trials` |
-| active | boolean | no | default true |
-| custom_data | json | yes | |
-| created_at / updated_at | timestamp | no | |
-
-**Constraints**: `trial_price_id` and `transition_price_id` must be `recurring` prices. When `transition_to_different_product = false`, `transition_product_id` must equal `product_id`. Duration is mutually exclusive: set `duration_iterations` for `relative`, or `duration_ends_at` for `timestamp`.
-
-### `subscription_item_trials` (applied trial)
-The concrete trial on one subscription item. Snapshots the catalog offer so later edits to a `trial_offers` row don't rewrite history. One active row per item (`subscription_items` has at most one current trial).
-
-| Column | Type | Null | Notes |
-|---|---|---|---|
-| id | ulid | no | PK |
-| team_id | ulid | no | FK → teams |
-| subscription_item_id | ulid | no | FK → subscription_items, unique while `status = active` |
-| trial_offer_id | ulid | yes | FK → trial_offers (null = ad-hoc inline trial) |
-| customer_id | ulid | no | FK → customers (denormalised; enforces `once_per_customer`) |
-| trial_price_id | ulid | no | snapshot of catalog `trial_price_id` at application |
-| transition_price_id | ulid | no | snapshot of catalog `transition_price_id` at application |
-| duration_type | string | no | snapshot: `relative` / `timestamp` |
-| duration_iterations | integer | yes | snapshot |
-| duration_ends_at | timestamp | yes | snapshot |
-| starts_at | timestamp | no | |
-| ends_at | timestamp | no | worker clock for this item; `subscriptions.trial_ends_at` mirrors the earliest active `ends_at` |
-| status | string | no | enum: `active` / `converted` / `canceled` / `expired` |
-| converted_at | timestamp | yes | when it transitioned to `transition_price_id` |
-| created_at / updated_at | timestamp | no | |
-
-**State-machine threading**: free trial (`trial_price.unit_amount = 0`, no payment method) → sub starts in `trialing`, skips `incomplete`. Paid trial (`trial_price.unit_amount > 0`) → payment captured at signup, sub follows normal `incomplete → active` (Stripe treats paid trials as active, not trialing). At `ends_at` → item price swaps to `transition_price_id`, offer → `converted`, sub → `active` (or `canceled`/`paused` per `trial_end_behavior` if no payment method). Abandoned before conversion → `expired`.
-
----
-
-## 6. Discounts
+## 7. Discounts
 
 ### `discounts`
 
@@ -583,7 +622,8 @@ The concrete trial on one subscription item. Snapshots the catalog offer so late
 | duration_in_intervals | integer | yes | for `repeating` |
 | max_redemptions | integer | yes | |
 | times_redeemed | integer | no | default 0 |
-| applies_to | json | yes | product/price id allow-list; null = everything |
+| eligible_plan_ids | json | yes | array of plan ids; null = all plans |
+| eligible_price_ids | json | yes | array of price ids; null = all prices under the eligible plan(s) — this is what makes "monthly only" promos expressible without discounting the yearly price too |
 | starts_at | timestamp | yes | |
 | expires_at | timestamp | yes | |
 | active | boolean | no | default true |
@@ -601,7 +641,7 @@ The concrete trial on one subscription item. Snapshots the catalog offer so late
 
 ---
 
-## 7. Billing: Invoices, Lines, Payments
+## 8. Billing: Invoices, Lines, Payments
 
 ### `invoices`
 A frozen legal document — numbered, with a full money breakdown and snapshots taken at finalise time. Dashboard label: **Invoice**. Public ID prefix: `inv_` (via `HasPublicId` on the `Invoice` model). At creation, `CreateInvoice` populates `customer_snapshot` and `billing_address`.
@@ -610,9 +650,11 @@ A frozen legal document — numbered, with a full money breakdown and snapshots 
 |---|---|---|---|
 | id | ulid | no | PK |
 | team_id | ulid | no | FK → teams |
-| customer_id | ulid | no | FK → customers |
+| customer_id | ulid | no | FK → customers — the subscription/order owner |
+| billed_to_customer_id | ulid | no | FK → customers — who actually pays; distinct field from `customer_id` from day one even though always equal in MVP (account-hierarchy seam — the field that makes parent/child billing addable later without migrating invoice history) |
 | subscription_id | ulid | yes | FK → subscriptions (null for one-off) |
 | number | string | yes | `{prefix}-{sequence}`, assigned at finalise; unique with team_id |
+| type | string | no | enum: `charge` / `credit`; default `charge` — seam for future credit notes |
 | status | string | no | enum: `draft` / `open` / `paid` / `void` / `uncollectible` |
 | billing_reason | string | no | enum: `subscription_create` / `subscription_cycle` / `subscription_update` / `manual` |
 | collection_mode | string | no | enum: `automatic` / `manual` |
@@ -643,7 +685,7 @@ A frozen legal document — numbered, with a full money breakdown and snapshots 
 | subscription_item_id | ulid | yes | FK → subscription_items |
 | price_id | ulid | yes | FK → prices |
 | product_id | ulid | yes | FK → products |
-| kind | string | no | enum: `subscription` / `proration` / `one_time` / `tax` / `discount` |
+| kind | string | no | enum: `plan` / `addon` / `proration` / `one_time` / `tax` / `discount` / `credit` |
 | description | string | no | |
 | quantity | integer | no | default 1 |
 | unit_amount | bigInteger | no | minor units |
@@ -680,13 +722,16 @@ One charge attempt against an invoice on the processor. Records every attempt (s
 | processed_at | timestamp | yes | |
 | created_at / updated_at | timestamp | no | |
 
-### `refunds` *(optional — cut for MVP)*
+### `refunds`
+`payments.status = refunded` marks the terminal state on the original charge row, but the refund event itself needs its own auditable record — amount (may be partial), reason, gateway reference, timestamp — rather than overwriting the only copy of what happened.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| payment_id | ulid | no | FK → payments |
-| amount | bigInteger | no | minor units |
+| team_id | ulid | no | FK → teams |
+| payment_id | ulid | no | FK → payments — the original charge being reversed |
+| invoice_id | ulid | no | FK → invoices (denormalised, avoids a join through payments for invoice-scoped queries) |
+| amount | bigInteger | no | minor units; may be partial |
 | currency | char(3) | no | |
 | reason | string | yes | |
 | status | string | no | enum: `pending` / `succeeded` / `failed` |
@@ -695,19 +740,32 @@ One charge attempt against an invoice on the processor. Records every attempt (s
 
 ---
 
-## 8. Events & Webhooks
+## 9. Events & Webhooks
 
 Two directions — do not conflate them:
 
 | Direction | Configured where | Purpose |
 |---|---|---|
 | **Inbound** (Nomba → Bouclay) | Nomba dashboard → paste URL from `team_processor_connections.inbound_webhook_token` | Raw payment/checkout events; drives dunning and subscription state |
-| **Outbound** (Bouclay → integrator) | `webhook_endpoints` in Bouclay dashboard / API | Normalised billing events (`invoice.paid`, `subscription.updated`, …) |
+| **Outbound** (Bouclay → integrator) | `webhook_endpoints` in Bouclay dashboard / API | Normalised billing events (`invoice.updated`, `subscription.updated`, …) |
 
 Integrators never wire Nomba webhooks into their app for subscription logic. They wire **Bouclay** webhooks.
 
+### Outbound event naming (target convention)
+One `*.created` event when an object is instantiated; one `*.updated` event reused for every subsequent status change, renewal, or modification — never a new event name per transition. Consumers read the object's `status` field off the payload.
+
+| Object | Events |
+|---|---|
+| Customer | `customer.created`, `customer.updated` |
+| Payment method | `payment_method.created`, `payment_method.updated` |
+| Product | `product.created`, `product.updated` |
+| Plan | `plan.created`, `plan.updated` |
+| Subscription | `subscription.created`, `subscription.updated` |
+| Invoice | `invoice.created`, `invoice.updated` — no separate `invoice.paid`/`invoice.payment_failed` names; consumers read `status` off `invoice.updated` |
+| Payment (transaction) | `transaction.created`, `transaction.updated` |
+
 ### `events`
-Normalised event log emitted **to integrators** (`subscription.created`, `invoice.paid`, …).
+Normalised event log emitted **to integrators**.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -748,7 +806,7 @@ At-least-once delivery with exponential backoff.
 
 | Model | Relationships |
 |---|---|
-| Team | hasOne settings, processorConnection; hasMany members (through teamMembers), invitations, apiKeys, customers, products, prices, subscriptions, invoices, discounts, trialOffers, events, webhookEndpoints |
+| Team | hasOne settings, processorConnection; hasMany members (through teamMembers), invitations, apiKeys, customers, products, plans, entitlements, subscriptions, invoices, discounts, events, webhookEndpoints |
 | User | belongsTo currentTeam; belongsToMany teams (through teamMembers); hasMany teamMemberships, sentInvitations |
 | Permission | belongsToMany roles (through rolePermission) |
 | Role | belongsToMany permissions (through rolePermission); belongsToMany teamMembers (through teamMemberRoles); belongsToMany teamInvitations (through teamInvitationRoles) |
@@ -758,23 +816,25 @@ At-least-once delivery with exponential backoff.
 | TeamInvitation | belongsTo team, inviter (user); belongsToMany roles (through teamInvitationRoles) |
 | TeamInvitationRole | belongsTo teamInvitation, role |
 | TeamProcessorConnection | belongsTo team |
-| Customer | belongsTo team; hasMany addresses, paymentMethods, subscriptions, invoices, payments, subscriptionItemTrials; belongsTo defaultPaymentMethod |
+| Customer | belongsTo team, parentCustomer; hasMany childCustomers, addresses, paymentMethods, subscriptions, invoices, payments, priceTrialRedemptions; belongsTo defaultPaymentMethod |
 | Address | belongsTo team, customer |
 | PaymentMethod | belongsTo team, customer, billingAddress; hasMany payments |
-| Product | belongsTo team; hasMany prices, trialOffers |
-| Price | belongsTo team, product; hasMany tiers, currencyOptions, subscriptionItems, trialOffersAsTrialPrice, trialOffersAsTransitionPrice |
-| PriceTier | belongsTo price |
-| Subscription | belongsTo team, customer, paymentMethod, discount; hasMany items, scheduledChanges, invoices; hasMany subscriptionItemTrials (through items) |
-| SubscriptionItem | belongsTo subscription, price, product; hasOne currentTrial (subscriptionItemTrial) |
+| Product | belongsTo team; hasMany plans, entitlementGrants (as grantor) |
+| Plan | belongsTo team, product; hasMany prices, entitlementGrants (as grantor) |
+| Price | belongsTo team, product, plan; hasMany tiers, currencyOptions, subscriptionItems, phases (as home price), trialRedemptions |
+| PricePhase | belongsTo price (home), chargePrice |
+| PriceTrialRedemption | belongsTo price, customer, subscriptionItem |
+| Entitlement | belongsTo team; hasMany grants |
+| EntitlementGrant | belongsTo entitlement; morphTo grantor (plan or product) |
+| Subscription | belongsTo team, customer, paymentMethod, discount; hasMany items, scheduledChanges, invoices |
+| SubscriptionItem | belongsTo subscription, price, plan, product |
 | ScheduledChange | belongsTo subscription |
-| TrialOffer | belongsTo team, product, trialPrice, transitionProduct, transitionPrice; hasMany subscriptionItemTrials |
-| SubscriptionItemTrial | belongsTo team, subscriptionItem, trialOffer, customer, trialPrice, transitionPrice |
 | Discount | belongsTo team; hasMany redemptions |
 | DiscountRedemption | belongsTo discount, subscription, customer |
-| Invoice | belongsTo team, customer, subscription; hasMany lines, payments |
+| Invoice | belongsTo team, customer, billedToCustomer, subscription; hasMany lines, payments |
 | InvoiceLine | belongsTo invoice, subscriptionItem, price, product |
 | Payment | belongsTo team, invoice, customer, paymentMethod; hasMany refunds |
-| Refund | belongsTo payment |
+| Refund | belongsTo team, payment, invoice |
 | Event | belongsTo team; hasMany deliveries |
 | WebhookEndpoint | belongsTo team; hasMany deliveries |
 | WebhookDelivery | belongsTo webhookEndpoint, event |
@@ -795,26 +855,29 @@ At-least-once delivery with exponential backoff.
 | payment_methods.type | card, bank, wallet |
 | payment_methods.status | active, expired, revoked |
 | products.status | active, archived |
+| plans.status | draft, active, archived |
 | prices.type | recurring, one_time |
 | prices.pricing_model | standard, tiered, volume, graduated, package |
 | prices.billing_interval | day, week, month, year |
 | prices.tax_mode | inclusive, exclusive, account |
 | prices.status | active, archived |
+| prices.trial_unit | day, week, month |
+| price_phases.duration_interval | day, week, month, year |
+| entitlement_grants.grantor_type | plan, product |
 | subscriptions.status | incomplete, incomplete_expired, trialing, active, past_due, paused, canceled |
 | subscriptions.collection_mode | automatic, manual |
 | subscriptions.trial_end_behavior | cancel, pause, create_invoice |
 | subscriptions.billing_cycle_anchor_on_trial_end | now, unchanged |
+| subscription_items.kind | plan, addon |
 | subscription_items.status | active, removed |
 | scheduled_changes.action | cancel, pause, resume |
-| trial_offers.duration_type | relative, timestamp |
-| subscription_item_trials.duration_type | relative, timestamp |
-| subscription_item_trials.status | active, converted, canceled, expired |
 | discounts.type | percentage, flat |
 | discounts.duration | once, repeating, forever |
+| invoices.type | charge, credit |
 | invoices.status | draft, open, paid, void, uncollectible |
 | invoices.billing_reason | subscription_create, subscription_cycle, subscription_update, manual |
 | invoices.collection_mode | automatic, manual |
-| invoice_lines.kind | subscription, proration, one_time, tax, discount |
+| invoice_lines.kind | plan, addon, proration, one_time, tax, discount, credit |
 | payments.processor | nomba |
 | payments.status | pending, processing, succeeded, failed, refunded |
 | refunds.status | pending, succeeded, failed |
@@ -842,10 +905,12 @@ Seeded on deploy. Permission names use `resource.action`. **Admin** receives all
 | `customers.manage` | catalog | Manage customers |
 | `products.view` | catalog | View products |
 | `products.manage` | catalog | Manage products |
+| `plans.view` | catalog | View plans |
+| `plans.manage` | catalog | Manage plans |
 | `prices.view` | catalog | View prices |
 | `prices.manage` | catalog | Manage prices |
-| `trial_offers.view` | catalog | View trial offers |
-| `trial_offers.manage` | catalog | Manage trial offers |
+| `entitlements.view` | catalog | View entitlements |
+| `entitlements.manage` | catalog | Manage entitlements |
 | `invoices.view` | invoicing | View invoices |
 | `invoices.manage` | invoicing | Manage invoices |
 | `invoices.finalize` | invoicing | Finalize invoices |
@@ -878,10 +943,10 @@ Seeded on deploy. Permission names use `resource.action`. **Admin** receives all
 |---|---|---|
 | **Admin** | Account administrator. Full access to all Bouclay functions. | **All** |
 | **Finance** | Finance and accounting. View orders and financial reports; manage transfers. | `orders.view`, `payments.view`, `financial_reports.view`, `transfers.view`, `transfers.manage`, `invoices.view` |
-| **Invoicing** | B2B invoicing plus customers, products, and prices. | `invoices.view`, `invoices.manage`, `invoices.finalize`, `customers.view`, `customers.manage`, `products.view`, `products.manage`, `prices.view`, `prices.manage` |
+| **Invoicing** | B2B invoicing plus customers, products, plans, and prices. | `invoices.view`, `invoices.manage`, `invoices.finalize`, `customers.view`, `customers.manage`, `products.view`, `products.manage`, `plans.view`, `plans.manage`, `prices.view`, `prices.manage` |
 | **Subscription KPIs** | Read-only subscription analytics. | `subscription_kpis.view`, `subscriptions.view` |
 | **Support** | End-user support — orders, refunds, licenses. | `orders.view`, `orders.manage`, `refunds.view`, `refunds.process`, `licenses.view`, `licenses.manage`, `customers.view`, `subscriptions.view` |
-| **Technical** | API integration, keys, catalog, diagnostics, vendor settings. | `api_keys.view`, `api_keys.manage`, `webhooks.view`, `webhooks.manage`, `integrations.view`, `integrations.manage`, `diagnostics.view`, `team_settings.view`, `team_settings.manage`, `products.view`, `products.manage`, `prices.view`, `prices.manage`, `trial_offers.view`, `trial_offers.manage` |
+| **Technical** | API integration, keys, catalog, diagnostics, vendor settings. | `api_keys.view`, `api_keys.manage`, `webhooks.view`, `webhooks.manage`, `integrations.view`, `integrations.manage`, `diagnostics.view`, `team_settings.view`, `team_settings.manage`, `products.view`, `products.manage`, `plans.view`, `plans.manage`, `prices.view`, `prices.manage`, `entitlements.view`, `entitlements.manage` |
 
 **Owner guard (not a role):** `team.delete`, `members.assign_roles`, and ownership transfer require `team_members.is_owner = true` in addition to the permission.
 
@@ -893,14 +958,14 @@ Seeded on deploy. Permission names use `resource.action`. **Admin** receives all
 - **Tenancy**: index `team_id` on every table; add composite `(team_id, status)` on `subscriptions`, `invoices`, `payments` for dashboard filters.
 - **Billing scheduler hot path**: composite index on `subscriptions (status, current_period_end)` — the scheduler scans for due subs by this.
 - **Unique**: `teams.slug`; `users.email`; `team_members (team_id, user_id)`; `team_invitations.code`; `team_processor_connections.inbound_webhook_token`; `team_processor_connections (team_id)`; `api_keys.hashed_secret`; `customers (team_id, external_ref)` (when not null); `idempotency_keys (team_id, key)`; `invoices (team_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
-- **Anti-abuse**: index `subscription_item_trials (customer_id, trial_offer_id)` and `discount_redemptions (discount_id, customer_id)`.
+- **Anti-abuse**: index `price_trial_redemptions (price_id, customer_id)` and `discount_redemptions (discount_id, customer_id)`.
 - **Money**: enforce non-negative amounts at the application layer; keep everything in the subscription's single currency (don't mix currencies on one invoice).
 
 ---
 
 ## Migration order (FK-safe)
 
-Two FKs are circular and must be deferred: `customers.default_payment_method_id ↔ payment_methods.customer_id`, and `payment_methods.billing_address_id ↔ addresses.customer_id`. Create the base tables first, then add the back-reference in a follow-up migration.
+Two FKs are circular and must be deferred: `customers.default_payment_method_id ↔ payment_methods.customer_id`, and `payment_methods.billing_address_id ↔ addresses.customer_id`. Create the base tables first, then add the back-reference in a follow-up migration. `customers.parent_customer_id` is self-referencing and deferred the same way.
 
 1. teams *(already in app — add billing columns `default_currency`, `custom_data` via alter)*
 2. users *(already in app — add `current_team_id` via alter if not present)*
@@ -909,36 +974,38 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 5. team_member_roles, team_invitations *(already in app)*, team_invitation_roles
 6. team_settings, team_processor_connections, api_keys, idempotency_keys, events, webhook_endpoints
 7. webhook_deliveries
-8. customers *(without `default_payment_method_id`)*
+8. customers *(without `default_payment_method_id`, without `parent_customer_id`)*
 9. addresses
 10. payment_methods
-11. **alter** customers → add `default_payment_method_id` FK
+11. **alter** customers → add `default_payment_method_id` FK, add `parent_customer_id` self-FK
 12. products
-13. prices *(refs products)*
-14. trial_offers *(refs products, prices)*
-15. price_tiers, price_currency_options
-16. discounts
-17. subscriptions *(refs customers, payment_methods, discounts)*
-18. subscription_items, scheduled_changes, subscription_item_trials, discount_redemptions
-19. invoices
-20. invoice_lines
-21. payments
-22. refunds
+13. plans *(refs products)*
+14. prices *(refs plans, products)*
+15. price_tiers, price_currency_options, price_phases *(refs prices twice — home + charge)*
+16. entitlements, entitlement_grants *(refs plans, products via polymorphic grantor)*
+17. discounts
+18. subscriptions *(refs customers, payment_methods, discounts)*
+19. subscription_items, scheduled_changes, price_trial_redemptions, discount_redemptions
+20. invoices *(refs customers twice — `customer_id`, `billed_to_customer_id`)*
+21. invoice_lines
+22. payments
+23. refunds
 
 ---
 
-## Build order & cut-lines (hackathon)
+## Build order & cut-lines (MVP)
 
-**Build now** — a complete, demoable engine: teams, team_members, team_member_roles, permissions, roles, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, prices (standard + graduated), price_tiers, subscriptions, subscription_items, trial_offers + subscription_item_trials (Phase 3 wired the full `trial_offers` shape — trial price free or paid, optional product transition, repeatable via `duration_iterations`; `subscription_item_trials` itself lands with subscriptions in Phase 5), invoices, invoice_lines, payments, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
+**Build now** — a complete, demoable engine: teams, team_members, team_member_roles, permissions, roles, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, plans, prices (standard + graduated), price_tiers, price_phases, price_trial_redemptions, entitlements, entitlement_grants, subscriptions, subscription_items, invoices, invoice_lines, payments, refunds, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
 
-**Defer** — keep the tables, don't wire the logic: price_currency_options, refunds, volume pricing model (graduated ships instead), discounts + discount_redemptions if time-pressed, and timestamp-duration trials (`trial_offers.duration_type = timestamp` — ship `relative` only for MVP).
+**Defer** — keep the tables, don't wire the logic: price_currency_options, volume pricing model (graduated ships instead), discounts + discount_redemptions if time-pressed.
 
 ---
 
 ## Cashier / Paddle mapping (positioning)
 
-- Bouclay's `products` / `prices` / `subscriptions` / `subscription_items` correspond to Paddle's catalog and Cashier's mirror — except Bouclay *owns* them rather than mirroring Paddle.
+- Bouclay's `products` / `plans` / `prices` / `subscriptions` / `subscription_items` correspond to Paddle's catalog and Cashier's mirror — except Bouclay *owns* them rather than mirroring Paddle, and adds the Plan layer Paddle/Cashier don't have.
 - **Nomba BYOK**: each `team` connects their own Nomba keys via `team_processor_connections`. Bouclay orchestrates checkout/charge/dunning; money settles to the integrator's Nomba merchant account. Inbound Nomba webhooks hit a generated Bouclay URL; outbound billing events hit the integrator's `webhook_endpoints`.
-- Bouclay's `trial_offers` + `subscription_item_trials` map to Stripe's Trial Offer API: catalog offers attach trial prices to products and transition to a regular price; applied trials live on subscription items (`items[].current_trial`), not on the subscription root.
+- Trials are a property of the billable `Price` (`trial_length`/`trial_unit`), not a separate Stripe-style Trial Offer catalog object — the simple case needs no extra entity. Complex transitions (paid multi-step trials, moving to a different plan) are ordinary `price_phases`, not a bespoke feature.
 - **Paddle "Transaction" → Bouclay `Invoice`.** Paddle's central billing entity maps to Bouclay's numbered invoice. Paddle/Cashier "transactions" (completed money movement) map loosely to Bouclay `Payment` rows where `status = succeeded`, but Bouclay deliberately stores *every* charge attempt, not just successes.
 - The `incomplete` / `incomplete_expired` states and the first-class dunning machine are the deliberate divergence from Paddle: Bouclay charges the token itself, so it needs the pre-active states Paddle hides behind hosted checkout.
+- **Entitlements** (`entitlements`/`entitlement_grants`) are net-new — no Paddle/Cashier equivalent. A genuine Bouclay differentiator: access is decoupled from billing status by design, not inferred from subscription state at check time.
