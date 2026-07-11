@@ -145,7 +145,7 @@ The baseline lifecycle. Every checkmarked step already has a home in the schema.
   - **Net: `−166667` (₦1,667 owed *to* the customer)**
 - The current cycle invoice is already **paid**. This net credit has **nowhere to land** — Bouclay has no customer credit-balance table.
 
-**Verdict:** ⚠ **stalls at GAP-3 (no credit balance).** Decrease is not fully modeled. See the recommended MVP resolution in GAP-3.
+**Verdict (updated after GAP-2/3 resolution):** the mid-cycle-credit trace above is **what MVP deliberately avoids** — a decrease now writes a `scheduled_changes{action=update, payload:{subscription_item_id, quantity:10}, effective_at=current_period_end}` row instead; the day-30 renewal bills `10 × 100000` with no proration lines and no credit. The trace is kept as documentation of *why* the policy exists and as the test spec for the future `customer_balance_transactions` ledger if instant downgrades ship.
 
 ---
 
@@ -171,11 +171,11 @@ The simulations above are mostly the happy path. This suite deliberately targets
 
 | # | Scenario | Prediction | Blocking gap |
 |---|---|---|---|
-| ADV-01 | Upgrade **during** a free trial (no money moved yet) | ⚠ | Needs "no proration while `trialing`" rule |
-| ADV-02 | **Downgrade / quantity change scheduled for next renewal** | ❌ | `scheduled_changes.action` enum is only `cancel`/`pause`/`resume` — no future plan/quantity change (GAP-2) |
-| ADV-03 | Remove an add-on mid-cycle | ⚠ | Credit destination (GAP-3) |
-| ADV-04 | Quantity increase **and** decrease with proration | ⚠ | Increase ✅ (SIM-02); decrease stalls (SIM-03 / GAP-3) |
-| ADV-05 | **Two recurring items on different billing intervals** (monthly + annual in one sub) | ❌ | `current_period_start/end` live on `subscriptions`, not `subscription_items` — one cadence per sub (GAP-5) |
+| ADV-01 | Upgrade **during** a free trial (no money moved yet) | ✅ | Rule locked (GAP-6): apply immediately, no proration; conversion invoice reflects final composition |
+| ADV-02 | **Downgrade / quantity change scheduled for next renewal** | ✅ | Resolved (GAP-2): `scheduled_changes.action = update` with item payload |
+| ADV-03 | Remove an add-on mid-cycle | ✅ | Resolved by policy (GAP-3): removal takes effect at next renewal; no mid-cycle credit in MVP |
+| ADV-04 | Quantity increase **and** decrease with proration | ✅ | Increase prorated now (SIM-02); decrease deferred to period end (SIM-03 / GAP-3 policy) |
+| ADV-05 | **Two recurring items on different billing intervals** (monthly + annual in one sub) | ✅ (forbidden) | Locked (GAP-5): mixed cadence rejected at create/update; use multiple subscriptions |
 | ADV-06 | Switch payment method while in dunning | ✅ | Update `subscription.payment_method_id`; retry worker uses new one |
 | ADV-07 | Trial expires with no card, per each `trial_end_behavior` (`cancel`/`pause`/`create_invoice`) incl. late-pay → activate | ⚠ | `create_invoice → open → pay 10 days later → active` path must be wired; trickiest state path |
 | ADV-08 | Apply / remove a discount mid-subscription | ⚠ | Single `discount_id` FK: no stacking, no history; re-hits GAP-1 |
@@ -194,17 +194,17 @@ Nothing recorded how many intervals of a `duration=repeating` discount a subscri
 
 **Fix applied:** `discount_redemptions.remaining_intervals` (nullable), snapshotted at redemption from the discount duration — `once` → `1`, `repeating` → `duration_in_intervals`, `forever` → `null`. The renewal worker applies the discount only while it's `null` or `> 0`, decrementing by 1 each cycle and stamping `last_applied_at`. Surfaced in SIM-01 Act 4, ADV-08.
 
-### GAP-2 — Scheduled plan/quantity change · **structural, decide before implementation**
+### GAP-2 — Scheduled plan/quantity change · **✅ RESOLVED in schema.md**
 
-`scheduled_changes.action` only supports `cancel`/`pause`/`resume`. A downgrade or seat change effective at next renewal has no home. This is also the MVP resolution path for mid-cycle decreases (defer them to period end instead of issuing a credit).
+`scheduled_changes.action` only supported `cancel`/`pause`/`resume`; a downgrade or seat change effective at next renewal had no home.
 
-**Recommended fix:** widen `scheduled_changes.action` with an `update` value carrying the change in `payload` (target `price_id`/`plan_id`/`quantity`), applied by `subscriptions:apply-scheduled-changes` at `effective_at`. Surfaced in ADV-02, and enables the GAP-3 MVP workaround.
+**Fix applied:** `action` enum widened with `update`; `payload` spec is `{subscription_item_id, price_id?, plan_id?, quantity?, remove?}`, one row per item change, applied by `subscriptions:apply-scheduled-changes` at `effective_at`. Pending rows are shown on the subscription detail page and deletable until applied. Surfaced in ADV-02; enables the GAP-3 resolution.
 
-### GAP-3 — No customer credit balance · **decide; cheap to defer**
+### GAP-3 — No customer credit balance · **✅ RESOLVED by policy (schema.md §6, "Mid-cycle changes & proration")**
 
 A mid-cycle decrease or add-on removal yields a net credit with nowhere to land (current invoice already paid). SIM-03, ADV-03, ADV-04.
 
-**Recommended MVP resolution:** for v1, **decreases take effect at period end** (via GAP-2's scheduled `update`), so no mid-cycle credit is ever created. Add a customer credit-balance ledger later *only* when instant downgrades are required — it's additive and migrates nothing.
+**Policy locked:** decreases and add-on removals take effect **at next renewal** via a `scheduled_changes` `update` row — no mid-cycle credit is ever created in MVP. Instant downgrades later = add an append-only `customer_balance_transactions` ledger (credits land there; the next invoice draws it down before charging); purely additive.
 
 ### GAP-4 — Add-on-during-trial billing rule · **✅ LOCKED (documented in schema.md §5)**
 
@@ -212,17 +212,17 @@ Whether a no-trial add-on added to a `trialing` subscription bills immediately o
 
 **Decision (locked):** respect the **base plan item's trial, Stripe-style** — the subscription trial is anchored to the plan item; add-ons without their own trial ride it and are first invoiced at conversion, not at day 0. A free-trial subscription charges ₦0 on day 0 even with a paid add-on. An add-on that itself defines a trial keeps it.
 
-### GAP-5 — One billing cadence per subscription · **structural, decide before implementation**
+### GAP-5 — One billing cadence per subscription · **✅ LOCKED (schema.md §6 constraint)**
 
 `current_period_start/end` are on `subscriptions`, so two items with different intervals (monthly + annual) can't share one period. ADV-05.
 
-**Options:** (a) **forbid** mixed intervals in one subscription and validate at create (simplest MVP; multi-cadence = multiple subscriptions), or (b) move the period fields onto `subscription_items` and bill per item. Recommend (a) for MVP, explicitly documented, since (b) is a significant restructure and multiple subscriptions already express the case.
+**Decision (locked):** option (a) — **mixed intervals in one subscription are forbidden**; `CreateSubscription`/`UpdateSubscriptionItem` validate that all recurring items share `billing_interval` + `billing_frequency`. Multi-cadence = multiple subscriptions (the `subscriptions.type` named slot supports this). Per-item periods only if per-item cadence ever becomes a hard product requirement.
 
-### GAP-6 — Proration behavior is not data · **minor**
+### GAP-6 — Proration behavior is not data · **✅ RESOLVED by policy (schema.md §6)**
 
-Charge-now vs. defer-to-cycle is currently implicit in worker code.
+Charge-now vs. defer-to-cycle was implicit in worker code.
 
-**Recommended fix:** a `proration_behavior` (`always` / `none` / `next_cycle`) on the update request (mirrors Stripe), so the rule is explicit. Surfaced in SIM-02/03, ADV-01.
+**Policy locked:** `proration_behavior` is an explicit **request parameter** on item-update operations (`always` / `none` / `next_cycle`), mirroring Stripe — not a column. Defaults: increases → `always` (prorate + charge now); decreases → `next_cycle` (writes the scheduled `update` row); changes while `trialing` → apply immediately with **no proration** (no money has moved; the conversion invoice reflects final composition). Surfaced in SIM-02/03, ADV-01.
 
 ### Deferred (not gaps — consciously additive, do not build now)
 

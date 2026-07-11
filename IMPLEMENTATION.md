@@ -1,5 +1,7 @@
 # Bouclay — Implementation Plan
 
+> **Superseded (2026-07-10):** this document records the hackathon build (Phases 0–13) on the *pre-rework* schema and is kept as history. Active work follows [`IMPLEMENTATION_V2.md`](IMPLEMENTATION_V2.md), which takes the codebase to the reworked catalog in `schema.md` and to production-ready operation.
+
 Phased build plan for the hackathon subscriptions engine. Each phase has a clear outcome you can demo or test before moving on.
 
 Authoritative schema: [`schema.md`](schema.md)

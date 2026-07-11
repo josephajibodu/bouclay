@@ -15,7 +15,7 @@ These apply to every table — assume them rather than repeating per row.
 - **Timestamps**: `created_at` + `updated_at` on every table. `deleted_at` (SoftDeletes) on catalog and customer rows only.
 - **Enums**: stored as `string`, cast to PHP enums in the model. Values listed per column and collected in the [Enums appendix](#enums-appendix).
 - **Idempotency**: all external write endpoints gate on `idempotency_keys`.
-- **Processor (Nomba BYOK)**: each team connects **their own** Nomba API keys. Bouclay charges and tokenises on their merchant account; settlement stays with Nomba. Bouclay exposes a **generated inbound webhook URL** per team for the Nomba dashboard; integrators register **outbound** URLs in `webhook_endpoints` for subscription lifecycle events.
+- **Processors (BYOK, multi-gateway)**: each team connects **their own** gateway API keys (Nomba, Paystack, Flutterwave; further gateways as additive drivers) via `team_processor_connections` — one row per gateway, one marked default for new checkouts. Bouclay charges and tokenises on the team's merchant account; settlement stays with the gateway. Gateway config fields are declared by each **driver's code manifest** (`configSchema()`), stored as encrypted JSON — never as gateway-named columns. **Tokens are gateway-bound**: stored cards always charge through the gateway that minted them. Bouclay exposes a **generated inbound webhook URL** per connection; integrators register **outbound** URLs in `webhook_endpoints` for subscription lifecycle events.
 - **Authorization**: Spatie-lite RBAC — `permissions` attach to `roles` only; staff receive permissions through **roles assigned per `team_members` row** (many roles per member, Paddle-style). No direct user permissions. Gate dashboard routes and APIs with `$user->hasTeamPermission($team, 'invoices.manage')`, which unions permissions across all roles on that membership.
 
 ### Dashboard vocabulary (locked 2026-07-06)
@@ -43,7 +43,7 @@ Bouclay is a billing **engine** (Stripe-shaped data model), not a Paddle MoR mir
 ```mermaid
 erDiagram
     teams ||--o| team_settings : configures
-    teams ||--o| team_processor_connections : connects
+    teams ||--o{ team_processor_connections : connects
     teams ||--o{ team_members : has
     teams ||--o{ team_invitations : invites
     roles ||--o{ role_permission : grants
@@ -106,6 +106,7 @@ erDiagram
     invoices }o--|| customers : billed_to
     payment_methods ||--o{ payments : used_for
     payments ||--o{ refunds : refunded_by
+    invoices ||--o{ refunds : reversed_by
     invoice_lines }o--o| prices : from
     invoice_lines }o--o| subscription_items : from
 
@@ -154,42 +155,39 @@ One row per team — invoice numbering, dunning, and other billing config tenant
 | invoice_footer | text | yes | |
 | billing_timezone | string | no | e.g. `Africa/Lagos`; anchors when "due today" fires |
 | tax_behavior | string | no | enum: `inclusive` / `exclusive` — team default |
-| dunning_config | json | yes | retry schedule + terminal action override |
+| dunning_config | json | yes | retry schedule + terminal action override. Shape: `{retries: [interval_hours, ...], terminal_action: 'cancel'\|'pause'\|'mark_uncollectible'}`. Null = engine default: retries at `+24h, +72h, +168h` after the first failure, then `cancel` the subscription and mark the invoice `uncollectible`. Soft declines (per `payments.failure_code`) follow the schedule; hard declines (stolen card, closed account) skip straight to the terminal action — retrying those burns processor goodwill for a 0% recovery rate. |
 | created_at / updated_at | timestamp | no | |
 
 ### `team_processor_connections`
-Bring-your-own-key (BYOK) link between a team and Nomba — like connecting API keys on OpenCode. Created when a team first connects Nomba; the **Nomba webhook URL** is generated here and shown in the dashboard for paste into Nomba.
+Bring-your-own-key (BYOK) link between a team and **one payment gateway** — Nomba, Paystack, and Flutterwave are all in scope (IMPLEMENTATION_V2 §V2-4/V2-4b); further gateways are additive drivers. A team may hold **one connection per processor** (`unique(team_id, processor)`), with one marked default for new checkouts.
 
-Nomba authenticates via OAuth2 client-credentials (`accountId` + `clientId` + `clientSecret` exchanged for a short-lived access token via `POST /v1/auth/token/issue`), not a single static secret key — hence three credential fields per environment instead of one. Access/refresh tokens themselves are never persisted; `NombaClient` re-mints and caches them on demand.
+**Gateway config is a code manifest, not columns.** Each gateway's required fields differ (Nomba: account id / subaccount / client id / client secret / webhook secret, per mode; Paystack: secret + public key, webhook-signed with the secret key itself; Flutterwave: secret + public + encryption key + verif-hash). So the driver class declares its own `configSchema()` — field keys, labels, secret/text type, required, per-mode — and the dashboard **renders the connect form from that manifest**. The DB stores only the team's values as one encrypted JSON blob per mode, validated against the manifest at save. Adding a gateway = writing one driver class; **zero migrations, zero new columns.** (A seeded "gateway definitions" table was considered and rejected: every gateway needs driver *code* anyway — client, charge, webhook parser — so a DB copy of the field list is just a sync liability.)
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| team_id | ulid | no | FK → teams, unique |
-| processor | string | no | enum: `nomba`; extensible |
-| nomba_test_account_id | text | yes | encrypted; parent business account, always authenticates |
-| nomba_test_subaccount_id | text | yes | encrypted; optional — when set, business-operation requests scope to this instead of the parent account |
-| nomba_test_client_id | text | yes | encrypted |
-| nomba_test_client_secret | text | yes | encrypted |
-| nomba_live_account_id | text | yes | encrypted |
-| nomba_live_subaccount_id | text | yes | encrypted |
-| nomba_live_client_id | text | yes | encrypted |
-| nomba_live_client_secret | text | yes | encrypted |
-| inbound_webhook_token | string | no | unique; unguessable segment in the Nomba → Bouclay URL |
-| webhook_verified_at | timestamp | yes | set when the inbound URL has actually received something (a real Nomba event or the dashboard's "Send test event" self-check); null reads as "not yet verified", never assumed reachable |
-| nomba_test_webhook_secret | text | yes | encrypted; signing key the integrator set on Nomba's dashboard (test) — pasted in, never revealed again after save |
-| nomba_live_webhook_secret | text | yes | encrypted; signing key the integrator set on Nomba's dashboard (live) |
-| test_connected_at | timestamp | yes | set when test credentials first verified against Nomba and saved |
-| live_connected_at | timestamp | yes | set when live credentials first verified against Nomba and saved |
+| team_id | ulid | no | FK → teams; **unique with `processor`** — one row per gateway per team, several gateways per team |
+| processor | string | no | driver key from the gateway registry: `nomba` / `paystack` / `flutterwave` (all in scope — V2-4b); further keys as drivers ship |
+| is_default | boolean | no | default false; exactly one default per team (partial unique index) — governs which gateway **new checkouts/tokenizations** route through. Charges on a stored card ignore it (see routing rule below). |
+| test_credentials | text | yes | **encrypted JSON** — keys defined by the driver's `configSchema()` (e.g. Nomba: `{account_id, subaccount_id?, client_id, client_secret, webhook_secret}`) |
+| live_credentials | text | yes | encrypted JSON, same shape |
+| inbound_webhook_token | string | no | unique; unguessable segment in the gateway → Bouclay URL |
+| webhook_verified_at | timestamp | yes | set when the inbound URL has actually received something (a real gateway event or the dashboard's "Send test event" self-check); null reads as "not yet verified", never assumed reachable |
+| test_connected_at | timestamp | yes | set when test credentials first verified against the gateway's auth endpoint and saved |
+| live_connected_at | timestamp | yes | set when live credentials first verified and saved |
 | created_at / updated_at | timestamp | no | |
 
 **Generated inbound URL** (display only, not stored):
 
-`POST {APP_URL}/webhooks/nomba/{inbound_webhook_token}`
+`POST {APP_URL}/webhooks/{processor}/{inbound_webhook_token}`
 
-Nomba sends payment/checkout events here. Bouclay resolves `team_id` from the token; today this just marks `webhook_verified_at` reachable. Signature verification (using that team's Nomba webhook secret) and mapping events to subscriptions/invoices/payments lands in Phase 7; outbound events to the team's `webhook_endpoints` follow in Phase 9.
+The route resolves the connection (and team) from processor + token, calls the driver's `verifyWebhookSignature()` (each gateway signs differently — Nomba HMAC with a pasted secret, Paystack HMAC-SHA512 with the secret key, Flutterwave `verif-hash` header), then the driver's `parseWebhookEvent()` **normalizes the payload to Bouclay's internal event shape** (payment succeeded/failed + processor reference) before the shared settlement action runs. Gateway-specific parsing stays in the driver; settlement logic is written once.
 
-**Charge path**: API request scoped to team → read this row's credentials for the request's mode (`test` / `live`) → exchange for an access token via `NombaClient` → call Nomba Charge/Checkout APIs, scoped to the subaccount if one is set, otherwise the parent account.
+**Gateway driver contract** (`app/Services/Gateways/`): a `PaymentGateway` interface — `configSchema()`, `capabilities()`, `verifyCredentials()`, `createCheckout()`, `chargeToken()`, `verifyCharge()`, `refund()`, `verifyWebhookSignature()`, `parseWebhookEvent()` — resolved by a `GatewayManager` keyed on `processor` (Laravel Manager pattern). `NombaGateway` wraps the existing `NombaClient`/`NombaCheckout`. `capabilities()` declares what the gateway supports (card tokenization, refunds, partial refunds, currencies) so validators can refuse an action the driver can't perform instead of failing mid-charge.
+
+**Routing rule (the invariant that makes multi-gateway safe):** **tokens are gateway-bound** — a Nomba `tokenKey` cannot be charged through Paystack. Every charge on a stored `payment_method` routes through the processor that minted the token (`payment_methods.processor` → that team's connection for it), forever. `is_default` affects **new** checkouts only. Consequently a customer may hold cards from different gateways side by side, and switching a team's default gateway never breaks existing subscriptions — their renewals keep charging through the original token's gateway.
+
+**Charge path**: API request scoped to team → `payment_methods.processor` picks the connection row → read that row's credentials for the request's mode (`test` / `live`) → `GatewayManager::driver($processor)` → driver authenticates its own way (Nomba: OAuth2 client-credentials token, minted on demand, never persisted) → charge/verify.
 
 ### `users`
 Global auth identity for staff. **Already implemented** in the app (`User` model). A user belongs to many teams via `team_members`; authorization is via roles on that membership, not columns on this row.
@@ -591,6 +589,8 @@ Complex cases — a paid multi-iteration trial, a transition to a different plan
 | custom_data | json | yes | |
 | created_at / updated_at | timestamp | no | |
 
+**Single-cadence constraint (locked):** all recurring items on one subscription must share the same `billing_interval` + `billing_frequency` — `current_period_start/end` live on the subscription, so one subscription has exactly one renewal clock. `CreateSubscription` / `UpdateSubscriptionItem` validate this at the application layer and reject a mixed-cadence line. A customer who genuinely needs monthly *and* annual charges holds **two subscriptions** — which the `type` named-slot column already supports cleanly. (The alternative — moving period fields onto `subscription_items` and billing per item — is a significant restructure that multiple subscriptions already express; revisit only if per-item cadence becomes a hard product requirement.)
+
 ### `subscription_items`
 A subscription carries many priced items (base + add-ons).
 
@@ -609,17 +609,33 @@ A subscription carries many priced items (base + add-ons).
 | created_at / updated_at | timestamp | no | |
 
 ### `scheduled_changes`
-Future cancel / pause / resume at the next boundary (the Paddle "borrow" pattern).
+Future actions applied at a boundary (the Paddle "borrow" pattern) — lifecycle changes **and** deferred plan/quantity changes.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
 | subscription_id | ulid | no | FK → subscriptions |
-| action | string | no | enum: `cancel` / `pause` / `resume` |
-| effective_at | timestamp | no | |
-| payload | json | yes | |
+| action | string | no | enum: `cancel` / `pause` / `resume` / `update` — `update` is a deferred item change: downgrade, quantity change, price swap, add-on removal |
+| effective_at | timestamp | no | usually `current_period_end` |
+| payload | json | yes | for `update`: `{subscription_item_id, price_id?, plan_id?, quantity?, remove?}` — the target state the worker applies at `effective_at`. One row per item change; a multi-item change is multiple rows sharing `effective_at`. |
 | applied_at | timestamp | yes | worker marks done (audit trail) |
 | created_at / updated_at | timestamp | no | |
+
+Pending `update` rows are surfaced on the subscription detail page ("Scheduled: 15 → 10 seats at next renewal") and are deletable until `applied_at` — cancelling a scheduled downgrade is a row delete, not a state transition.
+
+### Mid-cycle changes & proration (locked policy)
+
+The invoice ledger is the system of record for every change — `subscription_items` holds only current state; history is derivable from immutable `invoice_lines` with `period_start`/`period_end` (see BILLING_SIMULATIONS.md SIM-02).
+
+| Change | When it takes effect | Money |
+|---|---|---|
+| Upgrade / quantity **increase** | immediately | `billing_reason=subscription_update` invoice with paired `proration=true` lines (credit unused old, charge new remainder); net charged now |
+| Downgrade / quantity **decrease** / add-on **removal** | **next renewal**, via a `scheduled_changes` `update` row | no mid-cycle credit is ever created — the change lands before the next cycle invoice is computed |
+| Any change while `trialing` | immediately, **no proration** | no money has moved yet; items simply swap and the conversion invoice reflects the final composition |
+
+**`proration_behavior`** is an explicit request parameter on item-update operations (not a column): `always` (default for increases) / `none` (apply now, bill nothing — support/goodwill edits) / `next_cycle` (default for decreases — writes the `scheduled_changes` row instead of touching the current period). Defaults are policy, the parameter is the override.
+
+**Why decreases defer (MVP):** an immediate decrease on an already-paid period yields a net credit owed to the customer, and Bouclay has no customer credit-balance ledger to hold it. Deferring to period end sidesteps the ledger entirely with zero schema cost. When instant downgrades become a requirement, add a `customer_balance_transactions` append-only ledger (credits land there, next invoice draws it down before charging) — purely additive, migrates nothing, and the proration math is already proven by the increase path.
 
 ---
 
@@ -843,7 +859,7 @@ At-least-once delivery with exponential backoff.
 
 | Model | Relationships |
 |---|---|
-| Team | hasOne settings, processorConnection; hasMany members (through teamMembers), invitations, apiKeys, customers, products, plans, entitlements, subscriptions, invoices, discounts, events, webhookEndpoints |
+| Team | hasOne settings; hasMany processorConnections, members (through teamMembers), invitations, apiKeys, customers, products, plans, entitlements, subscriptions, invoices, discounts, events, webhookEndpoints |
 | User | belongsTo currentTeam; belongsToMany teams (through teamMembers); hasMany teamMemberships, sentInvitations |
 | Permission | belongsToMany roles (through rolePermission) |
 | Role | belongsToMany permissions (through rolePermission); belongsToMany teamMembers (through teamMemberRoles); belongsToMany teamInvitations (through teamInvitationRoles) |
@@ -868,7 +884,7 @@ At-least-once delivery with exponential backoff.
 | ScheduledChange | belongsTo subscription |
 | Discount | belongsTo team; hasMany redemptions |
 | DiscountRedemption | belongsTo discount, subscription, customer |
-| Invoice | belongsTo team, customer, billedToCustomer, subscription; hasMany lines, payments |
+| Invoice | belongsTo team, customer, billedToCustomer, subscription; hasMany lines, payments, refunds |
 | InvoiceLine | belongsTo invoice, subscriptionItem, price, product |
 | Payment | belongsTo team, invoice, customer, paymentMethod; hasMany refunds |
 | Refund | belongsTo team, payment, invoice |
@@ -888,7 +904,7 @@ At-least-once delivery with exponential backoff.
 | api_keys.kind | publishable, secret |
 | team_settings.tax_behavior | inclusive, exclusive |
 | addresses.type | billing, shipping |
-| payment_methods.processor | nomba |
+| payment_methods.processor | nomba, paystack, flutterwave *(driver-registry key, not a closed enum — grows as drivers ship)* |
 | payment_methods.type | card, bank, wallet |
 | payment_methods.status | active, expired, revoked |
 | products.status | active, archived |
@@ -900,14 +916,14 @@ At-least-once delivery with exponential backoff.
 | prices.status | active, archived |
 | prices.trial_unit | day, week, month |
 | price_phases.duration_interval | day, week, month, year |
-| entitlement_grants.grantor_type | plan, product |
+| entitlement_grants.grantor_type | plan, product *(morph map alias — `customer` reserved for future per-customer grants, additive)* |
 | subscriptions.status | incomplete, incomplete_expired, trialing, active, past_due, paused, canceled |
 | subscriptions.collection_mode | automatic, manual |
 | subscriptions.trial_end_behavior | cancel, pause, create_invoice |
 | subscriptions.billing_cycle_anchor_on_trial_end | now, unchanged |
 | subscription_items.kind | plan, addon |
 | subscription_items.status | active, removed |
-| scheduled_changes.action | cancel, pause, resume |
+| scheduled_changes.action | cancel, pause, resume, update |
 | discounts.type | percentage, flat |
 | discounts.duration | once, repeating, forever |
 | invoices.type | charge, credit |
@@ -915,7 +931,7 @@ At-least-once delivery with exponential backoff.
 | invoices.billing_reason | subscription_create, subscription_cycle, subscription_update, manual |
 | invoices.collection_mode | automatic, manual |
 | invoice_lines.kind | plan, addon, proration, one_time, tax, discount, credit |
-| payments.processor | nomba |
+| payments.processor | nomba, paystack, flutterwave *(driver-registry key, extensible like payment_methods.processor)* |
 | payments.status | pending, processing, succeeded, failed, refunded |
 | refunds.status | pending, succeeded, failed |
 | webhook_deliveries.status | pending, succeeded, failed |
@@ -994,7 +1010,7 @@ Seeded on deploy. Permission names use `resource.action`. **Admin** receives all
 - **FK indexes**: index every FK column.
 - **Tenancy**: index `team_id` on every table; add composite `(team_id, status)` on `subscriptions`, `invoices`, `payments` for dashboard filters.
 - **Billing scheduler hot path**: composite index on `subscriptions (status, current_period_end)` — the scheduler scans for due subs by this.
-- **Unique**: `teams.slug`; `users.email`; `team_members (team_id, user_id)`; `team_invitations.code`; `team_processor_connections.inbound_webhook_token`; `team_processor_connections (team_id)`; `api_keys.hashed_secret`; `customers (team_id, external_ref)` (when not null); `idempotency_keys (team_id, key)`; `invoices (team_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
+- **Unique**: `teams.slug`; `users.email`; `team_members (team_id, user_id)`; `team_invitations.code`; `team_processor_connections.inbound_webhook_token`; `team_processor_connections (team_id, processor)` + partial unique `(team_id) WHERE is_default`; `api_keys.hashed_secret`; `customers (team_id, external_ref)` (when not null); `idempotency_keys (team_id, key)`; `invoices (team_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
 - **Anti-abuse**: index `price_trial_redemptions (team_id, price_id, customer_id)` and `discount_redemptions (discount_id, customer_id)` — lead with `team_id` on the trial-redemption index specifically, since that table is the one place a cross-tenant join bug would actually leak a free trial.
 - **Money**: enforce non-negative amounts at the application layer; keep everything in the subscription's single currency (don't mix currencies on one invoice).
 
