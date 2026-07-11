@@ -412,6 +412,8 @@ Tokenised payment instruments. Processor-agnostic.
 ### `plans`
 The tier. Deliberately thin — no `billing_interval`, no `pricing_model`, no trial fields here; all of that varies per billable variant and lives on `prices`.
 
+**`draft` plans and their prices**: `plans.status` and `prices.status` are independent columns, but a `draft` plan should not be purchasable — enforce at the application layer that a price cannot be attached to a new subscription (or surfaced in a payment link/picker) while its plan is `draft` or `archived`, regardless of the price's own `status`. Not a DB constraint. `products.status` has no `draft` value at all, so this rule only applies one level down, at the plan.
+
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
@@ -446,8 +448,11 @@ The tier. Deliberately thin — no `billing_interval`, no `pricing_model`, no tr
 | trial_unit | string | yes | enum: `day` / `week` / `month`; null when `trial_length` is null |
 | trial_requires_payment_info | boolean | no | default false — mirrors the `missing_payment_method` framing used on `subscriptions.trial_end_behavior` |
 | trial_once_per_customer | boolean | no | default true — anti-abuse toggle, enforced via `price_trial_redemptions` |
+| purchasable | boolean | no | default true — false for a price that exists only as a `price_phases.charge_price_id` target, never meant to be offered directly. The "New Price" picker and the Products list both filter `WHERE purchasable = true`, so phase-only prices never surface as something a merchant could confuse for a sellable option — see `price_phases` below. |
 | custom_data | json | yes | |
 | created_at / updated_at | timestamp | no | |
+
+**Constraint**: a price with `plan_id = null` (a one-time price sold directly off the product) can **never** be referenced by a `subscription_item` — only by `invoice_lines`/`payment_links` directly. `subscription_items.plan_id` is `NOT NULL`, so only `plan_id`-bearing (i.e. `type = recurring`) prices are valid there; enforce this at the application layer when attaching a price to a subscription.
 
 ### `price_tiers`
 Rows that drive tiered / volume / graduated pricing. **One table, three behaviours** — only the application differs.
@@ -492,12 +497,17 @@ The generalized mechanism for anything beyond a simple trial: a paid multi-itera
 
 A simple trial (`prices.trial_length` set) never touches this table. A phased trial is phase 0 (`charge_price_id` = a trial-priced row) → phase 1 (`charge_price_id` = the regular price, possibly under a different plan). A genuine 3+ step ramp is just more rows.
 
+**Why `charge_price_id` points at a full `prices` row instead of `price_phases` carrying its own amount/currency/tiering columns**: a phase's charge still needs everything a normal price gets — reuse (phase 1 is routinely just the plan's existing regular price), `version` bumps for grandfathering, `pricing_model`/`price_tiers` for a tiered or graduated phase, and a real `price_id` for `invoice_lines` to reference so every charge — phase-originated or not — settles through the one invoicing code path. Duplicating that shape onto `price_phases` instead would mean reimplementing tiering/currency/versioning twice.
+
+The actual cost of that is prices that exist purely to be a phase's trial-priced target and were never meant to be sold on their own — `prices.purchasable = false` is what keeps those out of the merchant-facing catalog (picker, Products list) without giving up any of the above. A price auto-generated while authoring a phase should default `purchasable = false`; a price created directly from the Products page defaults `purchasable = true`.
+
 ### `price_trial_redemptions`
 The one piece of trial state worth its own durable row: enforcing `trial_once_per_customer`.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
+| team_id | ulid | no | FK → teams — anti-abuse is *the* table where "never trust a join to infer the tenant" matters most; query this directly by `team_id`, don't rely on `price_id`/`customer_id` joins to scope it |
 | price_id | ulid | no | FK → prices |
 | customer_id | ulid | no | FK → customers |
 | subscription_item_id | ulid | no | FK → subscription_items |
@@ -526,6 +536,7 @@ Polymorphic join — one entitlement can be granted by multiple Plans/Products; 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
+| team_id | ulid | no | FK → teams (denormalised — per the tenancy convention, don't rely on the `entitlement_id` join to scope queries) |
 | entitlement_id | ulid | no | FK → entitlements |
 | grantor_type | string | no | enum: `plan` / `product` |
 | grantor_id | ulid | no | polymorphic target, scoped by `grantor_type` |
@@ -623,7 +634,7 @@ Future cancel / pause / resume at the next boundary (the Paddle "borrow" pattern
 | max_redemptions | integer | yes | |
 | times_redeemed | integer | no | default 0 |
 | eligible_plan_ids | json | yes | array of plan ids; null = all plans |
-| eligible_price_ids | json | yes | array of price ids; null = all prices under the eligible plan(s) — this is what makes "monthly only" promos expressible without discounting the yearly price too |
+| eligible_price_ids | json | yes | array of price ids; when set, this is the **complete, authoritative** eligibility list and `eligible_plan_ids` is ignored — this is what makes "monthly only" promos expressible without discounting the yearly price too. When null, falls back to `eligible_plan_ids` (or everything, if that's also null). The two fields are never combined/intersected. |
 | starts_at | timestamp | yes | |
 | expires_at | timestamp | yes | |
 | active | boolean | no | default true |
@@ -762,7 +773,9 @@ One `*.created` event when an object is instantiated; one `*.updated` event reus
 | Plan | `plan.created`, `plan.updated` |
 | Subscription | `subscription.created`, `subscription.updated` |
 | Invoice | `invoice.created`, `invoice.updated` — no separate `invoice.paid`/`invoice.payment_failed` names; consumers read `status` off `invoice.updated` |
-| Payment (transaction) | `transaction.created`, `transaction.updated` |
+| Payment | `payment.created`, `payment.updated` — **not** `transaction.*`; "Transaction is not a Bouclay entity" (see [Dashboard vocabulary](#dashboard-vocabulary-locked-2026-07-06) above) applies to event names too, not just dashboard labels |
+
+**This is a breaking rename against already-shipped code, not a free consequence of this doc.** Phase 9 (`IMPLEMENTATION.md`) is built and tested: it currently emits the concrete names `invoice.paid` / `invoice.payment_failed` / `payment_method.added`, covered by `OutboundWebhookEndpointTest`, `OutboundWebhookDeliveryTest`, `OutboundWebhookRetryTest`, and consumed by the Phase 12 reference app's webhook handler. Collapsing to `*.created`/`*.updated` pairs is the right target shape, but landing it means updating `OutboundEventType`, every emission call site, those three test files, and the reference app — track it as its own work item when this catalog rework actually ships, not as a side effect of editing `schema.md`.
 
 ### `events`
 Normalised event log emitted **to integrators**.
@@ -958,7 +971,7 @@ Seeded on deploy. Permission names use `resource.action`. **Admin** receives all
 - **Tenancy**: index `team_id` on every table; add composite `(team_id, status)` on `subscriptions`, `invoices`, `payments` for dashboard filters.
 - **Billing scheduler hot path**: composite index on `subscriptions (status, current_period_end)` — the scheduler scans for due subs by this.
 - **Unique**: `teams.slug`; `users.email`; `team_members (team_id, user_id)`; `team_invitations.code`; `team_processor_connections.inbound_webhook_token`; `team_processor_connections (team_id)`; `api_keys.hashed_secret`; `customers (team_id, external_ref)` (when not null); `idempotency_keys (team_id, key)`; `invoices (team_id, number)`; `payments.idempotency_key`; `price_currency_options (price_id, currency)`.
-- **Anti-abuse**: index `price_trial_redemptions (price_id, customer_id)` and `discount_redemptions (discount_id, customer_id)`.
+- **Anti-abuse**: index `price_trial_redemptions (team_id, price_id, customer_id)` and `discount_redemptions (discount_id, customer_id)` — lead with `team_id` on the trial-redemption index specifically, since that table is the one place a cross-tenant join bug would actually leak a free trial.
 - **Money**: enforce non-negative amounts at the application layer; keep everything in the subscription's single currency (don't mix currencies on one invoice).
 
 ---
