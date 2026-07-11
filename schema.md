@@ -443,7 +443,8 @@ The tier. Deliberately thin — no `billing_interval`, no `pricing_model`, no tr
 | package_size | integer | yes | for `package`; units per block |
 | tax_mode | string | no | enum: `inclusive` / `exclusive` / `account`; default `account` |
 | status | string | no | enum: `active` / `archived` |
-| version | integer | no | default 1; bump to grandfather existing subscribers |
+| replaces_price_id | ulid | yes | FK → prices (self); set when this row supersedes an earlier price (a merchant "edit"). Null for an original. Walk the chain to see a price's full lineage. |
+| version | integer | no | default 1; human-facing label only — a display hint for "v2 of this price," **not** a signal that the row was mutated in place. Incremented on the superseding row, never used to UPDATE an existing one. |
 | trial_length | integer | yes | null = no trial on this price |
 | trial_unit | string | yes | enum: `day` / `week` / `month`; null when `trial_length` is null |
 | trial_requires_payment_info | boolean | no | default false — mirrors the `missing_payment_method` framing used on `subscriptions.trial_end_behavior` |
@@ -453,6 +454,8 @@ The tier. Deliberately thin — no `billing_interval`, no `pricing_model`, no tr
 | created_at / updated_at | timestamp | no | |
 
 **Constraint**: a price with `plan_id = null` (a one-time price sold directly off the product) can **never** be referenced by a `subscription_item` — only by `invoice_lines`/`payment_links` directly. `subscription_items.plan_id` is `NOT NULL`, so only `plan_id`-bearing (i.e. `type = recurring`) prices are valid there; enforce this at the application layer when attaching a price to a subscription.
+
+**Immutability invariant** (the single most important rule for this table): once a price row is referenced by any `subscription_item` or `invoice_line`, it is **append-only — never UPDATE it**. A merchant "editing" a price creates a *new* row (`replaces_price_id` → the old one), archives the old row (`status = archived`), and repoints the catalog picker at the new row; existing subscriptions keep referencing the original price forever. This is what lets you answer "exactly what did this customer buy in 2024?" without archaeology, and why `version` is a label rather than an in-place counter. The only fields ever safe to mutate on a live price are `status` (active → archived) and `custom_data`. Everything price-defining — `unit_amount`, `currency`, `pricing_model`, `billing_interval`, tiers — is frozen at creation.
 
 ### `price_tiers`
 Rows that drive tiered / volume / graduated pricing. **One table, three behaviours** — only the application differs.
@@ -531,16 +534,18 @@ Decoupled access-control layer. What a customer can *access* is a separate conce
 | created_at / updated_at | timestamp | no | |
 
 ### `entitlement_grants`
-Polymorphic join — one entitlement can be granted by multiple Plans/Products; one Plan/Product can grant multiple entitlements.
+Polymorphic join — one entitlement can be granted by multiple Plans/Products; one Plan/Product can grant multiple entitlements. Implemented as a **Laravel `morphTo('grantor')` relation**: `grantor_type` / `grantor_id` are the standard `morphs('grantor')` pair, with an **enforced morph map** (`Relation::enforceMorphMap([...])`) so `grantor_type` stores the stable alias (`plan` / `product`), never a raw class FQN.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
 | team_id | ulid | no | FK → teams (denormalised — per the tenancy convention, don't rely on the `entitlement_id` join to scope queries) |
 | entitlement_id | ulid | no | FK → entitlements |
-| grantor_type | string | no | enum: `plan` / `product` |
-| grantor_id | ulid | no | polymorphic target, scoped by `grantor_type` |
+| grantor_type | string | no | morph alias: `plan` / `product` |
+| grantor_id | ulid | no | morph target id, resolved via the `grantor` relation |
 | created_at | timestamp | no | |
+
+Grants are **catalog-only by design** — a customer's access is resolved purely from the plans/products on their active subscriptions. Per-customer / manual / promo grants are deliberately not modelled for MVP; because `grantor` is already a polymorphic relation, adding a `customer` alias to the morph map later is a resolver change with **no migration**. Bouclay is a billing engine, not an IAM platform.
 
 ---
 
@@ -553,6 +558,8 @@ Complex cases — a paid multi-iteration trial, a transition to a different plan
 `subscription_items.trial_ends_at` and `current_phase_sequence` (§6) track where one subscription item is in this, snapshotted at creation so a later edit to the catalog doesn't rewrite an active subscriber's history. `subscriptions.trial_ends_at` stays the denormalised clock the billing/access workers read (earliest active item trial end). `price_trial_redemptions` (§3) is the durable row kept purely for `trial_once_per_customer` anti-abuse.
 
 **State-machine threading**: free trial (`unit_amount = 0` during the trial phase, no payment method required) → subscription starts in `trialing`, skips `incomplete`. Paid trial (`unit_amount > 0`) → payment captured at signup, subscription follows the normal `incomplete → active` path (paid trials are treated as active, not trialing). At `trial_ends_at` (or a phase boundary) → the item's effective price swaps, subscription → `active` (or `canceled`/`paused` per `trial_end_behavior` if no payment method).
+
+**Add-ons during a trial (Stripe-style, locked):** the subscription's trial is **anchored to its base plan item**. An add-on item that has no trial of its own does **not** bill on its own at signup — it rides the subscription's trial and is first invoiced at conversion, alongside the plan. A "free trial" subscription therefore charges nothing at day 0 even when it carries a paid add-on. (An add-on that *itself* defines a trial keeps that trial; the anchor rule only covers add-ons without one.) This matches Stripe's subscription-level trial and is why the first real invoice (`billing_reason = subscription_create`) bundles plan + add-on lines together.
 
 ---
 
@@ -648,7 +655,9 @@ Future cancel / pause / resume at the next boundary (the Paddle "borrow" pattern
 | discount_id | ulid | no | FK → discounts |
 | subscription_id | ulid | no | FK → subscriptions |
 | customer_id | ulid | no | FK → customers |
-| applied_at | timestamp | no | |
+| remaining_intervals | integer | yes | how many billing cycles this discount may **still** be applied to this subscription. Snapshotted at redemption from the discount's duration: `once` → `1`, `repeating` → `duration_in_intervals`, `forever` → `null` (never decrements). The renewal worker applies the discount only while this is `null` or `> 0`, decrementing by 1 each cycle it applies it. This is the durable answer to "is `WELCOME20` still live on cycle N?" — without it the worker can't tell interval 2-of-3 from an expired discount. |
+| applied_at | timestamp | no | first cycle applied |
+| last_applied_at | timestamp | yes | most recent cycle applied (audit / reporting) |
 
 ---
 
@@ -694,20 +703,35 @@ A frozen legal document — numbered, with a full money breakdown and snapshots 
 | id | ulid | no | PK |
 | invoice_id | ulid | no | FK → invoices |
 | subscription_item_id | ulid | yes | FK → subscription_items |
-| price_id | ulid | yes | FK → prices |
+| price_id | ulid | yes | FK → prices — the row *as it was*; safe to keep because prices are immutable (see prices §), but the names below are still snapshotted so a rename can't rewrite history |
 | product_id | ulid | yes | FK → products |
-| kind | string | no | enum: `plan` / `addon` / `proration` / `one_time` / `tax` / `discount` / `credit` |
-| description | string | no | |
+| kind | string | no | enum: `plan` / `addon` / `proration` / `one_time` / `tax` / `discount` / `credit`. **`discount` is presentation/adjustment only** — never the source of a product discount; see the discount-representation invariant below. |
+| description | string | no | free-text line description shown on the invoice |
+| product_name_snapshot | string | yes | product name frozen at finalise; null for `tax`/`discount`/`credit` lines with no catalog origin |
+| plan_name_snapshot | string | yes | plan name frozen at finalise; null when no plan applies |
+| price_name_snapshot | string | yes | price name frozen at finalise (e.g. "Pro Monthly"); null when no catalog price applies |
 | quantity | integer | no | default 1 |
 | unit_amount | bigInteger | no | minor units |
 | subtotal | bigInteger | no | minor units |
-| discount_amount | bigInteger | no | minor units, default 0 |
+| discount_amount | bigInteger | no | minor units, default 0 — the **authoritative** representation of a discount applied to this billable line; see invariant below |
 | tax_amount | bigInteger | no | minor units, default 0 |
 | total | bigInteger | no | minor units |
 | period_start | timestamp | yes | window this line covers (drives proration) |
 | period_end | timestamp | yes | |
 | proration | boolean | no | default false |
 | created_at / updated_at | timestamp | no | |
+
+**Name snapshots** extend the same discipline `invoices.customer_snapshot` already applies to the buyer: at finalise, `CreateInvoice` copies the product / plan / price *names* onto the line, not just their FKs. Prices are immutable so the amount is already safe via `price_id`, but names are edited freely on the catalog — without the snapshot, renaming "Pro" → "Professional" would silently rewrite every invoice ever issued. An invoice is a frozen legal document; its line labels must read the same in five years as the day it was sent. Render from the `*_snapshot` columns, never by joining live catalog rows.
+
+**Discount-representation invariant** — the single source of truth for discounts, so totals, tax, refunds, and reporting never disagree:
+
+1. **`invoice_lines.discount_amount` on billable lines is the canonical representation of product discounts.** A discount that applies to a product/plan/add-on is recorded by reducing that line's `discount_amount` (and `total`), pro-rated across the lines it covers.
+2. **All derived money — invoice `subtotal`/`discount_total`/`tax_total`/`total`, per-line tax bases, proration, refunds, and every analytics query — is computed from the billable lines' `discount_amount`, never by summing `kind=discount` lines.** `discount_total = SUM(invoice_lines.discount_amount)`; a line's taxable base is `subtotal − discount_amount`.
+3. **`kind=discount` is reserved for standalone financial adjustments that cannot be allocated to a billable item** — manual credits, goodwill adjustments, account credits. These are optional presentation/adjustment lines and **must never** be the primary source for discount calculation.
+
+The same discount is therefore never recorded in both places, which is what prevents the double-count (`650000 − 130000 − 130000`) and the silent under-report (`SUM(discount_amount) = 0` when a discount was hidden in a `kind=discount` line's total). This is more robust than "Model A only" or "Model B only": one authoritative source for accounting, while invoices can still express adjustments that aren't naturally tied to a specific product.
+
+**Tax (deferred native calc).** For MVP, `invoice_lines.tax_amount` and `invoices.tax_total` are **populated by the caller** — an external tax engine or a flat per-team rate — and Bouclay does not compute tax itself. Native calculation is a future feature: introduce `tax_rates`, `tax_jurisdictions`, and `invoice_tax_lines` when needed. That is purely additive on top of the per-line `tax_amount` that already exists (which is what keeps it from being a structural hole), not a change to the tables above. Until then, treat tax as an input, not a derived value.
 
 ### `payments`
 One charge attempt against an invoice on the processor. Records every attempt (succeeded **and** failed) because Bouclay runs its own dunning — not just settled money. Dashboard label: **Payment**. Public ID prefix: `pay_` (via `HasPublicId` on the `Payment` model).
