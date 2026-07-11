@@ -8,6 +8,9 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
+     *
+     * A frozen legal document — numbered, with a full money breakdown and
+     * snapshots taken at finalise time (schema.md §8).
      */
     public function up(): void
     {
@@ -15,10 +18,17 @@ return new class extends Migration
             $table->id();
             $table->string('public_id')->unique();
             $table->foreignId('team_id')->constrained()->cascadeOnDelete();
+            // The subscription/order owner.
             $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
-            // Null for a one-off transaction (schema.md).
+            // Who actually pays — always equal to customer_id in MVP, but a
+            // distinct field from day one (account-hierarchy seam that makes
+            // parent/child billing addable without migrating invoice history).
+            $table->foreignId('billed_to_customer_id')->constrained('customers')->cascadeOnDelete();
+            // Null for a one-off invoice.
             $table->foreignId('subscription_id')->nullable()->constrained()->nullOnDelete();
             $table->string('number')->nullable();
+            // charge / credit — seam for future credit notes.
+            $table->string('type')->default('charge');
             $table->string('status');
             $table->string('billing_reason');
             $table->string('collection_mode');

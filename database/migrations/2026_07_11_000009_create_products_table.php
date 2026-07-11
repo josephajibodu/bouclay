@@ -11,18 +11,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('payment_links', function (Blueprint $table) {
+        Schema::create('products', function (Blueprint $table) {
             $table->id();
             $table->string('public_id')->unique();
             $table->foreignId('team_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('product_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('price_id')->constrained()->cascadeOnDelete();
-            $table->boolean('active')->default(true);
+            $table->string('name');
+            $table->text('description')->nullable();
+            $table->string('category')->nullable();
+            $table->string('image_url')->nullable();
+            $table->string('website_url')->nullable();
+            $table->string('status')->default('active');
             $table->json('custom_data')->nullable();
             $table->timestamps();
+            $table->softDeletes();
 
-            $table->unique(['team_id', 'price_id']);
-            $table->index(['team_id', 'active']);
+            $table->index(['team_id', 'status']);
         });
     }
 
@@ -31,6 +34,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('payment_links');
+        Schema::dropIfExists('products');
     }
 };

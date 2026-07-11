@@ -13,7 +13,8 @@ return new class extends Migration
     {
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
-            // `pay_` — a charge attempt against an invoice (schema.md §7).
+            // `pay_` — one charge ATTEMPT against an invoice; failed attempts
+            // are stored too because Bouclay runs its own dunning.
             $table->string('public_id')->unique();
             $table->foreignId('team_id')->constrained()->cascadeOnDelete();
             $table->foreignId('invoice_id')->constrained()->cascadeOnDelete();
@@ -25,6 +26,7 @@ return new class extends Migration
             $table->char('currency', 3);
             $table->string('status');
             $table->string('risk_level')->nullable();
+            // Drives dunning classification (hard vs soft decline).
             $table->string('failure_code')->nullable();
             $table->string('failure_reason')->nullable();
             $table->integer('attempt_number')->default(1);
@@ -36,6 +38,7 @@ return new class extends Migration
             $table->index('team_id');
             $table->index('invoice_id');
             $table->index('customer_id');
+            $table->index(['team_id', 'status']);
         });
     }
 

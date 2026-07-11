@@ -17,7 +17,9 @@ return new class extends Migration
             $table->foreignId('team_id')->constrained()->cascadeOnDelete();
             $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
             $table->string('processor')->default('nomba');
-            // The Nomba `tokenKey` — the reference we charge against. Never a PAN.
+            // The gateway token (e.g. Nomba `tokenKey`) we charge against.
+            // Never a PAN. Tokens are gateway-bound: a stored card always
+            // charges through the processor that minted it (schema.md §1).
             $table->string('processor_token');
             $table->string('type')->default('card');
             $table->string('brand')->nullable();

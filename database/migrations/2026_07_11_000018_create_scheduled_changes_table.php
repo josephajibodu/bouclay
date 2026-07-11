@@ -9,10 +9,10 @@ return new class extends Migration
     /**
      * Run the migrations.
      *
-     * Future cancel / pause / resume at the next boundary — the Paddle "borrow"
-     * pattern (schema.md §4). "Cancel at period end" writes a row here and
-     * leaves `status` untouched; the scheduler applies it at `effective_at`
-     * (SUBSCRIPTIONS_DESIGN §4, §8.3).
+     * Future actions applied at a boundary (the Paddle "borrow" pattern) —
+     * lifecycle changes AND deferred item changes. `action=update` carries a
+     * payload `{subscription_item_id, price_id?, plan_id?, quantity?,
+     * remove?}`; one row per item change (schema.md §6).
      */
     public function up(): void
     {

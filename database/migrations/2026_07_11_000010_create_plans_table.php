@@ -8,24 +8,24 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
+     *
+     * The named tier a customer actually picks — "Premium". Deliberately
+     * thin: no billing_interval, no pricing_model, no trial fields here; all
+     * of that varies per billable variant and lives on `prices` (schema.md §3).
+     *
+     * A `draft`/`archived` plan's prices are not purchasable regardless of
+     * the price's own status — enforced at the application layer, not here.
      */
     public function up(): void
     {
-        Schema::create('prices', function (Blueprint $table) {
+        Schema::create('plans', function (Blueprint $table) {
             $table->id();
+            $table->string('public_id')->unique();
             $table->foreignId('team_id')->constrained()->cascadeOnDelete();
             $table->foreignId('product_id')->constrained()->cascadeOnDelete();
-            $table->string('name')->nullable();
-            $table->string('type')->default('recurring');
-            $table->string('pricing_model')->default('standard');
-            $table->bigInteger('unit_amount')->nullable();
-            $table->char('currency', 3);
-            $table->string('billing_interval')->nullable();
-            $table->smallInteger('billing_frequency')->default(1);
-            $table->integer('package_size')->nullable();
-            $table->string('tax_mode')->default('account');
+            $table->string('code')->nullable();
+            $table->string('name');
             $table->string('status')->default('active');
-            $table->integer('version')->default(1);
             $table->json('custom_data')->nullable();
             $table->timestamps();
 
@@ -38,6 +38,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('prices');
+        Schema::dropIfExists('plans');
     }
 };

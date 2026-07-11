@@ -9,9 +9,9 @@ return new class extends Migration
     /**
      * Run the migrations.
      *
-     * A subscription carries many priced items (base + add-ons). Each item is
-     * a plain price line or a trial line (its trial lives in
-     * `subscription_item_trials`) — SUBSCRIPTIONS_DESIGN §11.
+     * A subscription carries many priced items (base plan + add-ons). Only
+     * plan-bearing recurring prices are valid here — `plan_id` is NOT NULL,
+     * so a plan-less one-time price can never be attached (schema.md §3).
      */
     public function up(): void
     {
@@ -20,10 +20,18 @@ return new class extends Migration
             $table->string('public_id')->unique();
             $table->foreignId('subscription_id')->constrained()->cascadeOnDelete();
             $table->foreignId('price_id')->constrained('prices')->cascadeOnDelete();
-            // Denormalised — the product the price belongs to at application time.
+            // Denormalised alongside price_id (schema.md §6).
+            $table->foreignId('plan_id')->constrained('plans')->cascadeOnDelete();
             $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
+            // Distinguishes the base charge from add-ons.
+            $table->string('kind')->default('plan');
             $table->integer('quantity')->default(1);
             $table->string('status')->default('active');
+            // Snapshotted from price.trial_length/trial_unit at creation — a
+            // later catalog edit doesn't rewrite history for active items.
+            $table->timestamp('trial_ends_at')->nullable();
+            // Null unless this item is progressing through price_phases.
+            $table->smallInteger('current_phase_sequence')->nullable();
             $table->timestamps();
 
             $table->index('subscription_id');

@@ -9,15 +9,16 @@ return new class extends Migration
     /**
      * Run the migrations.
      *
-     * Created without `default_payment_method_id` — that FK points at
-     * `payment_methods`, which doesn't exist yet. It's added back in a
-     * later migration once both tables exist (schema.md migration order).
+     * Created without `default_payment_method_id` and `parent_customer_id` —
+     * both are circular/self references, added in a later migration once
+     * `payment_methods` exists (schema.md migration order).
      */
     public function up(): void
     {
         Schema::create('customers', function (Blueprint $table) {
             $table->id();
             $table->string('public_id')->unique();
+            $table->string('portal_token', 64)->nullable()->unique();
             $table->foreignId('team_id')->constrained()->cascadeOnDelete();
             $table->string('external_ref')->nullable();
             $table->string('name')->nullable();
