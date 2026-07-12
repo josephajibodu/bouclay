@@ -28,6 +28,9 @@ class InvoiceFactory extends Factory
         return [
             'team_id' => Team::factory(),
             'customer_id' => Customer::factory(),
+            // Always the invoice owner in MVP (schema.md §8) — resolved from
+            // whatever customer_id the test supplied.
+            'billed_to_customer_id' => fn (array $attributes) => $attributes['customer_id'],
             'subscription_id' => null,
             'number' => 'BCL-'.$this->faker->unique()->numberBetween(1000, 999999),
             'status' => InvoiceStatus::Open,

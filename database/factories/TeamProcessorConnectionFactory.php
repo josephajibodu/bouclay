@@ -21,6 +21,7 @@ class TeamProcessorConnectionFactory extends Factory
         return [
             'team_id' => Team::factory(),
             'processor' => 'nomba',
+            'is_default' => true,
         ];
     }
 
@@ -30,10 +31,12 @@ class TeamProcessorConnectionFactory extends Factory
     public function testConnected(): static
     {
         return $this->state(fn (array $attributes) => [
-            'nomba_test_account_id' => fake()->uuid(),
-            'nomba_test_client_id' => fake()->uuid(),
-            'nomba_test_client_secret' => fake()->sha256(),
-            'nomba_test_webhook_secret' => 'whsec_test_default',
+            'test_credentials' => [
+                'account_id' => fake()->uuid(),
+                'client_id' => fake()->uuid(),
+                'client_secret' => fake()->sha256(),
+                'webhook_secret' => 'whsec_test_default',
+            ],
             'test_connected_at' => now(),
         ]);
     }
@@ -44,10 +47,12 @@ class TeamProcessorConnectionFactory extends Factory
     public function liveConnected(): static
     {
         return $this->state(fn (array $attributes) => [
-            'nomba_live_account_id' => fake()->uuid(),
-            'nomba_live_client_id' => fake()->uuid(),
-            'nomba_live_client_secret' => fake()->sha256(),
-            'nomba_live_webhook_secret' => 'whsec_live_default',
+            'live_credentials' => [
+                'account_id' => fake()->uuid(),
+                'client_id' => fake()->uuid(),
+                'client_secret' => fake()->sha256(),
+                'webhook_secret' => 'whsec_live_default',
+            ],
             'live_connected_at' => now(),
         ]);
     }
@@ -58,7 +63,10 @@ class TeamProcessorConnectionFactory extends Factory
     public function withTestSubaccount(): static
     {
         return $this->state(fn (array $attributes) => [
-            'nomba_test_subaccount_id' => fake()->uuid(),
+            'test_credentials' => [
+                ...($attributes['test_credentials'] ?? []),
+                'subaccount_id' => fake()->uuid(),
+            ],
         ]);
     }
 }
