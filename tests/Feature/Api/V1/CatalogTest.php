@@ -1,10 +1,8 @@
 <?php
 
 use App\Models\Price;
-use App\Models\Product;
-use App\Models\TrialOffer;
 
-test('products prices and trial offers can be created and listed via api', function () {
+test('products and prices can be created and listed via api', function () {
     ['token' => $token, 'team' => $team] = apiAuthFixture();
 
     $productResponse = $this->postJson('/api/v1/products', [
@@ -20,7 +18,6 @@ test('products prices and trial offers can be created and listed via api', funct
     ], apiHeaders($token, 'prod-create-1'));
 
     $productResponse->assertCreated();
-    $productId = $productResponse->json('data.id');
 
     $this->getJson('/api/v1/products', apiHeaders($token))
         ->assertOk()
@@ -31,23 +28,4 @@ test('products prices and trial offers can be created and listed via api', funct
     $this->getJson('/api/v1/prices/'.$price->public_id, apiHeaders($token))
         ->assertOk()
         ->assertJsonPath('data.id', $price->public_id);
-
-    $regularPrice = Price::factory()->for($team)->for(Product::find($price->product_id))->create([
-        'currency' => 'NGN',
-    ]);
-
-    $trialResponse = $this->postJson("/api/v1/products/{$productId}/trial-offers", [
-        'name' => '14-day trial',
-        'trialPriceId' => $price->public_id,
-        'transitionPriceId' => $regularPrice->public_id,
-        'durationIterations' => 1,
-    ], apiHeaders($token, 'trial-create-1'));
-
-    $trialResponse->assertCreated();
-
-    $this->getJson('/api/v1/trial-offers', apiHeaders($token))
-        ->assertOk()
-        ->assertJsonCount(1, 'data');
-
-    expect(TrialOffer::query()->where('team_id', $team->id)->count())->toBe(1);
 });

@@ -26,9 +26,7 @@ test('the hackathon ingress resolves the team from the payload account id and se
     Mail::fake();
 
     ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
-    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
-        'nomba_test_webhook_secret' => 'whsec_hackathon',
-    ]);
+    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create();
     fakeNombaCheckout();
 
     $this->actingAs($owner)
@@ -51,12 +49,12 @@ test('the hackathon ingress resolves the team from the payload account id and se
         'set_default' => true,
     ], now()->addHour());
 
-    $payload = nombaPaymentSuccessPayload($orderReference, $connection->nomba_test_account_id);
+    $payload = nombaPaymentSuccessPayload($orderReference, $connection->test_credentials['account_id']);
 
     postSignedNombaWebhookAt(
         '/ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd',
         $payload,
-        'whsec_hackathon',
+        'whsec_test_default',
     )->assertOk()->assertJson(['received' => true]);
 
     $invoice->refresh();
@@ -71,9 +69,7 @@ test('the hackathon ingress can fall back to a configured team id', function () 
     Mail::fake();
 
     ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
-    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
-        'nomba_test_webhook_secret' => 'whsec_hackathon',
-    ]);
+    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create();
     config(['services.nomba.hackathon_ingress.fallback_team_id' => $team->id]);
     fakeNombaCheckout();
 
@@ -101,7 +97,7 @@ test('the hackathon ingress can fall back to a configured team id', function () 
     postSignedNombaWebhookAt(
         '/ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd',
         $payload,
-        'whsec_hackathon',
+        'whsec_test_default',
     )->assertOk();
 
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
@@ -114,6 +110,6 @@ test('the hackathon ingress returns not found when no connection matches', funct
     postSignedNombaWebhookAt(
         '/ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd',
         $payload,
-        'whsec_hackathon',
+        'whsec_test_default',
     )->assertNotFound();
 });

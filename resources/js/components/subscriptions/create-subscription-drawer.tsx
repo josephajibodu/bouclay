@@ -1,8 +1,7 @@
 import { useForm } from '@inertiajs/react';
-import { Gift, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,13 +26,11 @@ import type {
     CollectionMode,
     CreateCustomerOption,
     CreateProductOption,
-    CreateTrialOfferOption,
 } from '@/types';
 
 type Props = {
     customers: CreateCustomerOption[];
     products: CreateProductOption[];
-    trialOffers: CreateTrialOfferOption[];
     teamCurrency: string;
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -41,9 +38,8 @@ type Props = {
     fixedCustomerId?: number | null;
 };
 
-type PriceLine = {
+type Line = {
     key: string;
-    kind: 'price';
     productId: number;
     priceId: number;
     productName: string;
@@ -52,21 +48,6 @@ type PriceLine = {
     currency: string;
     quantity: number;
 };
-
-type TrialLine = {
-    key: string;
-    kind: 'trial';
-    productId: number;
-    trialOfferId: number;
-    productName: string;
-    trialLabel: string;
-    isFree: boolean;
-    unitAmount: number | null;
-    transitionLabel: string;
-    quantity: number;
-};
-
-type Line = PriceLine | TrialLine;
 
 function money(amount: number | null, currency: string): string {
     if (amount === null) {
@@ -80,12 +61,12 @@ function money(amount: number | null, currency: string): string {
  * The two-pane "New subscription" create surface (SUBSCRIPTIONS_DESIGN §7),
  * as a drawer rather than a dedicated page — opened from the Subscriptions
  * list or from a customer's own page (which pre-fills and locks the
- * customer section).
+ * customer section). Items are plan-bearing prices; trial-bearing prices
+ * (prices.trial_*) get wired in V2-2.
  */
 export default function CreateSubscriptionDrawer({
     customers,
     products,
-    trialOffers,
     teamCurrency,
     open,
     onOpenChange,
@@ -106,9 +87,7 @@ export default function CreateSubscriptionDrawer({
         collection_mode: CollectionMode;
         payment_method_id: number | null;
         items: Array<{
-            kind: 'price' | 'trial';
-            price_id?: number;
-            trial_offer_id?: number;
+            price_id: number;
             quantity: number;
         }>;
     };
@@ -138,17 +117,9 @@ export default function CreateSubscriptionDrawer({
 
     const customer = customers.find((c) => c.id === customerId) ?? null;
     const currency = customer?.currency ?? teamCurrency;
-    // A paid trial (intro price > 0) is charged now and each cycle; only a
-    // wholly-free trial takes nothing today (schema.md §5).
-    const hasPaidLine = lines.some(
-        (line) =>
-            (line.kind === 'price' || !line.isFree) && line.unitAmount !== null,
-    );
-    const freeTrialOnly =
-        lines.length > 0 &&
-        lines.every((line) => line.kind === 'trial' && line.isFree);
+    const hasPaidLine = lines.some((line) => line.unitAmount !== null);
 
-    // Only prices/offers matching the subscription currency are offered —
+    // Only prices matching the subscription currency are offered —
     // a subscription is single-currency for life (§7.2). The React Compiler
     // memoizes these derived values; no manual useMemo.
     const productOptions = products
@@ -160,14 +131,8 @@ export default function CreateSubscriptionDrawer({
         }))
         .filter((product) => product.prices.length > 0);
 
-    const trialOptions = trialOffers.filter(
-        (offer) => offer.trialPrice.currency === currency,
-    );
-
-    // A product appears at most once — a plain line and a trial for the same
-    // product describe the same subscription, so the newest wins (adding a
-    // trial for a product replaces its plain line, and vice versa). This is
-    // what prevents double-charging the base price alongside the trial.
+    // A product appears at most once — two lines for the same product
+    // describe the same subscription, so the newest wins.
     const upsertLine = (line: Line) => {
         const replacing = lines.some((l) => l.productId === line.productId);
 
@@ -194,36 +159,14 @@ export default function CreateSubscriptionDrawer({
 
         upsertLine({
             key: `price-${priceId}-${Date.now()}`,
-            kind: 'price',
             productId: product.id,
             priceId,
             productName: product.name,
-            priceLabel: price.label,
+            priceLabel: price.planName
+                ? `${price.planName} · ${price.label}`
+                : price.label,
             unitAmount: price.unitAmount,
             currency: price.currency,
-            quantity: 1,
-        });
-    };
-
-    const addTrial = (value: string) => {
-        const offer = trialOffers.find((o) => o.id === Number(value));
-
-        if (!offer) {
-            return;
-        }
-
-        upsertLine({
-            key: `trial-${offer.id}-${Date.now()}`,
-            kind: 'trial',
-            productId: offer.product.id,
-            trialOfferId: offer.id,
-            productName: offer.product.name,
-            trialLabel: offer.trialPrice.isFree
-                ? 'Free trial'
-                : offer.trialPrice.label,
-            isFree: offer.trialPrice.isFree,
-            unitAmount: offer.trialPrice.unitAmount,
-            transitionLabel: offer.transitionPrice.label,
             quantity: 1,
         });
     };
@@ -240,21 +183,18 @@ export default function CreateSubscriptionDrawer({
             ),
         );
 
-    // Due today: automatic charges every billing line now — regular prices and
-    // paid-trial intro prices alike; free-trial lines add nothing. Manual bills
+    // Due today: automatic charges every billing line now. Manual bills
     // by invoice, so nothing is charged to a card today (§7.2 Preview).
     const dueToday =
         collectionMode === 'manual'
             ? 0
-            : lines.reduce((sum, line) => {
-                  const billsNow = line.kind === 'price' || !line.isFree;
-
-                  if (billsNow && line.unitAmount !== null) {
-                      return sum + line.unitAmount * line.quantity;
-                  }
-
-                  return sum;
-              }, 0);
+            : lines.reduce(
+                  (sum, line) =>
+                      line.unitAmount !== null
+                          ? sum + line.unitAmount * line.quantity
+                          : sum,
+                  0,
+              );
 
     const canSubmit = customerId !== null && lines.length > 0 && !processing;
 
@@ -263,11 +203,9 @@ export default function CreateSubscriptionDrawer({
         customer?.paymentMethods.length === 0 &&
         hasPaidLine;
 
-    const ctaLabel = freeTrialOnly
-        ? 'Start free trial'
-        : noCardAutomatic
-          ? 'Create & send payment link'
-          : 'Start subscription';
+    const ctaLabel = noCardAutomatic
+        ? 'Create & send payment link'
+        : 'Start subscription';
 
     const submit = () => {
         if (!canSubmit) {
@@ -279,19 +217,10 @@ export default function CreateSubscriptionDrawer({
             collection_mode: collectionMode,
             payment_method_id:
                 collectionMode === 'automatic' ? paymentMethodId : null,
-            items: lines.map((line) =>
-                line.kind === 'price'
-                    ? {
-                          kind: 'price' as const,
-                          price_id: line.priceId,
-                          quantity: line.quantity,
-                      }
-                    : {
-                          kind: 'trial' as const,
-                          trial_offer_id: line.trialOfferId,
-                          quantity: line.quantity,
-                      },
-            ),
+            items: lines.map((line) => ({
+                price_id: line.priceId,
+                quantity: line.quantity,
+            })),
         }));
 
         post(store().url, {
@@ -307,8 +236,7 @@ export default function CreateSubscriptionDrawer({
                 <SheetHeader>
                     <SheetTitle>New subscription</SheetTitle>
                     <SheetDescription>
-                        Attach a customer to one or more prices — add a trial
-                        if you offer one.
+                        Attach a customer to one or more plan prices.
                     </SheetDescription>
                 </SheetHeader>
 
@@ -366,8 +294,7 @@ export default function CreateSubscriptionDrawer({
 
                             {lines.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">
-                                    Add the product or plan you're billing
-                                    for. Add a free trial if you offer one.
+                                    Add the plan price you're billing for.
                                 </p>
                             ) : (
                                 <div className="divide-y rounded-md border">
@@ -377,44 +304,27 @@ export default function CreateSubscriptionDrawer({
                                             className="flex items-center gap-3 p-3"
                                             data-test="line-item"
                                         >
-                                            {line.kind === 'trial' && (
-                                                <Gift className="size-4 shrink-0 text-blue-500" />
-                                            )}
                                             <div className="min-w-0 flex-1">
                                                 <p className="truncate text-sm font-medium">
                                                     {line.productName}
-                                                    {line.kind === 'trial' && (
-                                                        <Badge
-                                                            variant="secondary"
-                                                            className="ml-2"
-                                                        >
-                                                            {line.trialLabel}
-                                                        </Badge>
-                                                    )}
                                                 </p>
                                                 <p className="truncate text-xs text-muted-foreground">
-                                                    {line.kind === 'price'
-                                                        ? line.priceLabel
-                                                        : `then ${line.transitionLabel}`}
+                                                    {line.priceLabel}
                                                 </p>
                                             </div>
-                                            {line.kind === 'price' && (
-                                                <Input
-                                                    type="number"
-                                                    min={1}
-                                                    value={line.quantity}
-                                                    onChange={(e) =>
-                                                        setQuantity(
-                                                            line.key,
-                                                            Number(
-                                                                e.target.value,
-                                                            ),
-                                                        )
-                                                    }
-                                                    className="w-16"
-                                                    aria-label="Quantity"
-                                                />
-                                            )}
+                                            <Input
+                                                type="number"
+                                                min={1}
+                                                value={line.quantity}
+                                                onChange={(e) =>
+                                                    setQuantity(
+                                                        line.key,
+                                                        Number(e.target.value),
+                                                    )
+                                                }
+                                                className="w-16"
+                                                aria-label="Quantity"
+                                            />
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
@@ -464,6 +374,9 @@ export default function CreateSubscriptionDrawer({
                                                                             product.name
                                                                         }{' '}
                                                                         ·{' '}
+                                                                        {price.planName
+                                                                            ? `${price.planName} · `
+                                                                            : ''}
                                                                         {
                                                                             price.label
                                                                         }
@@ -475,41 +388,6 @@ export default function CreateSubscriptionDrawer({
                                             </SelectContent>
                                         </Select>
                                     </div>
-
-                                    {trialOptions.length > 0 && (
-                                        <div className="w-52">
-                                            <Select
-                                                value=""
-                                                onValueChange={addTrial}
-                                            >
-                                                <SelectTrigger data-test="add-trial">
-                                                    <span className="flex items-center gap-1.5 text-sm">
-                                                        <Gift className="size-4" />{' '}
-                                                        Add trial
-                                                    </span>
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {trialOptions.map(
-                                                        (offer) => (
-                                                            <SelectItem
-                                                                key={offer.id}
-                                                                value={String(
-                                                                    offer.id,
-                                                                )}
-                                                            >
-                                                                {
-                                                                    offer
-                                                                        .product
-                                                                        .name
-                                                                }{' '}
-                                                                · {offer.name}
-                                                            </SelectItem>
-                                                        ),
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    )}
                                 </div>
                             )}
 
@@ -643,15 +521,13 @@ export default function CreateSubscriptionDrawer({
                                 {ctaLabel}
                             </Button>
                             <p className="text-center text-xs text-muted-foreground">
-                                {freeTrialOnly
-                                    ? 'No payment today — the free trial starts immediately.'
-                                    : collectionMode === 'manual'
-                                      ? "We'll invoice the customer; no card is charged today."
-                                      : noCardAutomatic
-                                        ? "No card on file — we'll send a secure link to collect one. Access starts once they pay."
-                                        : dueToday > 0
-                                          ? `Charges ${money(dueToday, currency)} today, then renews.`
-                                          : 'Creates the subscription and its first period.'}
+                                {collectionMode === 'manual'
+                                    ? "We'll invoice the customer; no card is charged today."
+                                    : noCardAutomatic
+                                      ? "No card on file — we'll send a secure link to collect one. Access starts once they pay."
+                                      : dueToday > 0
+                                        ? `Charges ${money(dueToday, currency)} today, then renews.`
+                                        : 'Creates the subscription and its first period.'}
                             </p>
                         </div>
                     </div>

@@ -19,7 +19,7 @@ class EntitlementFactory extends Factory
      */
     public function definition(): array
     {
-        $name = fake()->unique()->words(2, true);
+        $name = (string) fake()->unique()->words(2, true);
 
         return [
             'team_id' => Team::factory(),

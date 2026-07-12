@@ -26,7 +26,6 @@ import { index, show } from '@/routes/subscriptions';
 import type {
     CreateCustomerOption,
     CreateProductOption,
-    CreateTrialOfferOption,
     Paginated,
     SubscriptionFilters,
     SubscriptionListItem,
@@ -39,7 +38,6 @@ type Props = {
     hasRecurringPrices: boolean;
     customers: CreateCustomerOption[];
     products: CreateProductOption[];
-    trialOffers: CreateTrialOfferOption[];
     teamCurrency: string;
     canManage: boolean;
 };
@@ -87,7 +85,6 @@ export default function SubscriptionsIndex({
     hasRecurringPrices,
     customers,
     products: productOptions,
-    trialOffers,
     teamCurrency,
     canManage,
 }: Props) {
@@ -300,7 +297,6 @@ export default function SubscriptionsIndex({
                 <CreateSubscriptionDrawer
                     customers={customers}
                     products={productOptions}
-                    trialOffers={trialOffers}
                     teamCurrency={teamCurrency}
                     open={createOpen}
                     onOpenChange={setCreateOpen}

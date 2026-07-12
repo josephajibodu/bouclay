@@ -44,26 +44,14 @@ export type SubscriptionFilters = {
     status: string;
 };
 
-export type SubscriptionItemTrial = {
-    id: number;
-    publicId: string;
-    isFree: boolean;
-    durationIterations: number | null;
-    startsAt: string;
-    endsAt: string;
-    status: string;
-    transitionPrice: {
-        id: number;
-        label: string;
-        unitAmount: number | null;
-        currency: string;
-    };
-};
+export type SubscriptionItemKind = 'plan' | 'addon';
 
 export type SubscriptionItem = {
     id: number;
     publicId: string;
+    kind: SubscriptionItemKind;
     product: { id: number; name: string };
+    plan: { id: number; name: string };
     price: {
         id: number;
         label: string;
@@ -73,7 +61,7 @@ export type SubscriptionItem = {
     };
     quantity: number;
     status: string;
-    trial: SubscriptionItemTrial | null;
+    trialEndsAt: string | null;
 };
 
 export type SubscriptionScheduledChange = {
@@ -111,6 +99,7 @@ export type SubscriptionDetail = {
 export type CreatePriceOption = {
     id: number;
     label: string;
+    planName?: string | null;
     unitAmount: number | null;
     currency: string;
     billingInterval: string | null;
@@ -136,20 +125,3 @@ export type CreateCustomerOption = {
     paymentMethods: CreateCustomerPaymentMethod[];
 };
 
-export type CreateTrialOfferOption = {
-    id: number;
-    name: string;
-    product: { id: number; name: string };
-    trialPrice: {
-        label: string;
-        isFree: boolean;
-        unitAmount: number | null;
-        currency: string;
-    };
-    transitionPrice: {
-        label: string;
-        unitAmount: number | null;
-        currency: string;
-    };
-    durationIterations: number | null;
-};

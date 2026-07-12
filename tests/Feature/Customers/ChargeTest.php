@@ -108,11 +108,11 @@ test('the checkout is scoped to the subaccount, card-only, with the parent in th
         $order = $request->data()['order'];
 
         // Funds deposit into the subaccount; only cards are offered.
-        expect($order['accountId'])->toBe($connection->nomba_test_subaccount_id)
+        expect($order['accountId'])->toBe($connection->test_credentials['subaccount_id'])
             ->and($order['allowedPaymentMethods'])->toBe(['Card']);
 
         // The account header is always the parent, never the subaccount.
-        return $request->hasHeader('accountId', $connection->nomba_test_account_id);
+        return $request->hasHeader('accountId', $connection->test_credentials['account_id']);
     });
 });
 

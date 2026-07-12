@@ -21,9 +21,7 @@ test('a payment_success webhook marks the invoice paid and activates the subscri
     Mail::fake();
 
     ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = subscriptionFixture();
-    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
-        'nomba_test_webhook_secret' => 'whsec_test_secret',
-    ]);
+    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create();
     fakeNombaCheckout();
 
     $this->actingAs($owner)
@@ -46,9 +44,9 @@ test('a payment_success webhook marks the invoice paid and activates the subscri
         'set_default' => true,
     ], now()->addHour());
 
-    $payload = nombaPaymentSuccessPayload($orderReference, $connection->nomba_test_account_id);
+    $payload = nombaPaymentSuccessPayload($orderReference, $connection->test_credentials['account_id']);
 
-    postSignedNombaWebhook($connection, $payload, 'whsec_test_secret')
+    postSignedNombaWebhook($connection, $payload, 'whsec_test_default')
         ->assertOk()
         ->assertJson(['received' => true]);
 
@@ -89,7 +87,7 @@ test('duplicate payment_success webhooks are idempotent', function () {
         'set_default' => true,
     ], now()->addHour());
 
-    $payload = nombaPaymentSuccessPayload($orderReference, $connection->nomba_test_account_id);
+    $payload = nombaPaymentSuccessPayload($orderReference, $connection->test_credentials['account_id']);
 
     postSignedNombaWebhook($connection, $payload)->assertOk();
     postSignedNombaWebhook($connection, $payload)->assertOk();
@@ -99,9 +97,7 @@ test('duplicate payment_success webhooks are idempotent', function () {
 
 test('a payment_success webhook creates a payment link subscription only after payment confirmation', function () {
     ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
-    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
-        'nomba_test_webhook_secret' => 'whsec_test_secret',
-    ]);
+    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create();
     fakeNombaCheckout('https://checkout.nomba.com/pay/recurring-link');
 
     $paymentLink = PaymentLink::query()->create([
@@ -118,9 +114,9 @@ test('a payment_success webhook creates a payment link subscription only after p
 
     $invoice = Invoice::query()->firstOrFail();
     $orderReference = (string) $invoice->custom_data['checkout_order_reference'];
-    $payload = nombaPaymentSuccessPayload($orderReference, $connection->nomba_test_account_id);
+    $payload = nombaPaymentSuccessPayload($orderReference, $connection->test_credentials['account_id']);
 
-    postSignedNombaWebhook($connection, $payload, 'whsec_test_secret')
+    postSignedNombaWebhook($connection, $payload, 'whsec_test_default')
         ->assertOk()
         ->assertJson(['received' => true]);
 
@@ -157,6 +153,7 @@ test('a payment_failed webhook on a renewal invoice moves an active subscription
 
     $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,
@@ -165,6 +162,7 @@ test('a payment_failed webhook on a renewal invoice moves an active subscription
     $invoice = $subscription->invoices()->create([
         'team_id' => $team->id,
         'customer_id' => $customer->id,
+        'billed_to_customer_id' => $customer->id,
         'number' => 'BCL-9001',
         'status' => InvoiceStatus::Open,
         'billing_reason' => InvoiceBillingReason::SubscriptionCycle,
@@ -199,7 +197,7 @@ test('a payment_failed webhook on a renewal invoice moves an active subscription
         'event_type' => 'payment_failed',
         'requestId' => (string) Str::uuid(),
         'data' => [
-            'merchant' => ['userId' => $connection->nomba_test_account_id],
+            'merchant' => ['userId' => $connection->test_credentials['account_id']],
             'transaction' => [
                 'transactionId' => 'WEB-failed-1',
                 'type' => 'online_checkout',
@@ -208,7 +206,7 @@ test('a payment_failed webhook on a renewal invoice moves an active subscription
             ],
             'order' => [
                 'orderReference' => $orderReference,
-                'accountId' => $connection->nomba_test_account_id,
+                'accountId' => $connection->test_credentials['account_id'],
             ],
         ],
     ];
@@ -223,25 +221,21 @@ test('a payment_failed webhook on a renewal invoice moves an active subscription
 
 test('webhooks with a malformed timestamp are rejected without a server error', function () {
     $team = Team::factory()->create();
-    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
-        'nomba_test_webhook_secret' => 'whsec_test_secret',
-    ]);
+    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create();
 
-    $payload = nombaPaymentSuccessPayload('order-ref', $connection->nomba_test_account_id);
+    $payload = nombaPaymentSuccessPayload('order-ref', $connection->test_credentials['account_id']);
 
     $this->postJson("/webhooks/nomba/{$connection->inbound_webhook_token}", $payload, [
-        'nomba-signature' => nombaWebhookSignature($payload, 'whsec_test_secret', 'not-a-valid-timestamp'),
+        'nomba-signature' => nombaWebhookSignature($payload, 'whsec_test_default', 'not-a-valid-timestamp'),
         'nomba-timestamp' => 'not-a-valid-timestamp',
     ])->assertUnauthorized();
 });
 
 test('webhooks with an invalid signature are rejected', function () {
     $team = Team::factory()->create();
-    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
-        'nomba_test_webhook_secret' => 'whsec_test_secret',
-    ]);
+    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create();
 
-    $payload = nombaPaymentSuccessPayload('order-ref', $connection->nomba_test_account_id);
+    $payload = nombaPaymentSuccessPayload('order-ref', $connection->test_credentials['account_id']);
 
     $this->postJson("/webhooks/nomba/{$connection->inbound_webhook_token}", $payload, [
         'nomba-signature' => 'invalid-signature',
@@ -252,20 +246,22 @@ test('webhooks with an invalid signature are rejected', function () {
 test('webhooks are rejected when no signing secret is configured for the active mode', function () {
     $team = Team::factory()->create();
     $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
-        'nomba_test_webhook_secret' => null,
+        'test_credentials' => [
+            'account_id' => fake()->uuid(),
+            'client_id' => fake()->uuid(),
+            'client_secret' => fake()->sha256(),
+        ],
     ]);
 
-    $payload = nombaPaymentSuccessPayload('order-ref', $connection->nomba_test_account_id);
+    $payload = nombaPaymentSuccessPayload('order-ref', $connection->test_credentials['account_id']);
 
-    postSignedNombaWebhook($connection, $payload, 'whsec_test_secret')
+    postSignedNombaWebhook($connection, $payload, 'whsec_test_default')
         ->assertUnauthorized();
 });
 
 test('the public inbound endpoint still marks the connection reachable for synthetic test events', function () {
     $team = Team::factory()->create();
-    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create([
-        'nomba_test_webhook_secret' => 'whsec_test_secret',
-    ]);
+    $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create();
 
     expect($connection->webhook_verified_at)->toBeNull();
 
@@ -281,7 +277,7 @@ test('payment_success webhooks still stash tokenized card data by order referenc
     $connection = TeamProcessorConnection::factory()->for($team)->testConnected()->create();
     $orderReference = 'order-token-stash';
 
-    $payload = nombaPaymentSuccessPayload($orderReference, $connection->nomba_test_account_id);
+    $payload = nombaPaymentSuccessPayload($orderReference, $connection->test_credentials['account_id']);
 
     postSignedNombaWebhook($connection, $payload)->assertOk();
 

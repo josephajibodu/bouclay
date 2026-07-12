@@ -26,9 +26,7 @@ class PaymentLinkController extends Controller
                 'name' => $request->filled('name') ? $request->string('name')->trim()->toString() : '',
             ],
             'checkoutError' => session('checkoutError'),
-            'checkoutSuccess' => $request->boolean('trial_started')
-                ? 'Your free trial has started. You are all set for now.'
-                : null,
+            'checkoutSuccess' => null,
         ]);
     }
 
@@ -57,7 +55,7 @@ class PaymentLinkController extends Controller
     {
         return PaymentLink::query()
             ->where('public_id', $publicId)
-            ->with(['team.processorConnection', 'product', 'price', 'trialOffer.trialPrice', 'trialOffer.transitionPrice'])
+            ->with(['team.processorConnection', 'product', 'price'])
             ->firstOrFail();
     }
 

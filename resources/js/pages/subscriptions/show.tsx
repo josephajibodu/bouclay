@@ -339,7 +339,7 @@ export default function SubscriptionShow({
                             className="flex items-start justify-between gap-3 p-4"
                         >
                             <div className="flex items-start gap-3">
-                                {item.trial ? (
+                                {item.trialEndsAt ? (
                                     <Gift className="mt-0.5 size-5 text-blue-500" />
                                 ) : (
                                     <Receipt className="mt-0.5 size-5 text-muted-foreground" />
@@ -347,7 +347,7 @@ export default function SubscriptionShow({
                                 <div>
                                     <p className="font-medium">
                                         {item.product.name}
-                                        {item.trial && (
+                                        {item.trialEndsAt && (
                                             <Badge
                                                 variant="secondary"
                                                 className="ml-2"
@@ -357,8 +357,8 @@ export default function SubscriptionShow({
                                         )}
                                     </p>
                                     <p className="text-sm text-muted-foreground">
-                                        {item.trial
-                                            ? `${item.trial.isFree ? 'Free' : item.price.label} · then ${item.trial.transitionPrice.label}`
+                                        {item.trialEndsAt
+                                            ? `On trial until ${formatDate(item.trialEndsAt)} · then ${item.price.label}`
                                             : item.price.label}
                                     </p>
                                 </div>
@@ -366,7 +366,7 @@ export default function SubscriptionShow({
                             <div className="flex items-start gap-2">
                                 <div className="text-right text-sm">
                                     <p className="font-medium">
-                                        {item.trial?.isFree
+                                        {item.trialEndsAt
                                             ? 'Free'
                                             : money(
                                                   item.price.unitAmount,
@@ -399,9 +399,9 @@ export default function SubscriptionShow({
             </section>
 
             {/* Trial */}
-            {primaryItem?.trial && (
+            {primaryItem?.trialEndsAt && (
                 <TrialCard
-                    trial={primaryItem.trial}
+                    item={primaryItem}
                     createdAt={subscription.createdAt}
                     collectionMode={subscription.collectionMode}
                     card={paymentMethod}
@@ -789,17 +789,18 @@ function Banner({
 }
 
 function TrialCard({
-    trial,
+    item,
     createdAt,
     collectionMode,
     card,
 }: {
-    trial: NonNullable<SubscriptionItem['trial']>;
+    item: SubscriptionItem;
     createdAt: string | null;
     collectionMode: string;
     card: { brand: string | null; last4: string | null } | null;
 }) {
-    const days = daysUntil(trial.endsAt);
+    const trialEndsAt = item.trialEndsAt ?? '';
+    const days = daysUntil(trialEndsAt);
 
     return (
         <section className="space-y-3">
@@ -807,7 +808,7 @@ function TrialCard({
                 <h2 className="text-lg font-semibold">Trial</h2>
                 <Badge variant="secondary" className="gap-1">
                     <Gift className="size-3" />
-                    {trial.isFree ? 'Free trial' : 'Paid trial'}
+                    Free trial
                 </Badge>
             </div>
             <div className="space-y-3 rounded-lg border p-4">
@@ -819,23 +820,19 @@ function TrialCard({
                         {days} day{days === 1 ? '' : 's'} left
                     </span>
                     <span className="text-muted-foreground">
-                        Ends {formatDate(trial.endsAt)}
+                        Ends {formatDate(trialEndsAt)}
                     </span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                     <div
                         className="h-full rounded-full bg-blue-500"
-                        style={{ width: `${trialProgress(createdAt, trial.endsAt)}%` }}
+                        style={{ width: `${trialProgress(createdAt, trialEndsAt)}%` }}
                     />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                    When the trial ends → converts to{' '}
-                    {trial.transitionPrice.label} · first charge{' '}
-                    {money(
-                        trial.transitionPrice.unitAmount,
-                        trial.transitionPrice.currency,
-                    )}
-                    .
+                    When the trial ends → converts to {item.price.label} ·
+                    first charge{' '}
+                    {money(item.price.unitAmount, item.price.currency)}.
                     {collectionMode === 'automatic' && card
                         ? ` Paid automatically with ${card.brand ?? 'card'} ···· ${card.last4 ?? '••••'}.`
                         : collectionMode === 'automatic'
@@ -878,7 +875,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 }
 
 function itemCanBeManaged(item: SubscriptionItem): boolean {
-    return item.status === 'active' && item.trial === null;
+    return item.status === 'active' && item.trialEndsAt === null;
 }
 
 function ItemActionsMenu({ onManage }: { onManage: () => void }) {

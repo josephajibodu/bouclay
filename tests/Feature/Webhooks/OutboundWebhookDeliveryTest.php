@@ -80,6 +80,7 @@ test('marking an already paid invoice paid again does not emit a second invoice.
     $invoice = $customer->invoices()->create([
         'team_id' => $team->id,
         'customer_id' => $customer->id,
+        'billed_to_customer_id' => $customer->id,
         'number' => 'INV-1001',
         'status' => InvoiceStatus::Open,
         'billing_reason' => InvoiceBillingReason::Manual,

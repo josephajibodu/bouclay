@@ -10,12 +10,11 @@ import {
 } from '@/components/ui/sheet';
 import { useClipboard } from '@/hooks/use-clipboard';
 import { formatMoney, formatPriceInterval, formatTierSummary } from '@/lib/utils';
-import type { Price, TrialOffer } from '@/types';
+import type { Price } from '@/types';
 
 type Props = PropsWithChildren<{
     price: Price;
     productName: string;
-    trials: TrialOffer[];
     canManagePrices: boolean;
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -32,7 +31,6 @@ const taxModeLabel: Record<Price['taxMode'], string> = {
 export default function PriceDetailDrawer({
     price,
     productName,
-    trials,
     canManagePrices,
     open,
     onOpenChange,
@@ -41,20 +39,11 @@ export default function PriceDetailDrawer({
 }: Props) {
     const [copiedText, copy] = useClipboard();
 
-    const isTrialPriceFor = trials.find((t) => t.trialPrice.id === price.id);
-    const leadsToThisPrice = trials.find(
-        (t) => t.transitionPrice.id === price.id,
-    );
-
-    const trialSummary = isTrialPriceFor
-        ? `Trial price for "${isTrialPriceFor.name}"${
-              isTrialPriceFor.durationIterations > 1
-                  ? ` (${isTrialPriceFor.durationIterations} periods)`
-                  : ''
-          }`
-        : leadsToThisPrice
-          ? `Transition target for "${leadsToThisPrice.name}"`
-          : 'No trial';
+    // Trials are a property of the price itself in the V2 catalog.
+    const trialSummary =
+        price.trialLength !== null
+            ? `${price.trialLength}-${price.trialUnit} trial${price.trialRequiresPaymentInfo ? ' (card required)' : ''}`
+            : 'No trial';
 
     const unitPriceSummary =
         price.pricingModel === 'graduated'

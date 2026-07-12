@@ -28,7 +28,8 @@ class DiscountRedemptionFactory extends Factory
             'subscription_id' => Subscription::factory(),
             'customer_id' => Customer::factory(),
             'remaining_intervals' => fn (array $attributes) => Discount::query()
-                ->find($attributes['discount_id'])
+                ->whereKey($attributes['discount_id'])
+                ->first()
                 ?->initialRemainingIntervals(),
             'applied_at' => now(),
             'last_applied_at' => null,

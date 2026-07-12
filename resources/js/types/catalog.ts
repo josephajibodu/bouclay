@@ -1,7 +1,9 @@
 export type CatalogStatus = 'active' | 'archived';
+export type PlanStatus = 'draft' | 'active' | 'archived';
 export type PriceType = 'recurring' | 'one_time';
 export type PricingModel = 'standard' | 'graduated';
 export type BillingInterval = 'day' | 'week' | 'month' | 'year';
+export type TrialUnit = 'day' | 'week' | 'month';
 export type TaxMode = 'inclusive' | 'exclusive' | 'account';
 
 export type PriceTier = {
@@ -15,6 +17,7 @@ export type PriceTier = {
 export type Price = {
     id: number;
     publicId: string;
+    planId: number | null;
     name: string | null;
     type: PriceType;
     pricingModel: PricingModel;
@@ -24,6 +27,12 @@ export type Price = {
     billingFrequency: number;
     taxMode: TaxMode;
     status: CatalogStatus;
+    version: number;
+    purchasable: boolean;
+    trialLength: number | null;
+    trialUnit: TrialUnit | null;
+    trialRequiresPaymentInfo: boolean;
+    trialOncePerCustomer: boolean;
     hasBeenUsed: boolean;
     customData: Record<string, string> | null;
     paymentLink: { id: string; url: string; priceLabel: string } | null;
@@ -33,17 +42,12 @@ export type Price = {
 
 export type PriceRef = { id: number; label: string };
 
-export type TrialOffer = {
+export type Plan = {
     id: number;
     publicId: string;
+    code: string | null;
     name: string;
-    trialPrice: PriceRef;
-    transitionToDifferentProduct: boolean;
-    transitionProduct: { id: number; name: string } | null;
-    transitionPrice: PriceRef;
-    durationIterations: number;
-    active: boolean;
-    paymentLink: { id: string; url: string; priceLabel: string } | null;
+    status: PlanStatus;
 };
 
 export type OtherProduct = {

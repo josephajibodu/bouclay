@@ -28,8 +28,8 @@ class SubscriptionItemFactory extends Factory
         return [
             'subscription_id' => Subscription::factory(),
             'price_id' => Price::factory(),
-            'plan_id' => fn (array $attributes) => Price::query()->find($attributes['price_id'])?->plan_id,
-            'product_id' => fn (array $attributes) => Price::query()->find($attributes['price_id'])?->product_id,
+            'plan_id' => fn (array $attributes) => Price::query()->whereKey($attributes['price_id'])->first()?->plan_id,
+            'product_id' => fn (array $attributes) => Price::query()->whereKey($attributes['price_id'])->first()?->product_id,
             'kind' => SubscriptionItemKind::Plan,
             'quantity' => 1,
             'status' => SubscriptionItemStatus::Active,

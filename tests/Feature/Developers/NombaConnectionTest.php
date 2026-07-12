@@ -76,9 +76,9 @@ test('test credentials can be connected with a valid response from nomba', funct
     $connection = TeamProcessorConnection::where('team_id', $team->id)->firstOrFail();
 
     expect($connection->test_connected_at)->not->toBeNull();
-    expect($connection->nomba_test_account_id)->toBe('account-123');
-    expect($connection->nomba_test_client_secret)->toBe('secret-123');
-    expect($connection->nomba_test_webhook_secret)->toBe('whsec_1234567890');
+    expect($connection->test_credentials['account_id'])->toBe('account-123');
+    expect($connection->test_credentials['client_secret'])->toBe('secret-123');
+    expect($connection->webhookSecretFor(ApiKeyMode::Test))->toBe('whsec_1234567890');
     expect($connection->live_connected_at)->toBeNull();
 });
 
@@ -147,7 +147,7 @@ test('a subaccount id can be connected and requests are scoped to it, while auth
     $connection = TeamProcessorConnection::where('team_id', $team->id)->firstOrFail();
     $credentials = $connection->credentialsFor(ApiKeyMode::Test);
 
-    expect($connection->nomba_test_subaccount_id)->toBe('subaccount-456');
+    expect($connection->test_credentials['subaccount_id'])->toBe('subaccount-456');
     expect($credentials['accountId'])->toBe('account-123');
     expect($credentials['subaccountId'])->toBe('subaccount-456');
     expect($credentials['requestAccountId'])->toBe('subaccount-456');
@@ -173,7 +173,7 @@ test('disconnecting clears the subaccount id along with the rest of the credenti
 
     $connection->refresh();
 
-    expect($connection->nomba_test_subaccount_id)->toBeNull();
+    expect($connection->test_credentials)->toBeNull();
 });
 
 test('connecting fails when nomba rejects the credentials', function () {
@@ -264,7 +264,7 @@ test('live credentials connect independently of test credentials', function () {
 
     expect($connection->live_connected_at)->not->toBeNull();
     expect($connection->test_connected_at)->not->toBeNull();
-    expect($connection->nomba_test_account_id)->not->toBeNull();
+    expect($connection->test_credentials['account_id'])->not->toBeNull();
 });
 
 test('an already-connected mode can be re-verified', function () {
@@ -311,7 +311,7 @@ test('a mode can be disconnected without affecting the other mode', function () 
     $connection->refresh();
 
     expect($connection->test_connected_at)->toBeNull();
-    expect($connection->nomba_test_account_id)->toBeNull();
+    expect($connection->test_credentials)->toBeNull();
     expect($connection->live_connected_at)->not->toBeNull();
 });
 

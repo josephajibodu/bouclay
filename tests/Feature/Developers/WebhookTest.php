@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ApiKeyMode;
 use App\Models\Team;
 use App\Models\TeamProcessorConnection;
 use App\Models\User;
@@ -84,8 +85,8 @@ test('a signing secret can be saved for a mode', function () {
 
     $response->assertRedirect(route('developers.webhooks.show'));
 
-    expect($connection->refresh()->nomba_test_webhook_secret)->toBe('whsec_1234567890');
-    expect($connection->nomba_live_webhook_secret)->toBeNull();
+    expect($connection->refresh()->webhookSecretFor(ApiKeyMode::Test))->toBe('whsec_1234567890');
+    expect($connection->webhookSecretFor(ApiKeyMode::Live))->toBeNull();
 });
 
 test('the endpoint can be rotated, invalidating the old token', function () {

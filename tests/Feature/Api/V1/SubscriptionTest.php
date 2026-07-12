@@ -9,26 +9,6 @@ use App\Models\PaymentMethod;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Subscription;
-use App\Models\TrialOffer;
-
-test('api can create a free trial subscription', function () {
-    ['token' => $token, 'team' => $team] = apiAuthFixture();
-    $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
-    $offer = TrialOffer::factory()->create(['team_id' => $team->id]);
-
-    $response = $this->postJson('/api/v1/subscriptions', [
-        'customer' => $customer->public_id,
-        'collectionMode' => 'manual',
-        'items' => [
-            ['trialOffer' => $offer->public_id, 'quantity' => 1],
-        ],
-    ], apiHeaders($token, 'sub-trial-1'));
-
-    $response->assertCreated()
-        ->assertJsonPath('data.status', SubscriptionStatus::Trialing->value);
-
-    expect(Subscription::query()->count())->toBe(1);
-});
 
 test('subscription create accepts items priceId camelCase', function () {
     ['token' => $token, 'team' => $team] = apiAuthFixture();
@@ -82,7 +62,7 @@ test('payment method mode mismatch with api key returns 422', function () {
 
 test('happy path creates customer subscribes and emits subscription created event', function () {
     ['token' => $token, 'team' => $team] = apiAuthFixture();
-    $offer = TrialOffer::factory()->create(['team_id' => $team->id]);
+    $price = Price::factory()->for($team)->for(Product::factory()->for($team)->create())->create(['currency' => 'NGN']);
 
     $customerResponse = $this->postJson('/api/v1/customers', [
         'email' => 'happy@example.com',
@@ -96,11 +76,11 @@ test('happy path creates customer subscribes and emits subscription created even
         'customer' => $customerPublicId,
         'collectionMode' => 'manual',
         'items' => [
-            ['trialOffer' => $offer->public_id],
+            ['price' => $price->public_id],
         ],
     ], apiHeaders($token, 'happy-subscription'))
         ->assertCreated()
-        ->assertJsonPath('data.status', SubscriptionStatus::Trialing->value);
+        ->assertJsonPath('data.status', SubscriptionStatus::Incomplete->value);
 
     expect(Event::query()
         ->where('team_id', $team->id)

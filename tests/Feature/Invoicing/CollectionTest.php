@@ -139,6 +139,7 @@ test('the renewal command generates a new invoice and collects it', function () 
 
     $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,
@@ -175,6 +176,7 @@ test('a declined renewal charge moves an active subscription to past due', funct
 
     $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,

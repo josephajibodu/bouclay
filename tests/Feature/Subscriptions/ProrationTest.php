@@ -29,6 +29,7 @@ test('increasing quantity mid-cycle creates proration invoice lines', function (
 
     $item = $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,
@@ -72,6 +73,7 @@ test('changing plan mid-cycle creates credit and charge proration lines', functi
 
     $item = $subscription->items()->create([
         'price_id' => $oldPrice->id,
+        'plan_id' => $oldPrice->plan_id,
         'product_id' => $product->id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,
@@ -110,6 +112,7 @@ test('an automatic proration update charges the customer when a card is on file'
 
     $item = $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,
@@ -141,6 +144,7 @@ test('updating a subscription item through the dashboard route validates ownersh
 
     $item = $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,

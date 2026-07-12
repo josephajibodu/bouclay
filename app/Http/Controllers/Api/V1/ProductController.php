@@ -96,12 +96,11 @@ class ProductController extends V1Controller
 
         /** @var Product $model */
         $model = $this->findProduct($context->team, $product);
-        $model->load(['prices', 'trialOffers']);
+        $model->load(['prices']);
 
         return $this->resource([
             ...$model->toApiObject(),
             'priceIds' => $model->prices->pluck('public_id')->all(),
-            'trialOfferIds' => $model->trialOffers->pluck('public_id')->all(),
         ], request: $request);
     }
 

@@ -108,10 +108,14 @@ export type TeamPermissions = {
     canManageCustomers: boolean;
     canViewProducts: boolean;
     canManageProducts: boolean;
+    canViewPlans: boolean;
+    canManagePlans: boolean;
     canViewPrices: boolean;
     canManagePrices: boolean;
-    canViewTrialOffers: boolean;
-    canManageTrialOffers: boolean;
+    canViewEntitlements: boolean;
+    canManageEntitlements: boolean;
+    canViewDiscounts: boolean;
+    canManageDiscounts: boolean;
     canViewSubscriptions: boolean;
     canManageSubscriptions: boolean;
     canViewInvoices: boolean;

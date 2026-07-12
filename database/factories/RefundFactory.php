@@ -26,7 +26,7 @@ class RefundFactory extends Factory
         return [
             'team_id' => Team::factory(),
             'payment_id' => Payment::factory(),
-            'invoice_id' => fn (array $attributes) => Payment::query()->find($attributes['payment_id'])?->invoice_id,
+            'invoice_id' => fn (array $attributes) => Payment::query()->whereKey($attributes['payment_id'])->first()?->invoice_id,
             'amount' => 100000,
             'currency' => 'NGN',
             'reason' => null,

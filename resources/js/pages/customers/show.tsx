@@ -53,7 +53,6 @@ import { show as subscriptionShow } from '@/routes/subscriptions';
 import type {
     CreateCustomerOption,
     CreateProductOption,
-    CreateTrialOfferOption,
     CustomerAddress,
     CustomerActivityEvent,
     CustomerDetail,
@@ -86,7 +85,6 @@ type Props = {
     teamCurrency: string;
     customerOption: CreateCustomerOption;
     products: CreateProductOption[];
-    trialOffers: CreateTrialOfferOption[];
     permissions: { canManage: boolean; canManageSubscriptions: boolean };
     portalUrl: string;
 };
@@ -143,7 +141,6 @@ export default function CustomerShow({
     teamCurrency,
     customerOption,
     products,
-    trialOffers,
     permissions,
     portalUrl,
 }: Props) {
@@ -828,7 +825,6 @@ export default function CustomerShow({
             <CreateSubscriptionDrawer
                 customers={[customerOption]}
                 products={products}
-                trialOffers={trialOffers}
                 teamCurrency={teamCurrency}
                 open={subscribeOpen}
                 onOpenChange={setSubscribeOpen}

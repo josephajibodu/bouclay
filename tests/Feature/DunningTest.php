@@ -59,6 +59,7 @@ test('a declined renewal charge records a classified failure code', function () 
 
     $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,
@@ -326,6 +327,7 @@ function pastDueSubscriptionFixture(
 
     $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,
@@ -409,6 +411,7 @@ function manualPastDueCandidateFixture(
 
     $subscription->items()->create([
         'price_id' => $price->id,
+        'plan_id' => $price->plan_id,
         'product_id' => $price->product_id,
         'quantity' => 1,
         'status' => SubscriptionItemStatus::Active,
