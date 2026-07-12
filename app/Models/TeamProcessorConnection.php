@@ -12,20 +12,23 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
+ * BYOK link between a team and one payment gateway (schema.md §1). One row
+ * per processor per team; `is_default` governs which gateway NEW checkouts
+ * route through — charges on a stored card always go through the processor
+ * that minted the token.
+ *
+ * Credentials are one encrypted JSON blob per mode, keyed by the driver's
+ * `configSchema()` manifest (the driver interface lands in V2-4; until then
+ * the Nomba key shape is `{account_id, subaccount_id?, client_id,
+ * client_secret, webhook_secret}`).
+ *
  * @property int $id
  * @property int $team_id
  * @property string $processor
- * @property string|null $nomba_test_account_id
- * @property string|null $nomba_test_subaccount_id
- * @property string|null $nomba_test_client_id
- * @property string|null $nomba_test_client_secret
- * @property string|null $nomba_live_account_id
- * @property string|null $nomba_live_subaccount_id
- * @property string|null $nomba_live_client_id
- * @property string|null $nomba_live_client_secret
+ * @property bool $is_default
+ * @property array<string, string|null>|null $test_credentials
+ * @property array<string, string|null>|null $live_credentials
  * @property string $inbound_webhook_token
- * @property string|null $nomba_test_webhook_secret
- * @property string|null $nomba_live_webhook_secret
  * @property Carbon|null $webhook_verified_at
  * @property Carbon|null $test_connected_at
  * @property Carbon|null $live_connected_at
@@ -35,9 +38,9 @@ use Illuminate\Support\Str;
  */
 #[Fillable([
     'processor',
-    'nomba_test_account_id', 'nomba_test_subaccount_id', 'nomba_test_client_id', 'nomba_test_client_secret',
-    'nomba_live_account_id', 'nomba_live_subaccount_id', 'nomba_live_client_id', 'nomba_live_client_secret',
-    'nomba_test_webhook_secret', 'nomba_live_webhook_secret',
+    'is_default',
+    'test_credentials',
+    'live_credentials',
     'webhook_verified_at',
     'test_connected_at', 'live_connected_at',
 ])]
@@ -82,6 +85,21 @@ class TeamProcessorConnection extends Model
     }
 
     /**
+     * Get the raw credential blob for the given mode.
+     *
+     * @return array<string, string|null>
+     */
+    public function credentialBlobFor(ApiKeyMode $mode): array
+    {
+        $blob = match ($mode) {
+            ApiKeyMode::Test => $this->test_credentials,
+            ApiKeyMode::Live => $this->live_credentials,
+        };
+
+        return $blob ?? [];
+    }
+
+    /**
      * Get the Nomba credentials for the given mode, or null if not connected.
      *
      * `accountId` is the parent business account and always authenticates
@@ -93,10 +111,12 @@ class TeamProcessorConnection extends Model
      */
     public function credentialsFor(ApiKeyMode $mode): ?array
     {
-        [$accountId, $subaccountId, $clientId, $clientSecret] = match ($mode) {
-            ApiKeyMode::Test => [$this->nomba_test_account_id, $this->nomba_test_subaccount_id, $this->nomba_test_client_id, $this->nomba_test_client_secret],
-            ApiKeyMode::Live => [$this->nomba_live_account_id, $this->nomba_live_subaccount_id, $this->nomba_live_client_id, $this->nomba_live_client_secret],
-        };
+        $blob = $this->credentialBlobFor($mode);
+
+        $accountId = $blob['account_id'] ?? null;
+        $subaccountId = $blob['subaccount_id'] ?? null;
+        $clientId = $blob['client_id'] ?? null;
+        $clientSecret = $blob['client_secret'] ?? null;
 
         if (! $accountId || ! $clientId || ! $clientSecret) {
             return null;
@@ -104,7 +124,7 @@ class TeamProcessorConnection extends Model
 
         return [
             'accountId' => $accountId,
-            'subaccountId' => $subaccountId,
+            'subaccountId' => $subaccountId ?: null,
             'requestAccountId' => $subaccountId ?: $accountId,
             'clientId' => $clientId,
             'clientSecret' => $clientSecret,
@@ -124,9 +144,28 @@ class TeamProcessorConnection extends Model
      */
     public function webhookSecretFor(ApiKeyMode $mode): ?string
     {
-        return match ($mode) {
-            ApiKeyMode::Test => $this->nomba_test_webhook_secret,
-            ApiKeyMode::Live => $this->nomba_live_webhook_secret,
+        $secret = $this->credentialBlobFor($mode)['webhook_secret'] ?? null;
+
+        return $secret !== null && $secret !== '' ? $secret : null;
+    }
+
+    /**
+     * Merge values into the credential blob for the given mode. Null values
+     * are dropped from the blob (an omitted secret keeps its saved value —
+     * callers merge before saving).
+     *
+     * @param  array<string, string|null>  $values
+     */
+    public function mergeCredentials(ApiKeyMode $mode, array $values): void
+    {
+        $blob = array_filter(
+            array_merge($this->credentialBlobFor($mode), $values),
+            fn (?string $value): bool => $value !== null && $value !== '',
+        );
+
+        match ($mode) {
+            ApiKeyMode::Test => $this->test_credentials = $blob,
+            ApiKeyMode::Live => $this->live_credentials = $blob,
         };
     }
 
@@ -138,16 +177,9 @@ class TeamProcessorConnection extends Model
     protected function casts(): array
     {
         return [
-            'nomba_test_account_id' => 'encrypted',
-            'nomba_test_subaccount_id' => 'encrypted',
-            'nomba_test_client_id' => 'encrypted',
-            'nomba_test_client_secret' => 'encrypted',
-            'nomba_live_account_id' => 'encrypted',
-            'nomba_live_subaccount_id' => 'encrypted',
-            'nomba_live_client_id' => 'encrypted',
-            'nomba_live_client_secret' => 'encrypted',
-            'nomba_test_webhook_secret' => 'encrypted',
-            'nomba_live_webhook_secret' => 'encrypted',
+            'is_default' => 'boolean',
+            'test_credentials' => 'encrypted:array',
+            'live_credentials' => 'encrypted:array',
             'webhook_verified_at' => 'datetime',
             'test_connected_at' => 'datetime',
             'live_connected_at' => 'datetime',

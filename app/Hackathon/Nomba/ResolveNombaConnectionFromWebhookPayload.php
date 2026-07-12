@@ -42,16 +42,23 @@ class ResolveNombaConnectionFromWebhookPayload
             return null;
         }
 
-        // Account IDs are encrypted at rest — compare after decryption.
+        // Credentials are encrypted at rest — compare after decryption.
         return TeamProcessorConnection::query()
             ->get()
-            ->first(fn (TeamProcessorConnection $connection): bool =>
-                $connection->nomba_test_account_id === $accountId
-                || $connection->nomba_live_account_id === $accountId
-                || $connection->nomba_test_subaccount_id === $accountId
-                || $connection->nomba_live_subaccount_id === $accountId
-            );
+            ->first(function (TeamProcessorConnection $connection) use ($accountId): bool {
+                foreach ([$connection->test_credentials, $connection->live_credentials] as $blob) {
+                    if ($blob === null) {
+                        continue;
+                    }
 
+                    if (($blob['account_id'] ?? null) === $accountId
+                        || ($blob['subaccount_id'] ?? null) === $accountId) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
     }
 
     private function resolveByFallbackTeamId(): ?TeamProcessorConnection

@@ -8,6 +8,7 @@ use App\Enums\CatalogStatus;
 use App\Enums\PriceType;
 use App\Enums\PricingModel;
 use App\Enums\TaxMode;
+use App\Enums\TrialUnit;
 use App\Support\Api\ApiMoney;
 use Database\Factories\PriceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -20,10 +21,21 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
+ * A billable variant of a plan: interval × currency × amount, plus its own
+ * trial config (schema.md §3). A price with `plan_id = null` is a one-time
+ * price sold directly off the product and can never be referenced by a
+ * subscription_item.
+ *
+ * Immutability invariant: once referenced by any subscription_item or
+ * invoice_line the row is append-only — a merchant "edit" creates a new row
+ * (`replaces_price_id` → this one, version+1) and archives this one. Only
+ * `status` and `custom_data` are ever safe to mutate on a live price.
+ *
  * @property int $id
  * @property string $public_id
  * @property int $team_id
  * @property int $product_id
+ * @property int|null $plan_id
  * @property string|null $name
  * @property PriceType $type
  * @property PricingModel $pricing_model
@@ -34,19 +46,31 @@ use Illuminate\Support\Carbon;
  * @property int|null $package_size
  * @property TaxMode $tax_mode
  * @property CatalogStatus $status
+ * @property int|null $replaces_price_id
  * @property int $version
+ * @property int|null $trial_length
+ * @property TrialUnit|null $trial_unit
+ * @property bool $trial_requires_payment_info
+ * @property bool $trial_once_per_customer
+ * @property bool $purchasable
  * @property array<string, mixed>|null $custom_data
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Team $team
  * @property-read Product $product
+ * @property-read Plan|null $plan
+ * @property-read Price|null $replacesPrice
  * @property-read Collection<int, PriceTier> $tiers
+ * @property-read Collection<int, PricePhase> $phases
+ * @property-read Collection<int, PriceTrialRedemption> $trialRedemptions
  * @property-read PaymentLink|null $paymentLink
  */
 #[Fillable([
-    'team_id', 'product_id', 'name', 'type', 'pricing_model',
+    'team_id', 'product_id', 'plan_id', 'name', 'type', 'pricing_model',
     'unit_amount', 'currency', 'billing_interval', 'billing_frequency',
-    'package_size', 'tax_mode', 'status', 'version', 'custom_data',
+    'package_size', 'tax_mode', 'status', 'replaces_price_id', 'version',
+    'trial_length', 'trial_unit', 'trial_requires_payment_info',
+    'trial_once_per_customer', 'purchasable', 'custom_data',
 ])]
 class Price extends Model
 {
@@ -72,13 +96,34 @@ class Price extends Model
     }
 
     /**
-     * Get the product this price belongs to.
+     * Get the product this price belongs to (denormalised — always
+     * resolvable whether or not plan_id is set).
      *
      * @return BelongsTo<Product, $this>
      */
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * Get the plan this price is a variant of, when it has one.
+     *
+     * @return BelongsTo<Plan, $this>
+     */
+    public function plan(): BelongsTo
+    {
+        return $this->belongsTo(Plan::class);
+    }
+
+    /**
+     * Get the price this row superseded, when it was created by an "edit".
+     *
+     * @return BelongsTo<Price, $this>
+     */
+    public function replacesPrice(): BelongsTo
+    {
+        return $this->belongsTo(Price::class, 'replaces_price_id');
     }
 
     /**
@@ -92,6 +137,48 @@ class Price extends Model
     }
 
     /**
+     * Get the phase schedule anchored to this price, when one exists
+     * (schema.md §3 — paid trials, plan transitions, ramps).
+     *
+     * @return HasMany<PricePhase, $this>
+     */
+    public function phases(): HasMany
+    {
+        return $this->hasMany(PricePhase::class)->orderBy('sequence');
+    }
+
+    /**
+     * Get the trial redemptions recorded against this price
+     * (`trial_once_per_customer` anti-abuse).
+     *
+     * @return HasMany<PriceTrialRedemption, $this>
+     */
+    public function trialRedemptions(): HasMany
+    {
+        return $this->hasMany(PriceTrialRedemption::class);
+    }
+
+    /**
+     * Get the subscription items referencing this price.
+     *
+     * @return HasMany<SubscriptionItem, $this>
+     */
+    public function subscriptionItems(): HasMany
+    {
+        return $this->hasMany(SubscriptionItem::class);
+    }
+
+    /**
+     * Get the invoice lines referencing this price.
+     *
+     * @return HasMany<InvoiceLine, $this>
+     */
+    public function invoiceLines(): HasMany
+    {
+        return $this->hasMany(InvoiceLine::class);
+    }
+
+    /**
      * Get the durable hosted checkout link for this price, when one exists.
      *
      * @return HasOne<PaymentLink, $this>
@@ -102,12 +189,17 @@ class Price extends Model
     }
 
     /**
+     * Whether this price carries a simple trial (schema.md §5). Free vs.
+     * paid is inferred from the trial-phase price, not stored.
+     */
+    public function hasTrial(): bool
+    {
+        return $this->trial_length !== null;
+    }
+
+    /**
      * Format this price for the frontend — amounts converted back to major
      * currency units (see App\Actions\Catalog\CreatePrice for the reverse).
-     * Trial involvement is no longer embedded here — a price is a normal,
-     * visible catalog price whether or not a trial references it (see
-     * CATALOG_DESIGN.md §7.1, revised); the frontend cross-references the
-     * separate `trials` list against price ids when it needs to show that.
      *
      * @return array<string, mixed>
      */
@@ -116,6 +208,7 @@ class Price extends Model
         return [
             'id' => $this->id,
             'publicId' => $this->public_id,
+            'planId' => $this->plan_id,
             'name' => $this->name,
             'type' => $this->type,
             'pricingModel' => $this->pricing_model,
@@ -125,6 +218,12 @@ class Price extends Model
             'billingFrequency' => $this->billing_frequency,
             'taxMode' => $this->tax_mode,
             'status' => $this->status,
+            'version' => $this->version,
+            'purchasable' => $this->purchasable,
+            'trialLength' => $this->trial_length,
+            'trialUnit' => $this->trial_unit,
+            'trialRequiresPaymentInfo' => $this->trial_requires_payment_info,
+            'trialOncePerCustomer' => $this->trial_once_per_customer,
             'hasBeenUsed' => $this->hasBeenUsed(),
             'customData' => $this->custom_data,
             'paymentLink' => $this->relationLoaded('paymentLink') && $this->paymentLink !== null
@@ -154,11 +253,12 @@ class Price extends Model
      */
     public function toApiObject(): array
     {
-        $this->loadMissing(['product', 'tiers']);
+        $this->loadMissing(['product', 'plan', 'tiers']);
 
         return [
             'id' => $this->public_id,
             'productId' => $this->product->public_id,
+            'planId' => $this->plan?->public_id,
             'name' => $this->name,
             'type' => $this->type->value,
             'pricingModel' => $this->pricing_model->value,
@@ -168,6 +268,12 @@ class Price extends Model
             'billingFrequency' => $this->billing_frequency,
             'taxMode' => $this->tax_mode->value,
             'status' => $this->status->value,
+            'version' => $this->version,
+            'purchasable' => $this->purchasable,
+            'trialLength' => $this->trial_length,
+            'trialUnit' => $this->trial_unit?->value,
+            'trialRequiresPaymentInfo' => $this->trial_requires_payment_info,
+            'trialOncePerCustomer' => $this->trial_once_per_customer,
             'customData' => $this->custom_data,
             'createdAt' => $this->created_at?->toISOString(),
             'tiers' => $this->tiers->map(fn (PriceTier $tier) => [
@@ -180,8 +286,8 @@ class Price extends Model
     }
 
     /**
-     * Format this price as a short label for pickers (trial price /
-     * transition price dropdowns), e.g. "Monthly — NGN 15,000/mo".
+     * Format this price as a short label for pickers, e.g.
+     * "Monthly — NGN 15,000/mo".
      */
     public function toPickerLabel(): string
     {
@@ -208,15 +314,14 @@ class Price extends Model
     }
 
     /**
-     * Whether this price has ever been referenced by a subscription.
-     *
-     * Subscriptions don't exist until Phase 5 — this always returns false
-     * for now, but every price edit routes through here so the Phase 5
-     * usage-check (see CATALOG_DESIGN.md Principle 6) has one place to land.
+     * Whether this price has ever been referenced by a subscription item or
+     * invoice line — the trigger for the immutability invariant: financial
+     * fields on a used price are frozen; an "edit" must create a successor
+     * row instead (ReplacePrice, IMPLEMENTATION_V2 §V2-1).
      */
     public function hasBeenUsed(): bool
     {
-        return false;
+        return $this->subscriptionItems()->exists() || $this->invoiceLines()->exists();
     }
 
     /**
@@ -232,6 +337,12 @@ class Price extends Model
             'billing_interval' => BillingInterval::class,
             'tax_mode' => TaxMode::class,
             'status' => CatalogStatus::class,
+            'version' => 'integer',
+            'trial_length' => 'integer',
+            'trial_unit' => TrialUnit::class,
+            'trial_requires_payment_info' => 'boolean',
+            'trial_once_per_customer' => 'boolean',
+            'purchasable' => 'boolean',
             'custom_data' => 'array',
         ];
     }

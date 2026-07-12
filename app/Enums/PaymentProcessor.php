@@ -3,12 +3,16 @@
 namespace App\Enums;
 
 /**
- * The payment processor a payment method was tokenised with. Nomba is the
- * only processor today; the enum leaves room for others (schema.md §2).
+ * The payment gateway a payment method was tokenised with — a driver-registry
+ * key, not a closed set; it grows as drivers ship (schema.md Enums appendix).
+ * Tokens are gateway-bound: a stored card always charges through the
+ * processor that minted it.
  */
 enum PaymentProcessor: string
 {
     case Nomba = 'nomba';
+    case Paystack = 'paystack';
+    case Flutterwave = 'flutterwave';
 
     /**
      * Get the human label for this processor.
@@ -17,6 +21,8 @@ enum PaymentProcessor: string
     {
         return match ($this) {
             self::Nomba => 'Nomba',
+            self::Paystack => 'Paystack',
+            self::Flutterwave => 'Flutterwave',
         };
     }
 }

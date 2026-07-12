@@ -28,6 +28,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $locale
  * @property string|null $country
  * @property int|null $default_payment_method_id
+ * @property int|null $parent_customer_id
  * @property array<string, mixed>|null $custom_data
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -106,14 +107,45 @@ class Customer extends Model
     }
 
     /**
-     * Get the customer's applied trial instances — denormalised here to
-     * enforce a trial offer's once-per-customer rule (schema.md §5).
+     * Get the customer's trial redemptions — the durable rows enforcing
+     * `trial_once_per_customer` (schema.md §3).
      *
-     * @return HasMany<SubscriptionItemTrial, $this>
+     * @return HasMany<PriceTrialRedemption, $this>
      */
-    public function subscriptionItemTrials(): HasMany
+    public function priceTrialRedemptions(): HasMany
     {
-        return $this->hasMany(SubscriptionItemTrial::class);
+        return $this->hasMany(PriceTrialRedemption::class);
+    }
+
+    /**
+     * Get the customer's discount redemptions.
+     *
+     * @return HasMany<DiscountRedemption, $this>
+     */
+    public function discountRedemptions(): HasMany
+    {
+        return $this->hasMany(DiscountRedemption::class);
+    }
+
+    /**
+     * Get the child accounts billed through this customer — reserved for
+     * future parent/child billing (schema.md §2), unused in MVP logic.
+     *
+     * @return HasMany<Customer, $this>
+     */
+    public function childCustomers(): HasMany
+    {
+        return $this->hasMany(Customer::class, 'parent_customer_id');
+    }
+
+    /**
+     * Get the parent account, when this customer is a child (schema.md §2).
+     *
+     * @return BelongsTo<Customer, $this>
+     */
+    public function parentCustomer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'parent_customer_id');
     }
 
     /**

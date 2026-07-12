@@ -3,38 +3,36 @@
 namespace App\Console\Commands;
 
 use App\Actions\Subscriptions\ConvertSubscription;
-use App\Enums\SubscriptionItemTrialStatus;
+use App\Enums\SubscriptionStatus;
 use App\Models\Subscription;
-use App\Models\SubscriptionItemTrial;
 use Illuminate\Console\Command;
 
 class ConvertTrialSubscriptions extends Command
 {
     protected $signature = 'subscriptions:convert-trials';
 
-    protected $description = 'Convert expired item trials and bill the first cycle when a free trial ends';
+    protected $description = 'Convert trialing subscriptions whose trial has ended and bill the first cycle';
 
     public function handle(ConvertSubscription $convert): int
     {
-        $subscriptionIds = SubscriptionItemTrial::query()
-            ->where('subscription_item_trials.status', SubscriptionItemTrialStatus::Active)
-            ->where('subscription_item_trials.ends_at', '<=', now())
-            ->join('subscription_items', 'subscription_items.id', '=', 'subscription_item_trials.subscription_item_id')
-            ->distinct()
-            ->pluck('subscription_items.subscription_id');
+        $due = Subscription::query()
+            ->where('status', SubscriptionStatus::Trialing)
+            ->whereNotNull('trial_ends_at')
+            ->where('trial_ends_at', '<=', now());
 
+        $processed = 0;
         $invoiced = 0;
 
-        Subscription::query()
-            ->whereIn('id', $subscriptionIds)
-            ->orderBy('id')
-            ->each(function (Subscription $subscription) use ($convert, &$invoiced): void {
+        $due->orderBy('id')
+            ->each(function (Subscription $subscription) use ($convert, &$processed, &$invoiced): void {
+                $processed++;
+
                 if ($convert->handle($subscription) !== null) {
                     $invoiced++;
                 }
             });
 
-        $this->info("Processed {$subscriptionIds->count()} subscription(s); {$invoiced} billed after trial conversion.");
+        $this->info("Processed {$processed} subscription(s); {$invoiced} billed after trial conversion.");
 
         return self::SUCCESS;
     }

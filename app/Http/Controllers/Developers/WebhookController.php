@@ -86,10 +86,8 @@ class WebhookController extends Controller
 
         $mode = ApiKeyMode::from($data['mode']);
 
-        $connection->update(match ($mode) {
-            ApiKeyMode::Test => ['nomba_test_webhook_secret' => $data['secret']],
-            ApiKeyMode::Live => ['nomba_live_webhook_secret' => $data['secret']],
-        });
+        $connection->mergeCredentials($mode, ['webhook_secret' => $data['secret']]);
+        $connection->save();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Signing secret saved.')]);
 

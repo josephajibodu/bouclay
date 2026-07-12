@@ -63,26 +63,25 @@ class NombaConnectionController extends Controller
             ]);
         }
 
-        $connection = $team->processorConnection()->firstOrCreate([]);
+        // One row per gateway per team (schema.md §1); the first connected
+        // gateway is the team's default for new checkouts.
+        $connection = $team->processorConnections()->firstOrCreate(
+            ['processor' => 'nomba'],
+            ['is_default' => true],
+        );
 
-        $connection->update(match ($mode) {
-            ApiKeyMode::Test => [
-                'nomba_test_account_id' => $accountId,
-                'nomba_test_subaccount_id' => $subaccountId,
-                'nomba_test_client_id' => $clientId,
-                'nomba_test_client_secret' => $clientSecret,
-                'nomba_test_webhook_secret' => $webhookSecret,
-                'test_connected_at' => now(),
-            ],
-            ApiKeyMode::Live => [
-                'nomba_live_account_id' => $accountId,
-                'nomba_live_subaccount_id' => $subaccountId,
-                'nomba_live_client_id' => $clientId,
-                'nomba_live_client_secret' => $clientSecret,
-                'nomba_live_webhook_secret' => $webhookSecret,
-                'live_connected_at' => now(),
-            ],
-        });
+        // Replace the whole blob for this mode — a connect submits every
+        // field, so stale keys never linger.
+        $connection->forceFill([
+            $mode === ApiKeyMode::Test ? 'test_credentials' : 'live_credentials' => array_filter([
+                'account_id' => $accountId,
+                'subaccount_id' => $subaccountId,
+                'client_id' => $clientId,
+                'client_secret' => $clientSecret,
+                'webhook_secret' => $webhookSecret,
+            ], fn (?string $value): bool => $value !== null && $value !== ''),
+            $mode === ApiKeyMode::Test ? 'test_connected_at' : 'live_connected_at' => now(),
+        ])->save();
 
         Inertia::flash('toast', [
             'type' => 'success',
@@ -149,19 +148,11 @@ class NombaConnectionController extends Controller
 
         $connection->update(match ($mode) {
             ApiKeyMode::Test => [
-                'nomba_test_account_id' => null,
-                'nomba_test_subaccount_id' => null,
-                'nomba_test_client_id' => null,
-                'nomba_test_client_secret' => null,
-                'nomba_test_webhook_secret' => null,
+                'test_credentials' => null,
                 'test_connected_at' => null,
             ],
             ApiKeyMode::Live => [
-                'nomba_live_account_id' => null,
-                'nomba_live_subaccount_id' => null,
-                'nomba_live_client_id' => null,
-                'nomba_live_client_secret' => null,
-                'nomba_live_webhook_secret' => null,
+                'live_credentials' => null,
                 'live_connected_at' => null,
             ],
         });

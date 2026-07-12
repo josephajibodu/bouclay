@@ -10,10 +10,9 @@ use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\OutboundEventType;
+use App\Enums\SubscriptionItemKind;
 use App\Enums\SubscriptionItemStatus;
-use App\Enums\SubscriptionItemTrialStatus;
 use App\Enums\SubscriptionStatus;
-use App\Enums\TrialDurationType;
 use App\Enums\TrialEndBehavior;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -22,21 +21,21 @@ use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
 use App\Models\Team;
-use App\Models\TrialOffer;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
- * Builds a subscription from a customer + a list of line items (each a plain
- * price or a trial offer) + a collection mode. This is the single seam the
- * dashboard controller and the future Phase-10 API both call so the two never
- * diverge (SUBSCRIPTIONS_DESIGN §7.4, §17.11).
+ * Builds a subscription from a customer + a list of `{price_id, quantity}`
+ * line items + a collection mode. This is the single seam the dashboard
+ * controller and the API both call so the two never diverge
+ * (SUBSCRIPTIONS_DESIGN §7.4, §17.11).
  *
- * Money moves for real when there's something to bill (Phase 6): a billed
- * line becomes an Invoice, and automatic-with-card charges it via the real
- * Nomba tokenized-card call ({@see ChargeInvoice}). A free trial still stages
- * nothing — there's nothing to bill (SUBSCRIPTIONS_DESIGN §17.6).
+ * V2 catalog rules (schema.md §3/§6): only plan-bearing recurring prices are
+ * subscribable — `subscription_items.plan_id` is NOT NULL, so a plan-less
+ * one-time price is rejected here. The first item is the base `plan` item;
+ * further items are `addon`s. Trial anchoring off `prices.trial_*` and phase
+ * progression land in V2-2 — until then every subscription bills at signup.
  */
 class CreateSubscription
 {
@@ -65,6 +64,7 @@ class CreateSubscription
         $items = $data['items'] ?? [];
         $lines = $this->resolveLines($team, $items);
         $this->assertCurrency($lines, $currency);
+        $this->assertSingleCadence($lines);
 
         $paymentMethodId = isset($data['payment_method_id']) ? (int) $data['payment_method_id'] : null;
         if ($paymentMethodId !== null) {
@@ -91,38 +91,23 @@ class CreateSubscription
                 'current_period_start' => $now,
             ]);
 
-            $earliestTrialEnd = null;
-            $earliestFreeTrialEnd = null;
             /** @var list<array{item: SubscriptionItem, price: Price, quantity: int}> $billedItems */
             $billedItems = [];
 
-            foreach ($lines as $line) {
+            foreach ($lines as $index => $line) {
                 $item = $subscription->items()->create([
                     'price_id' => $line['price']->id,
+                    'plan_id' => $line['price']->plan_id,
                     'product_id' => $line['price']->product_id,
+                    'kind' => $index === 0 ? SubscriptionItemKind::Plan : SubscriptionItemKind::Addon,
                     'quantity' => $line['quantity'],
                     'status' => SubscriptionItemStatus::Active,
                 ]);
 
-                if ($line['offer'] !== null) {
-                    $trialEnd = $this->applyTrial($item, $line['offer'], $customer, $now);
-                    $earliestTrialEnd = $this->earliest($earliestTrialEnd, $trialEnd);
-
-                    // Free trial (price = 0): no payment now, skips to trialing.
-                    // Paid trial (price > 0): billed at signup and each cycle at
-                    // the intro price until it converts — a normal billing line
-                    // (schema.md §5, Stripe treats paid trials as active).
-                    if (($line['price']->unit_amount ?? 0) === 0) {
-                        $earliestFreeTrialEnd = $this->earliest($earliestFreeTrialEnd, $trialEnd);
-                    } else {
-                        $billedItems[] = ['item' => $item, 'price' => $line['price'], 'quantity' => $line['quantity']];
-                    }
-                } else {
-                    $billedItems[] = ['item' => $item, 'price' => $line['price'], 'quantity' => $line['quantity']];
-                }
+                $billedItems[] = ['item' => $item, 'price' => $line['price'], 'quantity' => $line['quantity']];
             }
 
-            $invoice = $this->settleInitialState($team, $subscription, $customer, $collectionMode, $earliestTrialEnd, $earliestFreeTrialEnd, $billedItems, $now);
+            $invoice = $this->settleInitialState($team, $subscription, $customer, $collectionMode, $billedItems, $now);
 
             return [$subscription, $invoice];
         });
@@ -154,12 +139,11 @@ class CreateSubscription
     }
 
     /**
-     * Turn raw item inputs into resolved lines, filtering to recurring prices —
-     * a subscription bills recurring prices only. A trial line carries its
-     * offer; a plain price line has `offer` set to null.
+     * Turn raw item inputs into resolved lines. A subscription bills
+     * plan-bearing recurring prices only (schema.md §3 constraint).
      *
      * @param  array<int, array<string, mixed>>  $items
-     * @return array<int, array{kind: string, price: Price, quantity: int, offer: TrialOffer|null}>
+     * @return array<int, array{price: Price, quantity: int}>
      */
     private function resolveLines(Team $team, array $items): array
     {
@@ -172,20 +156,6 @@ class CreateSubscription
         foreach ($items as $item) {
             $quantity = max(1, (int) ($item['quantity'] ?? 1));
 
-            if (($item['kind'] ?? 'price') === 'trial') {
-                /** @var TrialOffer $offer */
-                $offer = $team->trialOffers()->with(['trialPrice', 'transitionPrice'])->findOrFail((int) $item['trial_offer_id']);
-
-                $lines[] = [
-                    'kind' => 'trial',
-                    'price' => $offer->trialPrice,
-                    'offer' => $offer,
-                    'quantity' => $quantity,
-                ];
-
-                continue;
-            }
-
             /** @var Price $price */
             $price = $team->prices()->findOrFail((int) $item['price_id']);
 
@@ -193,15 +163,20 @@ class CreateSubscription
                 throw new InvalidArgumentException('Only recurring prices can be subscribed to.');
             }
 
-            $lines[] = ['kind' => 'price', 'price' => $price, 'quantity' => $quantity, 'offer' => null];
+            if ($price->plan_id === null) {
+                throw new InvalidArgumentException(
+                    "Price {$price->public_id} does not belong to a plan — only plan-bearing prices can be subscribed to."
+                );
+            }
+
+            $lines[] = ['price' => $price, 'quantity' => $quantity];
         }
 
-        // A product can only appear once — a plain price and a trial for the
-        // same product describe the same subscription (a trial already carries
-        // its post-trial transition price), so stacking them double-charges.
-        $productIds = array_map(fn (array $line): int => $line['price']->product_id, $lines);
-        if (count($productIds) !== count(array_unique($productIds))) {
-            throw new InvalidArgumentException('Each product can only appear once on a subscription — a trial already includes its regular price.');
+        // A plan can only appear once on a subscription — two lines for the
+        // same plan describe the same charge twice.
+        $planIds = array_map(fn (array $line): int => (int) $line['price']->plan_id, $lines);
+        if (count($planIds) !== count(array_unique($planIds))) {
+            throw new InvalidArgumentException('Each plan can only appear once on a subscription.');
         }
 
         return $lines;
@@ -210,7 +185,7 @@ class CreateSubscription
     /**
      * A subscription is single-currency for life — reject a mixed cart.
      *
-     * @param  array<int, array{kind: string, price: Price, quantity: int, offer: TrialOffer|null}>  $lines
+     * @param  array<int, array{price: Price, quantity: int}>  $lines
      */
     private function assertCurrency(array $lines, string $currency): void
     {
@@ -224,51 +199,31 @@ class CreateSubscription
     }
 
     /**
-     * Snapshot a trial offer onto an item (schema.md §5) and return its end.
-     * Enforces once-per-customer at application time.
+     * One renewal clock per subscription (schema.md §6, GAP-5): every
+     * recurring item must share the same billing_interval + billing_frequency.
+     * A customer needing monthly AND annual charges holds two subscriptions.
+     *
+     * @param  array<int, array{price: Price, quantity: int}>  $lines
      */
-    private function applyTrial(SubscriptionItem $item, TrialOffer $offer, Customer $customer, Carbon $startsAt): Carbon
+    private function assertSingleCadence(array $lines): void
     {
-        if ($offer->once_per_customer) {
-            $used = $customer->subscriptionItemTrials()
-                ->where('trial_offer_id', $offer->id)
-                ->exists();
+        $first = $lines[0]['price'];
 
-            if ($used) {
-                throw new InvalidArgumentException("{$customer->displayName()} has already used the \"{$offer->name}\" trial.");
+        foreach ($lines as $line) {
+            if ($line['price']->billing_interval !== $first->billing_interval
+                || $line['price']->billing_frequency !== $first->billing_frequency) {
+                throw new InvalidArgumentException(
+                    'All items on a subscription must share one billing cadence — use a separate subscription for a different interval.'
+                );
             }
         }
-
-        // Relative duration only for MVP (timestamp deferred, schema.md §5).
-        $iterations = max(1, $offer->duration_iterations ?? 1);
-        $endsAt = $this->addInterval(
-            $startsAt->copy(),
-            $offer->trialPrice->billing_interval ?? BillingInterval::Month,
-            $offer->trialPrice->billing_frequency * $iterations,
-        );
-
-        $item->currentTrial()->create([
-            'team_id' => $offer->team_id,
-            'trial_offer_id' => $offer->id,
-            'customer_id' => $customer->id,
-            'trial_price_id' => $offer->trial_price_id,
-            'transition_price_id' => $offer->transition_price_id,
-            'duration_type' => TrialDurationType::Relative,
-            'duration_iterations' => $iterations,
-            'starts_at' => $startsAt,
-            'ends_at' => $endsAt,
-            'status' => SubscriptionItemTrialStatus::Active,
-        ]);
-
-        return $endsAt;
     }
 
     /**
-     * Choose the initial billing clock and, when there's something to bill,
-     * create the invoice for it (SUBSCRIPTIONS_DESIGN §4). Runs inside the
-     * creation transaction — everything here is a local write, no external
-     * calls. Returns the invoice so {@see collectInitialPayment()} can charge
-     * it afterwards; null for a pure free trial, which has nothing to bill.
+     * Choose the initial billing clock and create the signup invoice
+     * (SUBSCRIPTIONS_DESIGN §4). Runs inside the creation transaction —
+     * everything here is a local write, no external calls. Returns the
+     * invoice so the caller can charge it after commit.
      *
      * @param  list<array{item: SubscriptionItem, price: Price, quantity: int}>  $billedItems
      */
@@ -277,27 +232,11 @@ class CreateSubscription
         Subscription $subscription,
         Customer $customer,
         CollectionMode $collectionMode,
-        ?Carbon $earliestTrialEnd,
-        ?Carbon $earliestFreeTrialEnd,
         array $billedItems,
         Carbon $now,
     ): ?Invoice {
-        // trial_ends_at is the conversion clock for any trial, free or paid.
-        $subscription->trial_ends_at = $earliestTrialEnd;
-
-        if ($earliestFreeTrialEnd !== null && $billedItems === []) {
-            // Pure free trial: nothing bills today, so there's nothing to
-            // invoice — start trialing, with the trial end as the next
-            // billing moment (schema.md §5).
-            $subscription->current_period_end = $earliestFreeTrialEnd;
-            $subscription->status = SubscriptionStatus::Trialing;
-            $subscription->save();
-
-            return null;
-        }
-
-        // Otherwise at least one line bills now — a regular price or a paid
-        // trial's intro price. The next charge is one interval away.
+        // The next charge is one interval away — all items share one cadence
+        // (asserted above), so the first price anchors the clock.
         $firstBilledPrice = $billedItems[0]['price'] ?? null;
         $periodEnd = $firstBilledPrice !== null
             ? $this->addInterval($now->copy(), $firstBilledPrice->billing_interval ?? BillingInterval::Month, $firstBilledPrice->billing_frequency)
@@ -323,8 +262,8 @@ class CreateSubscription
 
     /**
      * Turn the billed subscription items into invoice-line inputs
-     * ({@see CreateInvoice}) — one line per item, at whatever price it's
-     * currently billing (the regular price, or a paid trial's intro price).
+     * ({@see CreateInvoice}) — one line per item, its kind mirroring the
+     * item's (plan / addon).
      *
      * @param  list<array{item: SubscriptionItem, price: Price, quantity: int}>  $billedItems
      * @return list<array{subscriptionItem: SubscriptionItem, price: Price, product: Product, kind: InvoiceLineKind, description: string, unitAmount: int, quantity: int}>
@@ -335,7 +274,7 @@ class CreateSubscription
             'subscriptionItem' => $billed['item'],
             'price' => $billed['price'],
             'product' => $billed['price']->product,
-            'kind' => InvoiceLineKind::Subscription,
+            'kind' => InvoiceLineKind::from($billed['item']->kind->value),
             'description' => $billed['price']->product->name.' · '.$billed['price']->toPickerLabel(),
             'unitAmount' => $billed['price']->unit_amount ?? 0,
             'quantity' => $billed['quantity'],
@@ -353,10 +292,5 @@ class CreateSubscription
             BillingInterval::Month => $date->addMonths($count),
             BillingInterval::Year => $date->addYears($count),
         };
-    }
-
-    private function earliest(?Carbon $current, Carbon $candidate): Carbon
-    {
-        return $current === null || $candidate->lt($current) ? $candidate : $current;
     }
 }

@@ -204,20 +204,55 @@ class TeamPolicy
     }
 
     /**
-     * Determine whether the user can view trial offers.
+     * Determine whether the user can view plans.
      */
-    public function viewTrialOffers(User $user, Team $team): bool
+    public function viewPlans(User $user, Team $team): bool
     {
-        return $user->hasTeamPermission($team, PermissionName::TrialOffersView)
-            || $user->hasTeamPermission($team, PermissionName::TrialOffersManage);
+        return $user->hasTeamPermission($team, PermissionName::PlansView)
+            || $user->hasTeamPermission($team, PermissionName::PlansManage);
     }
 
     /**
-     * Determine whether the user can create, edit, or remove trial offers.
+     * Determine whether the user can create, edit, or archive plans.
      */
-    public function manageTrialOffers(User $user, Team $team): bool
+    public function managePlans(User $user, Team $team): bool
     {
-        return $user->hasTeamPermission($team, PermissionName::TrialOffersManage);
+        return $user->hasTeamPermission($team, PermissionName::PlansManage);
+    }
+
+    /**
+     * Determine whether the user can view entitlements.
+     */
+    public function viewEntitlements(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::EntitlementsView)
+            || $user->hasTeamPermission($team, PermissionName::EntitlementsManage);
+    }
+
+    /**
+     * Determine whether the user can create, edit, or remove entitlements
+     * and their plan/product grants.
+     */
+    public function manageEntitlements(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::EntitlementsManage);
+    }
+
+    /**
+     * Determine whether the user can view discounts.
+     */
+    public function viewDiscounts(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::DiscountsView)
+            || $user->hasTeamPermission($team, PermissionName::DiscountsManage);
+    }
+
+    /**
+     * Determine whether the user can create, edit, or deactivate discounts.
+     */
+    public function manageDiscounts(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::DiscountsManage);
     }
 
     /**

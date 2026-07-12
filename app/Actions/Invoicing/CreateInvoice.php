@@ -49,6 +49,9 @@ class CreateInvoice
             $invoice = Invoice::create([
                 'team_id' => $team->id,
                 'customer_id' => $customer->id,
+                // Who actually pays — always the same customer in MVP; the
+                // distinct column is the account-hierarchy seam (schema.md §8).
+                'billed_to_customer_id' => $customer->id,
                 'subscription_id' => $subscription?->id,
                 'number' => $this->nextNumber($team),
                 'status' => InvoiceStatus::Open,
@@ -68,13 +71,22 @@ class CreateInvoice
 
             foreach ($lines as $line) {
                 $amount = $line['unitAmount'] * $line['quantity'];
+                $price = $line['price'] ?? null;
+                $product = $line['product'] ?? null;
 
                 $invoice->lines()->create([
                     'subscription_item_id' => ($line['subscriptionItem'] ?? null)?->id,
-                    'price_id' => ($line['price'] ?? null)?->id,
-                    'product_id' => ($line['product'] ?? null)?->id,
+                    'price_id' => $price?->id,
+                    'product_id' => $product?->id,
                     'kind' => $line['kind'],
                     'description' => $line['description'],
+                    // Names frozen at finalise (schema.md §8) — prices are
+                    // immutable so amounts are safe via price_id, but catalog
+                    // names are edited freely; a rename must never rewrite an
+                    // issued invoice.
+                    'product_name_snapshot' => $product?->name,
+                    'plan_name_snapshot' => $price?->plan?->name,
+                    'price_name_snapshot' => $price?->name,
                     'quantity' => $line['quantity'],
                     'unit_amount' => $line['unitAmount'],
                     'subtotal' => $amount,

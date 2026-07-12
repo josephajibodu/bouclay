@@ -11,7 +11,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * One itemised line on an invoice (schema.md §7).
+ * One itemised line on an invoice (schema.md §8).
+ *
+ * Name snapshots: prices are immutable so amounts are safe via `price_id`,
+ * but catalog names are edited freely — at finalise the product/plan/price
+ * names are frozen onto the line so a rename can't rewrite history. Render
+ * from the `*_name_snapshot` columns, never live catalog joins.
  *
  * @property int $id
  * @property int $invoice_id
@@ -20,6 +25,9 @@ use Illuminate\Support\Carbon;
  * @property int|null $product_id
  * @property InvoiceLineKind $kind
  * @property string $description
+ * @property string|null $product_name_snapshot
+ * @property string|null $plan_name_snapshot
+ * @property string|null $price_name_snapshot
  * @property int $quantity
  * @property int $unit_amount
  * @property int $subtotal
@@ -38,8 +46,10 @@ use Illuminate\Support\Carbon;
  */
 #[Fillable([
     'invoice_id', 'subscription_item_id', 'price_id', 'product_id', 'kind',
-    'description', 'quantity', 'unit_amount', 'subtotal', 'discount_amount',
-    'tax_amount', 'total', 'period_start', 'period_end', 'proration',
+    'description', 'product_name_snapshot', 'plan_name_snapshot',
+    'price_name_snapshot', 'quantity', 'unit_amount', 'subtotal',
+    'discount_amount', 'tax_amount', 'total', 'period_start', 'period_end',
+    'proration',
 ])]
 class InvoiceLine extends Model
 {

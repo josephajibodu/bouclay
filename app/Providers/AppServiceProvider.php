@@ -2,7 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\Plan;
+use App\Models\Product;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
@@ -24,6 +27,14 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+
+        // entitlement_grants.grantor stores these stable aliases, never a
+        // class FQN. `customer` is reserved for future per-customer grants
+        // (schema.md §4) — adding it later is a resolver change, no migration.
+        Relation::enforceMorphMap([
+            'plan' => Plan::class,
+            'product' => Product::class,
+        ]);
     }
 
     /**

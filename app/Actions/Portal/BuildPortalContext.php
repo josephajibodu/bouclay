@@ -101,7 +101,6 @@ class BuildPortalContext
                 ->with([
                     'activeItems.product',
                     'activeItems.price',
-                    'activeItems.currentTrial',
                     'paymentMethod',
                     'scheduledChanges',
                 ])
@@ -144,7 +143,6 @@ class BuildPortalContext
         $subscription->loadMissing([
             'activeItems.product',
             'activeItems.price',
-            'activeItems.currentTrial',
             'paymentMethod',
             'scheduledChanges',
             'invoices' => fn ($query) => $query->with('lines')->orderByDesc('created_at'),

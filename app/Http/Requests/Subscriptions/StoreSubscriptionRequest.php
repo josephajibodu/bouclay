@@ -20,9 +20,7 @@ class StoreSubscriptionRequest extends FormRequest
             'payment_method_id' => ['nullable', 'integer'],
             'trial_end_behavior' => ['nullable', 'in:cancel,pause,create_invoice'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.kind' => ['required', 'in:price,trial'],
-            'items.*.price_id' => ['required_if:items.*.kind,price', 'integer'],
-            'items.*.trial_offer_id' => ['required_if:items.*.kind,trial', 'integer'],
+            'items.*.price_id' => ['required', 'integer'],
             'items.*.quantity' => ['nullable', 'integer', 'min:1', 'max:1000'],
         ];
     }
@@ -36,8 +34,8 @@ class StoreSubscriptionRequest extends FormRequest
     {
         return [
             'customer_id.required' => 'Choose a customer to subscribe.',
-            'items.required' => 'Add a product or a trial to bill for.',
-            'items.min' => 'Add a product or a trial to bill for.',
+            'items.required' => 'Add a plan price to bill for.',
+            'items.min' => 'Add a plan price to bill for.',
         ];
     }
 }

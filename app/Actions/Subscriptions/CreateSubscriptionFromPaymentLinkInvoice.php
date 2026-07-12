@@ -42,6 +42,13 @@ class CreateSubscriptionFromPaymentLinkInvoice
             return null;
         }
 
+        // subscription_items.plan_id is NOT NULL (schema.md §6) — a plan-less
+        // price cannot form a subscription. Checkout guards this up front
+        // (StartPaymentLinkCheckout); this is the defensive backstop.
+        if ($line->price->plan_id === null) {
+            return null;
+        }
+
         $now = Carbon::now();
         $price = $line->price;
         $periodEnd = $this->addInterval(
@@ -67,6 +74,7 @@ class CreateSubscriptionFromPaymentLinkInvoice
 
         $item = $subscription->items()->create([
             'price_id' => $price->id,
+            'plan_id' => $price->plan_id,
             'product_id' => $price->product_id,
             'quantity' => max(1, (int) ($pending['quantity'] ?? $line->quantity)),
             'status' => SubscriptionItemStatus::Active,

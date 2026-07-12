@@ -6,7 +6,6 @@ use App\Models\Customer;
 use App\Models\PaymentMethod;
 use App\Models\Price;
 use App\Models\Team;
-use App\Models\TrialOffer;
 use Illuminate\Validation\ValidationException;
 
 trait NormalizesSubscriptionInput
@@ -57,7 +56,6 @@ trait NormalizesSubscriptionInput
                 $price = $team->prices()->where('public_id', $pricePublicId)->firstOrFail();
 
                 $normalized['items'][] = [
-                    'kind' => 'price',
                     'price_id' => $price->id,
                     'quantity' => (int) ($item['quantity'] ?? 1),
                 ];
@@ -65,25 +63,7 @@ trait NormalizesSubscriptionInput
                 continue;
             }
 
-            $trialPublicId = $item['trialOffer'] ?? $item['trial_offer'] ?? $item['trial_offer_id'] ?? null;
-
-            if (is_string($trialPublicId)) {
-                /** @var TrialOffer $trial */
-                $trial = TrialOffer::query()
-                    ->where('team_id', $team->id)
-                    ->where('public_id', $trialPublicId)
-                    ->firstOrFail();
-
-                $normalized['items'][] = [
-                    'kind' => 'trial',
-                    'trial_offer_id' => $trial->id,
-                    'quantity' => (int) ($item['quantity'] ?? 1),
-                ];
-
-                continue;
-            }
-
-            throw ValidationException::withMessages(["items.{$index}" => 'Each item must include either a priceId or trialOffer.']);
+            throw ValidationException::withMessages(["items.{$index}" => 'Each item must include a priceId.']);
         }
 
         return $normalized;

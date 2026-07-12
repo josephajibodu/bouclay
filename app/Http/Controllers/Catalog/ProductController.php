@@ -7,7 +7,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\StoreProductRequest;
 use App\Http\Requests\Catalog\UpdateProductRequest;
 use App\Models\Product;
-use App\Models\TrialOffer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -97,8 +96,9 @@ class ProductController extends Controller
     }
 
     /**
-     * Show the product detail hub — info, pricing, trials, and metadata
-     * on one scrollable page.
+     * Show the product detail hub — info, pricing, and metadata on one
+     * scrollable page. (Plans CRUD lands here in V2-1; trial config now
+     * lives on prices themselves.)
      */
     public function show(Request $request, Product $product): Response
     {
@@ -109,28 +109,6 @@ class ProductController extends Controller
         Gate::authorize('viewProducts', $team);
 
         $product->load(['prices' => fn ($query) => $query->with(['tiers', 'paymentLink'])->orderBy('created_at')]);
-
-        $trials = TrialOffer::query()
-            ->where('product_id', $product->id)
-            ->with(['trialPrice', 'transitionPrice', 'transitionProduct', 'paymentLink'])
-            ->get();
-
-        // Other active products (with their active prices) — populates the
-        // "transition to a different product" picker in the trial drawer.
-        $otherProducts = $team->products()
-            ->where('id', '!=', $product->id)
-            ->where('status', 'active')
-            ->with(['prices' => fn ($query) => $query->where('status', 'active')])
-            ->orderBy('name')
-            ->get()
-            ->map(fn (Product $other) => [
-                'id' => $other->id,
-                'name' => $other->name,
-                'prices' => $other->prices->map(fn ($price) => [
-                    'id' => $price->id,
-                    'label' => $price->toPickerLabel(),
-                ])->all(),
-            ]);
 
         return Inertia::render('catalog/show', [
             'product' => [
@@ -145,12 +123,9 @@ class ProductController extends Controller
                 'createdAt' => $product->created_at?->toISOString(),
             ],
             'prices' => $product->prices->map(fn ($price) => $price->toCatalogArray())->all(),
-            'trials' => $trials->map(fn (TrialOffer $trial) => $trial->toCatalogArray())->all(),
-            'otherProducts' => $otherProducts,
             'permissions' => [
                 'canManageProducts' => $request->user()->toTeamPermissions($team)->canManageProducts,
                 'canManagePrices' => $request->user()->toTeamPermissions($team)->canManagePrices,
-                'canManageTrialOffers' => $request->user()->toTeamPermissions($team)->canManageTrialOffers,
             ],
         ]);
     }

@@ -38,9 +38,13 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Role> $roles
  * @property-read Collection<int, ApiKey> $apiKeys
  * @property-read Collection<int, Product> $products
+ * @property-read Collection<int, Plan> $plans
+ * @property-read Collection<int, Entitlement> $entitlements
+ * @property-read Collection<int, Discount> $discounts
  * @property-read Collection<int, PaymentLink> $paymentLinks
  * @property-read TeamSettings|null $settings
  * @property-read TeamProcessorConnection|null $processorConnection
+ * @property-read Collection<int, TeamProcessorConnection> $processorConnections
  * @property-read Collection<int, Event> $events
  * @property-read Collection<int, WebhookEndpoint> $webhookEndpoints
  */
@@ -150,13 +154,27 @@ class Team extends Model
     }
 
     /**
-     * Get this team's Nomba processor connection.
+     * Get all of this team's gateway connections (one per processor).
+     *
+     * @return HasMany<TeamProcessorConnection, $this>
+     */
+    public function processorConnections(): HasMany
+    {
+        return $this->hasMany(TeamProcessorConnection::class);
+    }
+
+    /**
+     * Get this team's primary processor connection — the default-flagged
+     * row, falling back to the oldest. Nomba is the only shipped driver
+     * until V2-4, so existing single-gateway call sites keep working.
      *
      * @return HasOne<TeamProcessorConnection, $this>
      */
     public function processorConnection(): HasOne
     {
-        return $this->hasOne(TeamProcessorConnection::class);
+        return $this->hasOne(TeamProcessorConnection::class)
+            ->orderByDesc('is_default')
+            ->orderBy('id');
     }
 
     /**
@@ -210,13 +228,33 @@ class Team extends Model
     }
 
     /**
-     * Get all trial offers this team defines.
+     * Get all plans in this team's catalog.
      *
-     * @return HasMany<TrialOffer, $this>
+     * @return HasMany<Plan, $this>
      */
-    public function trialOffers(): HasMany
+    public function plans(): HasMany
     {
-        return $this->hasMany(TrialOffer::class);
+        return $this->hasMany(Plan::class);
+    }
+
+    /**
+     * Get all entitlements this team defines.
+     *
+     * @return HasMany<Entitlement, $this>
+     */
+    public function entitlements(): HasMany
+    {
+        return $this->hasMany(Entitlement::class);
+    }
+
+    /**
+     * Get all discounts this team defines.
+     *
+     * @return HasMany<Discount, $this>
+     */
+    public function discounts(): HasMany
+    {
+        return $this->hasMany(Discount::class);
     }
 
     /**

@@ -19,11 +19,17 @@ enum PermissionName: string
     case ProductsView = 'products.view';
     case ProductsManage = 'products.manage';
 
+    case PlansView = 'plans.view';
+    case PlansManage = 'plans.manage';
+
     case PricesView = 'prices.view';
     case PricesManage = 'prices.manage';
 
-    case TrialOffersView = 'trial_offers.view';
-    case TrialOffersManage = 'trial_offers.manage';
+    case EntitlementsView = 'entitlements.view';
+    case EntitlementsManage = 'entitlements.manage';
+
+    case DiscountsView = 'discounts.view';
+    case DiscountsManage = 'discounts.manage';
 
     case InvoicesView = 'invoices.view';
     case InvoicesManage = 'invoices.manage';
@@ -69,10 +75,14 @@ enum PermissionName: string
             self::CustomersManage => 'Manage customers',
             self::ProductsView => 'View products',
             self::ProductsManage => 'Manage products',
+            self::PlansView => 'View plans',
+            self::PlansManage => 'Manage plans',
             self::PricesView => 'View prices',
             self::PricesManage => 'Manage prices',
-            self::TrialOffersView => 'View trial offers',
-            self::TrialOffersManage => 'Manage trial offers',
+            self::EntitlementsView => 'View entitlements',
+            self::EntitlementsManage => 'Manage entitlements',
+            self::DiscountsView => 'View discounts',
+            self::DiscountsManage => 'Manage discounts',
             self::InvoicesView => 'View invoices',
             self::InvoicesManage => 'Manage invoices',
             self::InvoicesFinalize => 'Finalize invoices',
@@ -110,8 +120,10 @@ enum PermissionName: string
             self::RolesView, self::RolesManage => 'Roles',
             self::CustomersView, self::CustomersManage,
             self::ProductsView, self::ProductsManage,
+            self::PlansView, self::PlansManage,
             self::PricesView, self::PricesManage,
-            self::TrialOffersView, self::TrialOffersManage => 'Catalog',
+            self::EntitlementsView, self::EntitlementsManage,
+            self::DiscountsView, self::DiscountsManage => 'Catalog',
             self::InvoicesView, self::InvoicesManage, self::InvoicesFinalize => 'Invoicing',
             self::SubscriptionsView, self::SubscriptionsManage, self::SubscriptionKpisView => 'Subscriptions',
             self::OrdersView, self::OrdersManage, self::PaymentsView,

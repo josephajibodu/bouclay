@@ -9,7 +9,6 @@ use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\SubscriptionItemStatus;
-use App\Enums\SubscriptionItemTrialStatus;
 use App\Enums\SubscriptionStatus;
 use App\Enums\TrialEndBehavior;
 use App\Models\Invoice;
@@ -18,15 +17,19 @@ use App\Models\Price;
 use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
-use App\Models\SubscriptionItemTrial;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Convert expired item trials to their transition prices and bill the first
- * regular cycle when a free trial ends.
+ * Convert a trialing subscription whose trial clock has run out: swap it to
+ * `active` and bill the first regular cycle (schema.md §5).
+ *
+ * V2 trials are snapshotted onto `subscription_items.trial_ends_at` with the
+ * subscription's `trial_ends_at` as the denormalised earliest-end clock. The
+ * item keeps its price — a simple trial is the degenerate case where the
+ * trial phase and the regular phase share one price row. Phase progression
+ * (`price_phases` / `current_phase_sequence`) generalizes this in V2-2.
  */
 class ConvertSubscription
 {
@@ -39,27 +42,19 @@ class ConvertSubscription
 
     public function handle(Subscription $subscription): ?Invoice
     {
-        $dueTrials = $this->dueTrials($subscription);
+        if ($subscription->status !== SubscriptionStatus::Trialing) {
+            return null;
+        }
 
-        if ($dueTrials->isEmpty()) {
+        if ($subscription->trial_ends_at === null || $subscription->trial_ends_at->isFuture()) {
             return null;
         }
 
         $subscription->loadMissing(['customer', 'items.price.product', 'paymentMethod', 'team']);
 
-        $wasTrialing = $subscription->status === SubscriptionStatus::Trialing;
-
         /** @var Invoice|null $invoice */
-        $invoice = DB::transaction(function () use ($subscription, $dueTrials, $wasTrialing): ?Invoice {
-            foreach ($dueTrials as $trial) {
-                $this->convertTrialItem($trial);
-            }
-
-            $this->recomputeTrialEndsAt($subscription);
-
-            if (! $wasTrialing) {
-                return null;
-            }
+        $invoice = DB::transaction(function () use ($subscription): ?Invoice {
+            $this->expireDueItemTrials($subscription);
 
             return $this->finalizeFreeTrialConversion($subscription);
         });
@@ -78,45 +73,32 @@ class ConvertSubscription
     }
 
     /**
-     * @return Collection<int, SubscriptionItemTrial>
+     * Clear the item-level trial clocks that have run out and recompute the
+     * subscription's denormalised `trial_ends_at` (earliest active item
+     * trial end, or null when none remain).
      */
-    private function dueTrials(Subscription $subscription): Collection
+    private function expireDueItemTrials(Subscription $subscription): void
     {
-        return SubscriptionItemTrial::query()
-            ->where('status', SubscriptionItemTrialStatus::Active)
-            ->where('ends_at', '<=', now())
-            ->whereHas('subscriptionItem', fn ($query) => $query->where('subscription_id', $subscription->id))
-            ->with(['subscriptionItem', 'transitionPrice.product'])
-            ->orderBy('id')
-            ->get();
-    }
+        $now = Carbon::now();
+        $remaining = null;
 
-    private function convertTrialItem(SubscriptionItemTrial $trial): void
-    {
-        $item = $trial->subscriptionItem;
-        $transitionPrice = $trial->transitionPrice;
+        foreach ($subscription->items as $item) {
+            if ($item->trial_ends_at === null) {
+                continue;
+            }
 
-        $item->forceFill([
-            'price_id' => $transitionPrice->id,
-            'product_id' => $transitionPrice->product_id,
-        ])->save();
+            if ($item->trial_ends_at->lte($now)) {
+                $item->forceFill(['trial_ends_at' => null])->save();
 
-        $trial->forceFill([
-            'status' => SubscriptionItemTrialStatus::Converted,
-            'converted_at' => Carbon::now(),
-        ])->save();
-    }
+                continue;
+            }
 
-    private function recomputeTrialEndsAt(Subscription $subscription): void
-    {
-        $earliestEnd = SubscriptionItemTrial::query()
-            ->where('status', SubscriptionItemTrialStatus::Active)
-            ->whereHas('subscriptionItem', fn ($query) => $query->where('subscription_id', $subscription->id))
-            ->min('ends_at');
+            if ($remaining === null || $item->trial_ends_at->lt($remaining)) {
+                $remaining = $item->trial_ends_at;
+            }
+        }
 
-        $subscription->forceFill([
-            'trial_ends_at' => $earliestEnd !== null ? Carbon::parse((string) $earliestEnd) : null,
-        ])->save();
+        $subscription->forceFill(['trial_ends_at' => $remaining])->save();
     }
 
     private function finalizeFreeTrialConversion(Subscription $subscription): ?Invoice
@@ -195,6 +177,10 @@ class ConvertSubscription
     }
 
     /**
+     * The conversion invoice bundles every active item — plan and add-ons
+     * alike (GAP-4: add-ons ride the plan item's trial and are first
+     * invoiced here, together).
+     *
      * @return list<array{subscriptionItem: SubscriptionItem, price: Price, product: Product, kind: InvoiceLineKind, description: string, unitAmount: int, quantity: int}>
      */
     private function buildConversionLines(Subscription $subscription): array
@@ -209,7 +195,7 @@ class ConvertSubscription
                     'subscriptionItem' => $item,
                     'price' => $price,
                     'product' => $product,
-                    'kind' => InvoiceLineKind::Subscription,
+                    'kind' => InvoiceLineKind::from($item->kind->value),
                     'description' => $product->name.' · '.$price->toPickerLabel(),
                     'unitAmount' => $price->unit_amount ?? 0,
                     'quantity' => $item->quantity,

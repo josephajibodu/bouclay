@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -29,8 +30,9 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  * @property-read Team $team
+ * @property-read Collection<int, Plan> $plans
  * @property-read Collection<int, Price> $prices
- * @property-read Collection<int, TrialOffer> $trialOffers
+ * @property-read Collection<int, EntitlementGrant> $entitlementGrants
  */
 #[Fillable(['team_id', 'name', 'description', 'category', 'image_url', 'website_url', 'status', 'custom_data'])]
 class Product extends Model
@@ -57,7 +59,19 @@ class Product extends Model
     }
 
     /**
-     * Get all prices defined for this product.
+     * Get the named tiers defined under this product (schema.md §3).
+     *
+     * @return HasMany<Plan, $this>
+     */
+    public function plans(): HasMany
+    {
+        return $this->hasMany(Plan::class);
+    }
+
+    /**
+     * Get all prices defined for this product — plan variants and
+     * plan-less one-time prices alike (product_id is denormalised on
+     * every price).
      *
      * @return HasMany<Price, $this>
      */
@@ -67,13 +81,14 @@ class Product extends Model
     }
 
     /**
-     * Get all trial offers defined for this product.
+     * Get the entitlement grants this product confers (morph alias
+     * `product`).
      *
-     * @return HasMany<TrialOffer, $this>
+     * @return MorphMany<EntitlementGrant, $this>
      */
-    public function trialOffers(): HasMany
+    public function entitlementGrants(): MorphMany
     {
-        return $this->hasMany(TrialOffer::class);
+        return $this->morphMany(EntitlementGrant::class, 'grantor');
     }
 
     /**

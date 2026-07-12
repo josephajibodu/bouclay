@@ -12,7 +12,6 @@ use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
 use App\Models\Team;
-use App\Models\TrialOffer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -62,12 +61,6 @@ trait ResolvesPublicIds
     {
         /** @var Price */
         return $this->findByPublicId($team, Price::class, $publicId);
-    }
-
-    protected function findTrialOffer(Team $team, string $publicId): TrialOffer
-    {
-        /** @var TrialOffer */
-        return $this->findByPublicId($team, TrialOffer::class, $publicId);
     }
 
     protected function findSubscription(Team $team, string $publicId): Subscription

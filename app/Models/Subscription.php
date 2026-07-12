@@ -46,6 +46,8 @@ use Illuminate\Support\Carbon;
  * @property-read Team $team
  * @property-read Customer $customer
  * @property-read PaymentMethod|null $paymentMethod
+ * @property-read Discount|null $discount
+ * @property-read Collection<int, DiscountRedemption> $discountRedemptions
  * @property-read Collection<int, SubscriptionItem> $items
  * @property-read Collection<int, ScheduledChange> $scheduledChanges
  * @property-read Collection<int, Invoice> $invoices
@@ -139,7 +141,28 @@ class Subscription extends Model
     }
 
     /**
-     * Get the subscription's line items (base + add-ons + trial lines).
+     * Get the discount applied to this subscription, if any.
+     *
+     * @return BelongsTo<Discount, $this>
+     */
+    public function discount(): BelongsTo
+    {
+        return $this->belongsTo(Discount::class);
+    }
+
+    /**
+     * Get this subscription's discount redemptions — the durable record of
+     * how many intervals a repeating discount has left (schema.md §7).
+     *
+     * @return HasMany<DiscountRedemption, $this>
+     */
+    public function discountRedemptions(): HasMany
+    {
+        return $this->hasMany(DiscountRedemption::class);
+    }
+
+    /**
+     * Get the subscription's line items (base plan + add-ons).
      *
      * @return HasMany<SubscriptionItem, $this>
      */

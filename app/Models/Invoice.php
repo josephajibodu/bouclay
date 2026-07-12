@@ -7,6 +7,7 @@ use App\Concerns\HasPublicId;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceStatus;
+use App\Enums\InvoiceType;
 use App\Enums\OutboundEventType;
 use App\Support\Api\ApiMoney;
 use Database\Factories\InvoiceFactory;
@@ -27,8 +28,10 @@ use Illuminate\Support\Carbon;
  * @property string $public_id
  * @property int $team_id
  * @property int $customer_id
+ * @property int $billed_to_customer_id
  * @property int|null $subscription_id
  * @property string|null $number
+ * @property InvoiceType $type
  * @property InvoiceStatus $status
  * @property InvoiceBillingReason $billing_reason
  * @property CollectionMode $collection_mode
@@ -52,12 +55,15 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property-read Team $team
  * @property-read Customer $customer
+ * @property-read Customer $billedToCustomer
  * @property-read Subscription|null $subscription
  * @property-read Collection<int, InvoiceLine> $lines
  * @property-read Collection<int, Payment> $payments
+ * @property-read Collection<int, Refund> $refunds
  */
 #[Fillable([
-    'team_id', 'customer_id', 'subscription_id', 'number', 'status',
+    'team_id', 'customer_id', 'billed_to_customer_id', 'subscription_id',
+    'number', 'type', 'status',
     'billing_reason', 'collection_mode', 'currency', 'subtotal',
     'discount_total', 'tax_total', 'total', 'amount_paid', 'amount_due',
     'billing_address', 'customer_snapshot', 'period_start', 'period_end',
@@ -97,6 +103,18 @@ class Invoice extends Model
     }
 
     /**
+     * Get the customer who actually pays — always equal to `customer` in
+     * MVP; a distinct relation from day one so parent/child billing is
+     * addable later without migrating invoice history (schema.md §8).
+     *
+     * @return BelongsTo<Customer, $this>
+     */
+    public function billedToCustomer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class, 'billed_to_customer_id');
+    }
+
+    /**
      * Get the subscription this invoice was generated for, if any — null for
      * a one-off invoice.
      *
@@ -125,6 +143,17 @@ class Invoice extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * Get the refunds issued against this invoice's payments (denormalised
+     * FK — no join through payments needed).
+     *
+     * @return HasMany<Refund, $this>
+     */
+    public function refunds(): HasMany
+    {
+        return $this->hasMany(Refund::class);
     }
 
     /**
@@ -495,6 +524,7 @@ class Invoice extends Model
     protected function casts(): array
     {
         return [
+            'type' => InvoiceType::class,
             'status' => InvoiceStatus::class,
             'billing_reason' => InvoiceBillingReason::class,
             'collection_mode' => CollectionMode::class,

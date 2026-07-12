@@ -10,7 +10,6 @@ use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\PriceController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
-use App\Http\Controllers\Api\V1\TrialOfferController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('customers', [CustomerController::class, 'index']);
@@ -40,11 +39,6 @@ Route::post('products/{product}/prices', [PriceController::class, 'store']);
 Route::get('prices/{price}', [PriceController::class, 'show']);
 Route::patch('prices/{price}', [PriceController::class, 'update']);
 Route::post('prices/{price}/archive', [PriceController::class, 'archive']);
-
-Route::get('trial-offers', [TrialOfferController::class, 'index']);
-Route::post('products/{product}/trial-offers', [TrialOfferController::class, 'store']);
-Route::get('trial-offers/{trialOffer}', [TrialOfferController::class, 'show']);
-Route::patch('trial-offers/{trialOffer}', [TrialOfferController::class, 'update']);
 
 Route::get('subscriptions', [SubscriptionController::class, 'index']);
 Route::post('subscriptions', [SubscriptionController::class, 'store']);
