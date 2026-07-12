@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\Team;
 use App\Models\TeamProcessorConnection;
 use App\Models\User;
+use Database\Seeders\DemoTeamSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -102,6 +103,30 @@ function invoiceFixture(): array
 function subscriptionFixture(): array
 {
     return invoiceFixture();
+}
+
+/**
+ * The NaijaStream catalog from BILLING_SIMULATIONS.md, built by the same
+ * seeder the demo environment uses ({@see DemoTeamSeeder::seedCatalog()}) so
+ * the acceptance tests and the seeded catalog can never drift apart.
+ *
+ * Keys follow the doc's refs: `price_prem_m` (₦5,000/mo Premium, 7-day
+ * card-required trial), `price_sports_m` (₦1,500/mo add-on), `price_seat_m`
+ * (₦1,000/seat/mo), `welcome20` (20% × 3 intervals on Premium),
+ * entitlements `hdStreaming`/`sportsChannels`, and customer `amina`.
+ *
+ * @return array<string, mixed> team + owner + every catalog object
+ */
+function naijaStreamFixture(): array
+{
+    $owner = User::factory()->create();
+    $team = Team::factory()->create(['name' => 'NaijaStream', 'default_currency' => 'NGN']);
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $catalog = (new DemoTeamSeeder)->seedCatalog($team);
+
+    return ['team' => $team, 'owner' => $owner, ...$catalog];
 }
 
 /**
