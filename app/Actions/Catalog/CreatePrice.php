@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\DB;
 class CreatePrice
 {
     /**
-     * Create a price on a product.
+     * Create a price on a product, optionally as a variant of one of the
+     * product's plans (required for recurring prices — a plan-less price
+     * can never be subscribed to, schema.md §3).
      *
      * Amounts arrive from the UI in major currency units (e.g. Naira, not
      * kobo) — see CATALOG_DESIGN.md §6.2 — and are converted to minor units
@@ -24,6 +26,7 @@ class CreatePrice
         return DB::transaction(function () use ($product, $data) {
             $price = $product->prices()->create([
                 'team_id' => $product->team_id,
+                'plan_id' => $data['plan_id'] ?? null,
                 'name' => $data['name'] ?? null,
                 'type' => $data['type'],
                 'pricing_model' => $data['pricing_model'],
@@ -33,6 +36,16 @@ class CreatePrice
                 'billing_frequency' => $data['billing_frequency'] ?? 1,
                 'tax_mode' => 'account',
                 'status' => CatalogStatus::Active,
+                'replaces_price_id' => $data['replaces_price_id'] ?? null,
+                'version' => $data['version'] ?? 1,
+                'trial_length' => $data['trial_length'] ?? null,
+                'trial_unit' => isset($data['trial_length']) ? ($data['trial_unit'] ?? 'day') : null,
+                'trial_requires_payment_info' => (bool) ($data['trial_requires_payment_info'] ?? false),
+                'trial_once_per_customer' => (bool) ($data['trial_once_per_customer'] ?? true),
+                // False only for auto-created phase charge targets — never
+                // offered directly in any picker (schema.md §3).
+                'purchasable' => (bool) ($data['purchasable'] ?? true),
+                'custom_data' => $data['custom_data'] ?? null,
             ]);
 
             if (! empty($data['tiers'])) {

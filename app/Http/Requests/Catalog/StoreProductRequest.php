@@ -25,6 +25,10 @@ class StoreProductRequest extends FormRequest
             'category' => ['nullable', 'string', 'max:255'],
 
             'price' => ['nullable', 'array'],
+            // A recurring first price needs a plan to live under (schema.md
+            // §3); the plan is created alongside, named here. Defaults to
+            // the product's name when omitted.
+            'price.plan_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'price.type' => ['sometimes', 'required_with:price', 'in:recurring,one_time'],
             'price.pricing_model' => ['sometimes', 'required_with:price', 'in:standard,graduated'],
             'price.unit_amount' => ['sometimes', 'required_unless:price.pricing_model,graduated', 'numeric', 'min:0'],

@@ -1,11 +1,38 @@
 <?php
 
+use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Team;
 use App\Models\User;
 
 test('a price can be added to an existing product', function () {
+    $owner = User::factory()->create();
+    $team = Team::factory()->create();
+    $product = Product::factory()->for($team)->create();
+    $plan = Plan::factory()->for($team)->for($product)->create();
+
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $this
+        ->actingAs($owner)
+        ->post(route('catalog.prices.store', $product), [
+            'plan_id' => $plan->id,
+            'type' => 'recurring',
+            'pricing_model' => 'standard',
+            'unit_amount' => 150000,
+            'billing_interval' => 'year',
+            'billing_frequency' => 1,
+        ])
+        ->assertRedirect();
+
+    expect($product->prices()->count())->toBe(1);
+    expect($product->prices()->first()->unit_amount)->toBe(15000000);
+    expect($product->prices()->first()->plan_id)->toBe($plan->id);
+});
+
+test('a recurring price cannot be created without a plan', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create();
     $product = Product::factory()->for($team)->create();
@@ -20,18 +47,18 @@ test('a price can be added to an existing product', function () {
             'pricing_model' => 'standard',
             'unit_amount' => 150000,
             'billing_interval' => 'year',
-            'billing_frequency' => 1,
         ])
-        ->assertRedirect();
+        ->assertSessionHasErrors('plan_id');
 
-    expect($product->prices()->count())->toBe(1);
-    expect($product->prices()->first()->unit_amount)->toBe(15000000);
+    expect($product->prices()->count())->toBe(0);
 });
 
-test('a graduated price requires tiers', function () {
+test('a price cannot attach to another product\'s plan', function () {
     $owner = User::factory()->create();
     $team = Team::factory()->create();
     $product = Product::factory()->for($team)->create();
+    $otherProduct = Product::factory()->for($team)->create();
+    $foreignPlan = Plan::factory()->for($team)->for($otherProduct)->create();
 
     attachTeamOwner($team, $owner);
     $owner->switchTeam($team);
@@ -39,6 +66,30 @@ test('a graduated price requires tiers', function () {
     $this
         ->actingAs($owner)
         ->post(route('catalog.prices.store', $product), [
+            'plan_id' => $foreignPlan->id,
+            'type' => 'recurring',
+            'pricing_model' => 'standard',
+            'unit_amount' => 150000,
+            'billing_interval' => 'month',
+        ])
+        ->assertSessionHasErrors('plan_id');
+
+    expect($product->prices()->count())->toBe(0);
+});
+
+test('a graduated price requires tiers', function () {
+    $owner = User::factory()->create();
+    $team = Team::factory()->create();
+    $product = Product::factory()->for($team)->create();
+    $plan = Plan::factory()->for($team)->for($product)->create();
+
+    attachTeamOwner($team, $owner);
+    $owner->switchTeam($team);
+
+    $this
+        ->actingAs($owner)
+        ->post(route('catalog.prices.store', $product), [
+            'plan_id' => $plan->id,
             'type' => 'recurring',
             'pricing_model' => 'graduated',
             'billing_interval' => 'month',

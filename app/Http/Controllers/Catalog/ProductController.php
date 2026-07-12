@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Catalog;
 
 use App\Actions\Catalog\CreatePrice;
+use App\Enums\PlanStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\StoreProductRequest;
 use App\Http\Requests\Catalog\UpdateProductRequest;
@@ -30,7 +31,9 @@ class ProductController extends Controller
         Gate::authorize('viewProducts', $team);
 
         $products = $team->products()
-            ->with(['prices' => fn ($query) => $query->where('status', 'active')])
+            // Phase-only charge targets (purchasable=false) never surface
+            // in the Products list (schema.md §3).
+            ->with(['prices' => fn ($query) => $query->where('status', 'active')->where('purchasable', true)])
             ->orderByDesc('created_at')
             ->get()
             ->map(fn (Product $product) => [
@@ -65,10 +68,10 @@ class ProductController extends Controller
     }
 
     /**
-     * Create a product, optionally with its first price. Trials are
-     * created afterward, from the product page — see CATALOG_DESIGN.md
-     * §7.1 (revised): a trial needs a real trial price to reference, which
-     * doesn't exist until at least one price has been created.
+     * Create a product, optionally with its first price. A recurring first
+     * price needs a plan to be a variant of (schema.md §3), so one is
+     * created alongside — named by `price.plan_name`, defaulting to the
+     * product's own name (the common one-tier starting point).
      */
     public function store(StoreProductRequest $request): RedirectResponse
     {
@@ -86,6 +89,18 @@ class ProductController extends Controller
 
         if ($priceData) {
             $priceData['currency'] ??= $team->default_currency;
+
+            if (($priceData['type'] ?? null) === 'recurring') {
+                $plan = $product->plans()->create([
+                    'team_id' => $team->id,
+                    'name' => $priceData['plan_name'] ?? $product->name,
+                    'status' => PlanStatus::Active,
+                ]);
+
+                $priceData['plan_id'] = $plan->id;
+            }
+
+            unset($priceData['plan_name']);
 
             $this->createPrice->handle($product, $priceData);
         }
@@ -108,7 +123,12 @@ class ProductController extends Controller
 
         Gate::authorize('viewProducts', $team);
 
-        $product->load(['prices' => fn ($query) => $query->with(['tiers', 'paymentLink'])->orderBy('created_at')]);
+        $product->load([
+            'plans' => fn ($query) => $query->orderBy('created_at'),
+            'prices' => fn ($query) => $query->with(['tiers', 'paymentLink', 'phases.chargePrice'])->orderBy('created_at'),
+        ]);
+
+        $permissions = $request->user()->toTeamPermissions($team);
 
         return Inertia::render('catalog/show', [
             'product' => [
@@ -122,10 +142,18 @@ class ProductController extends Controller
                 'customData' => $product->custom_data,
                 'createdAt' => $product->created_at?->toISOString(),
             ],
+            'plans' => $product->plans->map(fn ($plan) => [
+                'id' => $plan->id,
+                'publicId' => $plan->public_id,
+                'code' => $plan->code,
+                'name' => $plan->name,
+                'status' => $plan->status,
+            ])->all(),
             'prices' => $product->prices->map(fn ($price) => $price->toCatalogArray())->all(),
             'permissions' => [
-                'canManageProducts' => $request->user()->toTeamPermissions($team)->canManageProducts,
-                'canManagePrices' => $request->user()->toTeamPermissions($team)->canManagePrices,
+                'canManageProducts' => $permissions->canManageProducts,
+                'canManagePlans' => $permissions->canManagePlans,
+                'canManagePrices' => $permissions->canManagePrices,
             ],
         ]);
     }

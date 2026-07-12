@@ -2,16 +2,20 @@
 
 namespace App\Models;
 
+use App\Actions\Catalog\ReplacePrice;
 use App\Concerns\HasPublicId;
 use App\Enums\BillingInterval;
 use App\Enums\CatalogStatus;
+use App\Enums\PlanStatus;
 use App\Enums\PriceType;
 use App\Enums\PricingModel;
 use App\Enums\TaxMode;
 use App\Enums\TrialUnit;
+use App\Exceptions\ImmutablePriceViolation;
 use App\Support\Api\ApiMoney;
 use Database\Factories\PriceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -78,11 +82,83 @@ class Price extends Model
     use HasFactory, HasPublicId;
 
     /**
+     * The price-defining columns frozen once the row is referenced by a
+     * subscription item or invoice line (schema.md §3). Everything else —
+     * `name` (snapshots protect history), `status` (archiving), `purchasable`
+     * (catalog visibility), `custom_data` — stays mutable for life.
+     *
+     * @var list<string>
+     */
+    public const FROZEN_COLUMNS = [
+        'team_id', 'product_id', 'plan_id', 'type', 'pricing_model',
+        'unit_amount', 'currency', 'billing_interval', 'billing_frequency',
+        'package_size', 'tax_mode', 'replaces_price_id', 'version',
+        'trial_length', 'trial_unit', 'trial_requires_payment_info',
+        'trial_once_per_customer',
+    ];
+
+    /**
+     * The last line of defense for the immutability invariant: any code
+     * path — controller, action, tinker — that mutates a frozen column on
+     * a referenced price throws. The legal edit path is
+     * {@see ReplacePrice}.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Price $price): void {
+            if (! $price->exists) {
+                return;
+            }
+
+            $frozenDirty = array_values(array_intersect(
+                array_keys($price->getDirty()),
+                self::FROZEN_COLUMNS,
+            ));
+
+            if ($frozenDirty !== [] && $price->hasBeenUsed()) {
+                throw ImmutablePriceViolation::forColumns($price, $frozenDirty);
+            }
+        });
+    }
+
+    /**
      * Get the prefix for this model's public identifier.
      */
     public function publicIdPrefix(): string
     {
         return 'price';
+    }
+
+    /**
+     * Scope to the prices a NEW subscription may reference — the single
+     * definition of purchasability every picker, payment link, and API
+     * validator reads (IMPLEMENTATION_V2 §V2-1): an active, purchasable,
+     * plan-bearing recurring price whose plan is itself active (the
+     * draft/archived-plan rule, schema.md §3).
+     *
+     * @param  Builder<Price>  $query
+     * @return Builder<Price>
+     */
+    public function scopePurchasableForNewSubscriptions(Builder $query): Builder
+    {
+        return $query
+            ->where('status', CatalogStatus::Active)
+            ->where('purchasable', true)
+            ->where('type', PriceType::Recurring)
+            ->whereNotNull('plan_id')
+            ->whereHas('plan', fn (Builder $plan) => $plan->where('status', PlanStatus::Active));
+    }
+
+    /**
+     * Whether a new subscription may reference this specific row — the
+     * row-level twin of {@see scopePurchasableForNewSubscriptions()}.
+     */
+    public function isPurchasableForNewSubscriptions(): bool
+    {
+        return static::query()
+            ->whereKey($this->id)
+            ->purchasableForNewSubscriptions()
+            ->exists();
     }
 
     /**
@@ -241,6 +317,19 @@ class Price extends Model
                     'upTo' => $tier->up_to,
                     'unitAmount' => $tier->unit_amount / 100,
                     'flatAmount' => $tier->flat_amount !== null ? $tier->flat_amount / 100 : null,
+                ])->all()
+                : [],
+            'phases' => $this->relationLoaded('phases')
+                ? $this->phases->map(fn (PricePhase $phase) => [
+                    'id' => $phase->id,
+                    'sequence' => $phase->sequence,
+                    'chargePriceId' => $phase->charge_price_id,
+                    'chargePriceLabel' => $phase->chargePrice->toPickerLabel(),
+                    'chargePriceUnitAmount' => $phase->chargePrice->unit_amount !== null
+                        ? $phase->chargePrice->unit_amount / 100
+                        : null,
+                    'durationInterval' => $phase->duration_interval->value,
+                    'durationCount' => $phase->duration_count,
                 ])->all()
                 : [],
         ];

@@ -169,6 +169,15 @@ class CreateSubscription
                 );
             }
 
+            // The one shared purchasability rule (V2-1): archived or
+            // phase-only prices, and prices under a draft/archived plan,
+            // are not offered to new subscriptions.
+            if (! $price->isPurchasableForNewSubscriptions()) {
+                throw new InvalidArgumentException(
+                    "Price {$price->public_id} is not currently purchasable — its plan may be draft or archived."
+                );
+            }
+
             $lines[] = ['price' => $price, 'quantity' => $quantity];
         }
 

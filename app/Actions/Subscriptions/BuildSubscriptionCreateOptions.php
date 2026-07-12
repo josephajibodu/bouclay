@@ -3,8 +3,6 @@
 namespace App\Actions\Subscriptions;
 
 use App\Enums\CatalogStatus;
-use App\Enums\PlanStatus;
-use App\Enums\PriceType;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Team;
@@ -37,11 +35,7 @@ class BuildSubscriptionCreateOptions
         $products = $team->products()
             ->where('status', CatalogStatus::Active)
             ->with(['prices' => fn ($query) => $query
-                ->where('type', PriceType::Recurring)
-                ->where('status', CatalogStatus::Active)
-                ->where('purchasable', true)
-                ->whereNotNull('plan_id')
-                ->whereHas('plan', fn ($plan) => $plan->where('status', PlanStatus::Active))
+                ->purchasableForNewSubscriptions()
                 ->with('plan'),
             ])
             ->orderBy('name')

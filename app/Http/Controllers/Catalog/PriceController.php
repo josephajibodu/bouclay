@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Catalog;
 
 use App\Actions\Catalog\CreatePrice;
+use App\Actions\Catalog\ReplacePrice;
+use App\Actions\Catalog\SyncPricePhases;
 use App\Enums\CatalogStatus;
+use App\Enums\PriceType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\StorePriceRequest;
 use App\Http\Requests\Catalog\UpdatePriceRequest;
@@ -17,16 +20,21 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use InvalidArgumentException;
 
 class PriceController extends Controller
 {
-    public function __construct(private readonly CreatePrice $createPrice)
-    {
+    public function __construct(
+        private readonly CreatePrice $createPrice,
+        private readonly ReplacePrice $replacePrice,
+        private readonly SyncPricePhases $syncPricePhases,
+    ) {
         //
     }
 
     /**
-     * Add a price to an existing product.
+     * Add a price to an existing product, as a variant of one of the
+     * product's plans when recurring.
      */
     public function store(StorePriceRequest $request, Product $product): RedirectResponse
     {
@@ -39,6 +47,10 @@ class PriceController extends Controller
         $data = $request->validated();
         $data['currency'] ??= $team->default_currency;
 
+        if (isset($data['plan_id'])) {
+            $this->assertPlanBelongsToProduct($product, (int) $data['plan_id']);
+        }
+
         $this->createPrice->handle($product, $data);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Price added to '.$product->name]);
@@ -47,20 +59,23 @@ class PriceController extends Controller
     }
 
     /**
-     * The "shape" of a price — locked in place once a subscription has ever
-     * referenced it (see CATALOG_DESIGN.md Principle 6). Cosmetic fields
-     * (name, custom_data) and status (archiving) stay editable regardless.
+     * The financial shape of a price — the fields whose edit, once the
+     * price is referenced, must go through ReplacePrice instead of an
+     * in-place UPDATE (schema.md §3). Cosmetic fields (name, custom_data)
+     * and status stay editable in place regardless.
      */
     private const FINANCIAL_FIELDS = [
-        'unit_amount', 'currency', 'billing_interval', 'billing_frequency',
-        'type', 'pricing_model', 'tiers',
+        'plan_id', 'unit_amount', 'currency', 'billing_interval',
+        'billing_frequency', 'type', 'pricing_model', 'tiers',
+        'trial_length', 'trial_unit', 'trial_requires_payment_info',
+        'trial_once_per_customer',
     ];
 
     /**
-     * Update a price. Every field is freely editable in place until the
-     * price has been referenced by a subscription — the usage lock
-     * (Price::hasBeenUsed()) only activates once subscriptions exist
-     * (Phase 5), at which point only name/custom_data may still change.
+     * Update a price. Reads as "edit" everywhere in the UI; what executes
+     * depends on usage: an unreferenced price is edited in place, a
+     * referenced one gets a successor row (`replaces_price_id`, version+1)
+     * while the original is archived and its subscribers grandfathered.
      */
     public function update(UpdatePriceRequest $request, Product $product, Price $price): RedirectResponse
     {
@@ -70,21 +85,35 @@ class PriceController extends Controller
 
         Gate::authorize('managePrices', $team);
 
+        $data = $request->validated();
+
+        if (array_key_exists('plan_id', $data) && $data['plan_id'] !== null) {
+            $this->assertPlanBelongsToProduct($product, (int) $data['plan_id']);
+        }
+
         $changingFinancialFields = collect(self::FINANCIAL_FIELDS)
             ->some(fn (string $field) => $request->has($field));
 
         if ($changingFinancialFields && $price->hasBeenUsed()) {
-            throw ValidationException::withMessages([
-                'unit_amount' => 'This price has active subscribers — create a new price instead of editing this one.',
+            $successor = $this->replacePrice->handle($price, $data);
+
+            Inertia::flash('toast', [
+                'type' => 'success',
+                'message' => "New price version v{$successor->version} created — existing subscribers keep the old price.",
             ]);
+
+            return back();
         }
 
-        $data = $request->validated();
         $tiers = $data['tiers'] ?? null;
         unset($data['tiers']);
 
         if (array_key_exists('unit_amount', $data) && $data['unit_amount'] !== null) {
             $data['unit_amount'] = (int) round($data['unit_amount'] * 100);
+        }
+
+        if (array_key_exists('trial_length', $data) && $data['trial_length'] === null) {
+            $data['trial_unit'] = null;
         }
 
         DB::transaction(function () use ($price, $data, $tiers) {
@@ -111,6 +140,47 @@ class PriceController extends Controller
     }
 
     /**
+     * Replace a price's phase schedule — trials that transition, paid
+     * intro periods, ramps. Only editable while the price is unreferenced;
+     * after that, edit the price (which creates a successor) and author
+     * phases there.
+     */
+    public function phases(Request $request, Product $product, Price $price): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($product->team_id === $team->id && $price->product_id === $product->id, 404);
+
+        Gate::authorize('managePrices', $team);
+
+        $data = $request->validate([
+            'phases' => ['present', 'array'],
+            'phases.*.charge_price_id' => ['nullable', 'integer'],
+            'phases.*.charge_price' => ['nullable', 'array'],
+            'phases.*.charge_price.unit_amount' => ['required_with:phases.*.charge_price', 'numeric', 'min:0'],
+            'phases.*.charge_price.name' => ['nullable', 'string', 'max:255'],
+            'phases.*.duration_interval' => ['required', 'in:day,week,month,year'],
+            'phases.*.duration_count' => ['required', 'integer', 'min:1'],
+        ]);
+
+        if ($price->hasBeenUsed()) {
+            throw ValidationException::withMessages([
+                'phases' => 'This price has subscribers — edit the price to create a new version, then author phases there.',
+            ]);
+        }
+
+        try {
+            $this->syncPricePhases->handle($price, $data['phases']);
+        } catch (InvalidArgumentException $exception) {
+            throw ValidationException::withMessages(['phases' => $exception->getMessage()]);
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Phase schedule saved']);
+
+        return back();
+    }
+
+    /**
      * Archive a price — hides it from checkout without deleting history.
      */
     public function archive(Request $request, Product $product, Price $price): RedirectResponse
@@ -130,7 +200,9 @@ class PriceController extends Controller
 
     /**
      * Create or retrieve the shareable hosted checkout URL for this exact
-     * catalog price.
+     * catalog price. Recurring prices must be purchasable for new
+     * subscriptions (active price, active plan, not phase-only); one-time
+     * prices just need to be active with a fixed amount.
      */
     public function paymentLink(Request $request, Product $product, Price $price): RedirectResponse
     {
@@ -140,10 +212,16 @@ class PriceController extends Controller
 
         Gate::authorize('managePrices', $team);
 
-        if ($product->status === CatalogStatus::Archived || $price->status === CatalogStatus::Archived || ($price->unit_amount ?? 0) <= 0) {
+        $sellable = $product->status !== CatalogStatus::Archived
+            && ($price->unit_amount ?? 0) > 0
+            && ($price->type === PriceType::Recurring
+                ? $price->isPurchasableForNewSubscriptions()
+                : $price->status === CatalogStatus::Active && $price->purchasable);
+
+        if (! $sellable) {
             Inertia::flash('toast', [
                 'type' => 'error',
-                'message' => 'Payment links are available for active, fixed-amount prices.',
+                'message' => 'Payment links are available for active, fixed-amount prices under an active plan.',
             ]);
 
             return back();
@@ -169,5 +247,17 @@ class PriceController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Payment link ready']);
 
         return back();
+    }
+
+    /**
+     * A price may only attach to a plan of its own product.
+     */
+    private function assertPlanBelongsToProduct(Product $product, int $planId): void
+    {
+        if (! $product->plans()->whereKey($planId)->exists()) {
+            throw ValidationException::withMessages([
+                'plan_id' => 'Choose a plan that belongs to this product.',
+            ]);
+        }
     }
 }

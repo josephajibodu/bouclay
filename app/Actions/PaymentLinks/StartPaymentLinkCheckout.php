@@ -77,10 +77,13 @@ class StartPaymentLinkCheckout
             throw new InvalidArgumentException('This payment link is not available for free or custom-priced catalog rows yet.');
         }
 
-        // A recurring checkout becomes a subscription on settlement, and
-        // subscription items require a plan (schema.md §6).
-        if ($paymentLink->price->type === PriceType::Recurring && $paymentLink->price->plan_id === null) {
-            throw new InvalidArgumentException('This payment link\'s price does not belong to a plan yet.');
+        // A recurring checkout becomes a subscription on settlement, so its
+        // price must pass the one shared purchasability rule — plan-bearing,
+        // plan itself active, not phase-only
+        // (Price::purchasableForNewSubscriptions).
+        if ($paymentLink->price->type === PriceType::Recurring
+            && ! $paymentLink->price->isPurchasableForNewSubscriptions()) {
+            throw new InvalidArgumentException('This payment link is no longer available.');
         }
     }
 
