@@ -96,6 +96,11 @@ export type SubscriptionDetail = {
 
 // --- Create flow (SUBSCRIPTIONS_DESIGN §7) ---
 
+export type CreatePriceTrial = {
+    label: string;
+    free: boolean;
+};
+
 export type CreatePriceOption = {
     id: number;
     label: string;
@@ -103,6 +108,7 @@ export type CreatePriceOption = {
     unitAmount: number | null;
     currency: string;
     billingInterval: string | null;
+    trial?: CreatePriceTrial | null;
 };
 
 export type CreateProductOption = {

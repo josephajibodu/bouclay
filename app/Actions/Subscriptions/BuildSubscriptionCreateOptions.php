@@ -36,7 +36,7 @@ class BuildSubscriptionCreateOptions
             ->where('status', CatalogStatus::Active)
             ->with(['prices' => fn ($query) => $query
                 ->purchasableForNewSubscriptions()
-                ->with('plan'),
+                ->with(['plan', 'phases.chargePrice']),
             ])
             ->orderBy('name')
             ->get()
@@ -52,6 +52,10 @@ class BuildSubscriptionCreateOptions
                 'unitAmount' => $price->unit_amount !== null ? $price->unit_amount / 100 : null,
                 'currency' => $price->currency,
                 'billingInterval' => $price->billing_interval?->value,
+                // "Add trial" in the two-pane flow is just picking a
+                // trial-bearing or phased price (IMPLEMENTATION_V2 §V2-2) — the
+                // picker labels it and the preview zeroes day-0 for a free one.
+                'trial' => $price->trialSummary(),
             ], $product->prices->all()),
         ], array_values($products->all()));
     }

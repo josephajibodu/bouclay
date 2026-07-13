@@ -25,6 +25,7 @@ import { store } from '@/routes/subscriptions';
 import type {
     CollectionMode,
     CreateCustomerOption,
+    CreatePriceTrial,
     CreateProductOption,
 } from '@/types';
 
@@ -47,6 +48,7 @@ type Line = {
     unitAmount: number | null;
     currency: string;
     quantity: number;
+    trial: CreatePriceTrial | null;
 };
 
 function money(amount: number | null, currency: string): string {
@@ -61,8 +63,9 @@ function money(amount: number | null, currency: string): string {
  * The two-pane "New subscription" create surface (SUBSCRIPTIONS_DESIGN §7),
  * as a drawer rather than a dedicated page — opened from the Subscriptions
  * list or from a customer's own page (which pre-fills and locks the
- * customer section). Items are plan-bearing prices; trial-bearing prices
- * (prices.trial_*) get wired in V2-2.
+ * customer section). Items are plan-bearing prices; a trial-bearing or
+ * phased price carries its trial into the subscription (schema.md §5) — the
+ * picker labels it and the preview zeroes day-0 for a free trial.
  */
 export default function CreateSubscriptionDrawer({
     customers,
@@ -168,6 +171,7 @@ export default function CreateSubscriptionDrawer({
             unitAmount: price.unitAmount,
             currency: price.currency,
             quantity: 1,
+            trial: price.trial ?? null,
         });
     };
 
@@ -183,14 +187,19 @@ export default function CreateSubscriptionDrawer({
             ),
         );
 
-    // Due today: automatic charges every billing line now. Manual bills
-    // by invoice, so nothing is charged to a card today (§7.2 Preview).
+    // The base item (first line) anchors the subscription's trial: a free
+    // trial on it charges nothing at day 0 — every add-on rides it (GAP-4).
+    const baseIsFreeTrial = lines[0]?.trial?.free ?? false;
+
+    // Due today: automatic charges every billing line now, except a line
+    // that's itself on a free trial. A free-trial base zeroes the whole
+    // day-0 total. Manual bills by invoice, so nothing is charged today.
     const dueToday =
-        collectionMode === 'manual'
+        collectionMode === 'manual' || baseIsFreeTrial
             ? 0
             : lines.reduce(
                   (sum, line) =>
-                      line.unitAmount !== null
+                      line.unitAmount !== null && !(line.trial?.free ?? false)
                           ? sum + line.unitAmount * line.quantity
                           : sum,
                   0,
@@ -305,8 +314,13 @@ export default function CreateSubscriptionDrawer({
                                             data-test="line-item"
                                         >
                                             <div className="min-w-0 flex-1">
-                                                <p className="truncate text-sm font-medium">
+                                                <p className="flex items-center gap-2 truncate text-sm font-medium">
                                                     {line.productName}
+                                                    {line.trial && (
+                                                        <span className="inline-flex shrink-0 items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">
+                                                            {line.trial.label}
+                                                        </span>
+                                                    )}
                                                 </p>
                                                 <p className="truncate text-xs text-muted-foreground">
                                                     {line.priceLabel}
@@ -380,6 +394,9 @@ export default function CreateSubscriptionDrawer({
                                                                         {
                                                                             price.label
                                                                         }
+                                                                        {price.trial
+                                                                            ? ` · ${price.trial.label}`
+                                                                            : ''}
                                                                     </SelectItem>
                                                                 ),
                                                             ),
@@ -523,11 +540,13 @@ export default function CreateSubscriptionDrawer({
                             <p className="text-center text-xs text-muted-foreground">
                                 {collectionMode === 'manual'
                                     ? "We'll invoice the customer; no card is charged today."
-                                    : noCardAutomatic
-                                      ? "No card on file — we'll send a secure link to collect one. Access starts once they pay."
-                                      : dueToday > 0
-                                        ? `Charges ${money(dueToday, currency)} today, then renews.`
-                                        : 'Creates the subscription and its first period.'}
+                                    : baseIsFreeTrial
+                                      ? "Free trial — nothing is charged today. The first invoice lands when the trial ends."
+                                      : noCardAutomatic
+                                        ? "No card on file — we'll send a secure link to collect one. Access starts once they pay."
+                                        : dueToday > 0
+                                          ? `Charges ${money(dueToday, currency)} today, then renews.`
+                                          : 'Creates the subscription and its first period.'}
                             </p>
                         </div>
                     </div>

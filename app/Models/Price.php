@@ -274,6 +274,34 @@ class Price extends Model
     }
 
     /**
+     * A picker-friendly summary of the trial this price starts, or null when
+     * it has none (schema.md §5). A simple trial is always free during its
+     * window; a phased price is a free trial when its phase-0 charge is ₦0 and
+     * an intro-priced ("paid") trial otherwise. Requires `phases.chargePrice`
+     * loaded for the phased case.
+     *
+     * @return array{label: string, free: bool}|null
+     */
+    public function trialSummary(): ?array
+    {
+        if ($this->trial_length !== null && $this->trial_unit !== null) {
+            // Adjectival unit — "7-day free trial", never "7-days".
+            return ['label' => "{$this->trial_length}-{$this->trial_unit->value} free trial", 'free' => true];
+        }
+
+        $phaseZero = $this->phases
+            ->first(fn (PricePhase $phase): bool => $phase->sequence === 0);
+
+        if ($phaseZero !== null) {
+            $free = ($phaseZero->chargePrice->unit_amount ?? 0) === 0;
+
+            return ['label' => $free ? 'Free trial' : 'Intro pricing', 'free' => $free];
+        }
+
+        return null;
+    }
+
+    /**
      * Format this price for the frontend — amounts converted back to major
      * currency units (see App\Actions\Catalog\CreatePrice for the reverse).
      *
