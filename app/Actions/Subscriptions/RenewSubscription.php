@@ -71,6 +71,10 @@ class RenewSubscription
                 )
                 : null;
 
+            // Apply the discount to this cycle while it still has intervals
+            // left, then decrement it (schema.md §7, GAP-1).
+            $redemption = $subscription->activeDiscountRedemption();
+
             $invoice = $this->createInvoice->handle(
                 team: $subscription->team,
                 customer: $subscription->customer,
@@ -81,7 +85,12 @@ class RenewSubscription
                 dueAt: $subscription->collection_mode === CollectionMode::Manual
                     ? $periodStart->copy()->addDays(7)
                     : null,
+                discount: $redemption?->discount,
             );
+
+            if ($redemption !== null && $invoice->discount_total > 0) {
+                $redemption->recordApplied();
+            }
 
             $subscription->forceFill([
                 'current_period_start' => $periodStart,

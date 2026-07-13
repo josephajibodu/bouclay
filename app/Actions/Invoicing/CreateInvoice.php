@@ -4,11 +4,14 @@ namespace App\Actions\Invoicing;
 
 use App\Enums\AddressType;
 use App\Enums\CollectionMode;
+use App\Enums\DiscountType;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\InvoiceStatus;
+use App\Enums\InvoiceType;
 use App\Models\Address;
 use App\Models\Customer;
+use App\Models\Discount;
 use App\Models\Invoice;
 use App\Models\Price;
 use App\Models\Product;
@@ -19,6 +22,7 @@ use App\Support\DunningConfig;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 /**
  * Build and persist an invoice + its line items. The shared primitive behind
@@ -39,12 +43,20 @@ class CreateInvoice
         array $lines,
         ?Subscription $subscription = null,
         ?Carbon $dueAt = null,
+        ?Discount $discount = null,
     ): Invoice {
-        return DB::transaction(function () use ($team, $customer, $billingReason, $collectionMode, $lines, $subscription, $dueAt) {
+        return DB::transaction(function () use ($team, $customer, $billingReason, $collectionMode, $lines, $subscription, $dueAt, $discount) {
             $subtotal = array_sum(array_map(
                 fn (array $line): int => $line['unitAmount'] * $line['quantity'],
                 $lines,
             ));
+
+            // Discounts are recorded per billable line (the schema.md §8
+            // discount-representation invariant) — the invoice `discount_total`
+            // is derived from those, never from a `kind=discount` line.
+            $lineDiscounts = $this->allocateDiscount($discount, $lines);
+            $discountTotal = array_sum($lineDiscounts);
+            $total = $subtotal - $discountTotal;
 
             $invoice = Invoice::create([
                 'team_id' => $team->id,
@@ -54,13 +66,15 @@ class CreateInvoice
                 'billed_to_customer_id' => $customer->id,
                 'subscription_id' => $subscription?->id,
                 'number' => $this->nextNumber($team),
+                'type' => InvoiceType::Charge,
                 'status' => InvoiceStatus::Open,
                 'billing_reason' => $billingReason,
                 'collection_mode' => $collectionMode,
                 'currency' => $customer->currency ?? $team->default_currency,
                 'subtotal' => $subtotal,
-                'total' => $subtotal,
-                'amount_due' => $subtotal,
+                'discount_total' => $discountTotal,
+                'total' => $total,
+                'amount_due' => $total,
                 'customer_snapshot' => $this->snapshotCustomer($customer),
                 'billing_address' => $this->snapshotBillingAddress($customer),
                 'period_start' => $subscription?->current_period_start,
@@ -69,8 +83,9 @@ class CreateInvoice
                 'finalized_at' => Carbon::now(),
             ]);
 
-            foreach ($lines as $line) {
+            foreach ($lines as $index => $line) {
                 $amount = $line['unitAmount'] * $line['quantity'];
+                $lineDiscount = $lineDiscounts[$index] ?? 0;
                 $price = $line['price'] ?? null;
                 $product = $line['product'] ?? null;
 
@@ -90,15 +105,97 @@ class CreateInvoice
                     'quantity' => $line['quantity'],
                     'unit_amount' => $line['unitAmount'],
                     'subtotal' => $amount,
-                    'total' => $amount,
+                    'discount_amount' => $lineDiscount,
+                    'total' => $amount - $lineDiscount,
                     'period_start' => $line['periodStart'] ?? null,
                     'period_end' => $line['periodEnd'] ?? null,
                     'proration' => $line['proration'] ?? false,
                 ]);
             }
 
+            $this->assertDiscountInvariant($invoice);
+
             return $invoice;
         });
+    }
+
+    /**
+     * Allocate a discount across the invoice's billable lines (plan / add-on),
+     * returning `[lineIndex => discountAmount]` in minor units. Percentage is
+     * applied per line; a flat discount is spread pro-rata across the lines'
+     * subtotals with the rounding remainder landing on the last line, and is
+     * capped at the total it's discounting. Proration and non-billable lines
+     * are never discounted here (schema.md §8).
+     *
+     * @param  array<int, array{kind: InvoiceLineKind, unitAmount: int, quantity: int}>  $lines
+     * @return array<int, int>
+     */
+    private function allocateDiscount(?Discount $discount, array $lines): array
+    {
+        if ($discount === null) {
+            return [];
+        }
+
+        $billable = [];
+        foreach ($lines as $index => $line) {
+            if (in_array($line['kind'], [InvoiceLineKind::Plan, InvoiceLineKind::Addon], true)) {
+                $amount = $line['unitAmount'] * $line['quantity'];
+                if ($amount > 0) {
+                    $billable[$index] = $amount;
+                }
+            }
+        }
+
+        if ($billable === []) {
+            return [];
+        }
+
+        if ($discount->type === DiscountType::Percentage) {
+            return array_map(
+                fn (int $amount): int => $discount->amountForLineSubtotal($amount),
+                $billable,
+            );
+        }
+
+        // Flat: cap at the billable total, then spread pro-rata with the
+        // remainder on the final line so the per-line amounts sum exactly.
+        $billableTotal = array_sum($billable);
+        $flat = min((int) ($discount->amount ?? 0), $billableTotal);
+
+        $allocation = [];
+        $allocated = 0;
+        $lastIndex = array_key_last($billable);
+
+        foreach ($billable as $index => $amount) {
+            if ($index === $lastIndex) {
+                $allocation[$index] = $flat - $allocated;
+
+                break;
+            }
+
+            $share = (int) round($flat * $amount / $billableTotal);
+            $allocation[$index] = $share;
+            $allocated += $share;
+        }
+
+        return $allocation;
+    }
+
+    /**
+     * The discount-representation invariant (schema.md §8): the invoice's
+     * `discount_total` must equal the sum of its billable lines' `discount_amount`.
+     * Enforced in code, not just tests, so a future change can't silently break
+     * accounting.
+     */
+    private function assertDiscountInvariant(Invoice $invoice): void
+    {
+        $lineSum = (int) $invoice->lines()->sum('discount_amount');
+
+        if ($lineSum !== $invoice->discount_total) {
+            throw new RuntimeException(
+                "Discount invariant violated on invoice {$invoice->id}: discount_total={$invoice->discount_total} but SUM(line discount_amount)={$lineSum}."
+            );
+        }
     }
 
     /**

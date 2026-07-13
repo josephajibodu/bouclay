@@ -242,7 +242,11 @@ class AdvanceSubscriptionPhases
             ? $now->copy()->addDays(7)
             : null;
 
-        return $this->createInvoice->handle(
+        // The conversion invoice is the discount's first application on a
+        // free-trial subscription (schema.md §7, GAP-1).
+        $redemption = $subscription->activeDiscountRedemption();
+
+        $invoice = $this->createInvoice->handle(
             team: $subscription->team,
             customer: $subscription->customer,
             billingReason: InvoiceBillingReason::SubscriptionCreate,
@@ -250,7 +254,14 @@ class AdvanceSubscriptionPhases
             lines: $lines,
             subscription: $subscription,
             dueAt: $dueAt,
+            discount: $redemption?->discount,
         );
+
+        if ($redemption !== null && $invoice->discount_total > 0) {
+            $redemption->recordApplied();
+        }
+
+        return $invoice;
     }
 
     private function resetBillingPeriod(Subscription $subscription, Carbon $now): void

@@ -16,6 +16,8 @@ use App\Enums\SubscriptionStatus;
 use App\Enums\TrialEndBehavior;
 use App\Enums\TrialUnit;
 use App\Models\Customer;
+use App\Models\Discount;
+use App\Models\DiscountRedemption;
 use App\Models\Invoice;
 use App\Models\Price;
 use App\Models\Product;
@@ -78,6 +80,8 @@ class CreateSubscription
         $this->assertSingleCadence($lines);
         $this->assertTrialEligibility($team, $customer, $lines);
 
+        $discount = $this->resolveDiscount($team, $data);
+
         $paymentMethodId = isset($data['payment_method_id']) ? (int) $data['payment_method_id'] : null;
         if ($paymentMethodId !== null) {
             // Only a card belonging to this customer may be attached.
@@ -90,7 +94,7 @@ class CreateSubscription
         $freeTrial = $this->startsFreeTrial($lines[0]['price']);
 
         /** @var array{0: Subscription, 1: Invoice|null} $result */
-        $result = DB::transaction(function () use ($team, $customer, $collectionMode, $currency, $lines, $paymentMethodId, $data, $freeTrial) {
+        $result = DB::transaction(function () use ($team, $customer, $collectionMode, $currency, $lines, $paymentMethodId, $data, $freeTrial, $discount) {
             $now = Carbon::now();
 
             $subscription = $team->subscriptions()->create([
@@ -152,7 +156,13 @@ class CreateSubscription
 
             $subscription->trial_ends_at = $earliestTrialEnd;
 
-            $invoice = $this->settleInitialState($team, $subscription, $customer, $collectionMode, $items, $now, $freeTrial);
+            // Redeem the discount now (schema.md §7): gate on eligibility,
+            // snapshot the interval budget, attach it to the subscription. The
+            // day-0 invoice (if any) applies + decrements it below; a free
+            // trial's first application is deferred to conversion.
+            $redemption = $this->redeemDiscount($subscription, $customer, $discount, $currency, $now);
+
+            $invoice = $this->settleInitialState($team, $subscription, $customer, $collectionMode, $items, $now, $freeTrial, $discount, $redemption);
 
             return [$subscription, $invoice];
         });
@@ -358,6 +368,8 @@ class CreateSubscription
         array $items,
         Carbon $now,
         bool $freeTrial,
+        ?Discount $discount,
+        ?DiscountRedemption $redemption,
     ): ?Invoice {
         $basePrice = $items[0]['price'] ?? null;
 
@@ -368,7 +380,8 @@ class CreateSubscription
 
         // A free trial charges nothing at day 0 — the plan item's trial anchors
         // the subscription and every add-on rides it (GAP-4). The first invoice
-        // lands at conversion (AdvanceSubscriptionPhases).
+        // lands at conversion (AdvanceSubscriptionPhases), which also applies
+        // the discount for the first time.
         if ($freeTrial) {
             return null;
         }
@@ -379,7 +392,7 @@ class CreateSubscription
             return null;
         }
 
-        return $this->createInvoice->handle(
+        $invoice = $this->createInvoice->handle(
             team: $team,
             customer: $customer,
             billingReason: InvoiceBillingReason::SubscriptionCreate,
@@ -387,7 +400,72 @@ class CreateSubscription
             lines: $lines,
             subscription: $subscription,
             dueAt: $collectionMode === CollectionMode::Manual ? $now->copy()->addDays(7) : null,
+            discount: $discount,
         );
+
+        // The day-0 invoice is the discount's first cycle — decrement it.
+        if ($redemption !== null && $invoice->discount_total > 0) {
+            $redemption->recordApplied();
+        }
+
+        return $invoice;
+    }
+
+    /**
+     * Resolve the discount to redeem, by id or code, scoped to the team.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function resolveDiscount(Team $team, array $data): ?Discount
+    {
+        if (isset($data['discount_id'])) {
+            return $team->discounts()->find((int) $data['discount_id']);
+        }
+
+        $code = trim((string) ($data['discount_code'] ?? ''));
+
+        if ($code !== '') {
+            return $team->discounts()->where('code', $code)->first();
+        }
+
+        return null;
+    }
+
+    /**
+     * Redeem a discount onto the freshly-built subscription (schema.md §7):
+     * gate on eligibility + the global cap, attach `discount_id`, snapshot the
+     * interval budget, and bump `times_redeemed`. Returns the redemption so the
+     * caller can decrement it when it first applies.
+     */
+    private function redeemDiscount(
+        Subscription $subscription,
+        Customer $customer,
+        ?Discount $discount,
+        string $currency,
+        Carbon $now,
+    ): ?DiscountRedemption {
+        if ($discount === null) {
+            return null;
+        }
+
+        if (! $discount->isRedeemableBySubscriptionItems($subscription->items()->get(), $currency)) {
+            throw new InvalidArgumentException(
+                "Discount {$discount->public_id} isn't eligible for this subscription (or has reached its redemption limit)."
+            );
+        }
+
+        $subscription->forceFill(['discount_id' => $discount->id])->save();
+
+        $redemption = $subscription->discountRedemptions()->create([
+            'discount_id' => $discount->id,
+            'customer_id' => $customer->id,
+            'remaining_intervals' => $discount->initialRemainingIntervals(),
+            'applied_at' => $now,
+        ]);
+
+        $discount->increment('times_redeemed');
+
+        return $redemption;
     }
 
     /**

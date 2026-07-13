@@ -202,6 +202,28 @@ class Subscription extends Model
     }
 
     /**
+     * The discount redemption that should still apply to this subscription's
+     * next invoice, or null (schema.md §7, GAP-1). Resolves the redemption for
+     * the currently-attached `discount_id` and only returns it while it has
+     * billing intervals left — the durable answer to "is this discount still
+     * live on cycle N?". The discount is eager-loaded for application.
+     */
+    public function activeDiscountRedemption(): ?DiscountRedemption
+    {
+        if ($this->discount_id === null) {
+            return null;
+        }
+
+        $redemption = $this->discountRedemptions()
+            ->where('discount_id', $this->discount_id)
+            ->with('discount')
+            ->latest('id')
+            ->first();
+
+        return $redemption !== null && $redemption->hasIntervalsLeft() ? $redemption : null;
+    }
+
+    /**
      * Whether the subscription is currently on a free trial.
      */
     public function isOnTrial(): bool

@@ -70,6 +70,31 @@ class DiscountRedemption extends Model
     }
 
     /**
+     * Whether this discount still has cycles left to apply on its subscription
+     * (schema.md §7, GAP-1): a `forever` discount (`remaining_intervals` null)
+     * always applies; otherwise only while intervals remain.
+     */
+    public function hasIntervalsLeft(): bool
+    {
+        return $this->remaining_intervals === null || $this->remaining_intervals > 0;
+    }
+
+    /**
+     * Record that the discount was applied to one more billing cycle: decrement
+     * the interval counter (a `forever` discount never decrements) and stamp
+     * the audit timestamp.
+     */
+    public function recordApplied(): void
+    {
+        $this->forceFill([
+            'remaining_intervals' => $this->remaining_intervals === null
+                ? null
+                : max(0, $this->remaining_intervals - 1),
+            'last_applied_at' => Carbon::now(),
+        ])->save();
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
