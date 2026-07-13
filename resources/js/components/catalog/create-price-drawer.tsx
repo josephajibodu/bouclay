@@ -29,17 +29,28 @@ import {
     SheetTitle,
     SheetTrigger,
 } from '@/components/ui/sheet';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { formatPriceInterval, formatTierSummary } from '@/lib/utils';
 import { store } from '@/routes/catalog/prices';
-import type { BillingInterval, PriceType, PricingModel } from '@/types';
+import type {
+    BillingInterval,
+    Plan,
+    PriceType,
+    PricingModel,
+    TrialUnit,
+} from '@/types';
 
 type Tier = { upTo: string; unitAmount: string; flatAmount: string };
 
 type Props = PropsWithChildren<{
     productId: number;
     productName: string;
+    /** Active plans the recurring price can be a variant of. */
+    plans: Plan[];
+    /** Pre-select this plan (e.g. "Add price" from a plan row). */
+    defaultPlanId?: number;
     defaultCurrency: string;
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -49,11 +60,20 @@ export default function CreatePriceDrawer({
     children,
     productId,
     productName,
+    plans,
+    defaultPlanId,
     defaultCurrency,
     open,
     onOpenChange,
 }: Props) {
+    const selectablePlans = plans.filter((p) => p.status !== 'archived');
+    const initialPlanId =
+        defaultPlanId !== undefined
+            ? String(defaultPlanId)
+            : (selectablePlans[0]?.id.toString() ?? '');
+
     const [type, setType] = useState<PriceType>('recurring');
+    const [planId, setPlanId] = useState(initialPlanId);
     const [pricingModel, setPricingModel] = useState<PricingModel>('standard');
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [unitAmount, setUnitAmount] = useState('');
@@ -64,9 +84,16 @@ export default function CreatePriceDrawer({
         { upTo: '', unitAmount: '', flatAmount: '' },
         { upTo: '', unitAmount: '', flatAmount: '' },
     ]);
+    const [trialEnabled, setTrialEnabled] = useState(false);
+    const [trialLength, setTrialLength] = useState('7');
+    const [trialUnit, setTrialUnit] = useState<TrialUnit>('day');
+    const [trialRequiresPaymentInfo, setTrialRequiresPaymentInfo] =
+        useState(true);
+    const [trialOncePerCustomer, setTrialOncePerCustomer] = useState(true);
 
     const reset = () => {
         setType('recurring');
+        setPlanId(initialPlanId);
         setPricingModel('standard');
         setAdvancedOpen(false);
         setUnitAmount('');
@@ -76,6 +103,11 @@ export default function CreatePriceDrawer({
             { upTo: '', unitAmount: '', flatAmount: '' },
             { upTo: '', unitAmount: '', flatAmount: '' },
         ]);
+        setTrialEnabled(false);
+        setTrialLength('7');
+        setTrialUnit('day');
+        setTrialRequiresPaymentInfo(true);
+        setTrialOncePerCustomer(true);
     };
 
     const handleOpenChange = (nextOpen: boolean) => {
@@ -93,7 +125,11 @@ export default function CreatePriceDrawer({
         !Number.isNaN(previewAmount);
 
     const parsedTiers = tiers
-        .filter((t) => t.unitAmount.trim() !== '' && !Number.isNaN(parseFloat(t.unitAmount)))
+        .filter(
+            (t) =>
+                t.unitAmount.trim() !== '' &&
+                !Number.isNaN(parseFloat(t.unitAmount)),
+        )
         .map((t) => ({
             upTo: t.upTo.trim() !== '' ? parseInt(t.upTo, 10) : null,
             unitAmount: parseFloat(t.unitAmount),
@@ -105,7 +141,7 @@ export default function CreatePriceDrawer({
 
     return (
         <Sheet open={open} onOpenChange={handleOpenChange}>
-            <SheetTrigger asChild>{children}</SheetTrigger>
+            {children && <SheetTrigger asChild>{children}</SheetTrigger>}
             <SheetContent className="h-auto w-full overflow-y-auto rounded-xl border sm:inset-y-4 sm:right-4 sm:w-3/4 sm:max-w-md">
                 <Form
                     key={String(open)}
@@ -113,6 +149,10 @@ export default function CreatePriceDrawer({
                     transform={(data) => ({
                         ...data,
                         type,
+                        plan_id:
+                            type === 'recurring' && planId !== ''
+                                ? Number(planId)
+                                : undefined,
                         pricing_model: pricingModel,
                         unit_amount:
                             pricingModel === 'standard'
@@ -132,6 +172,22 @@ export default function CreatePriceDrawer({
                                               ? Number(t.flatAmount)
                                               : null,
                                       }))
+                                : undefined,
+                        trial_length:
+                            type === 'recurring' && trialEnabled
+                                ? Number(trialLength)
+                                : undefined,
+                        trial_unit:
+                            type === 'recurring' && trialEnabled
+                                ? trialUnit
+                                : undefined,
+                        trial_requires_payment_info:
+                            type === 'recurring' && trialEnabled
+                                ? trialRequiresPaymentInfo
+                                : undefined,
+                        trial_once_per_customer:
+                            type === 'recurring' && trialEnabled
+                                ? trialOncePerCustomer
                                 : undefined,
                     })}
                     className="flex h-full flex-col"
@@ -155,8 +211,7 @@ export default function CreatePriceDrawer({
                                         variant="outline"
                                         value={type}
                                         onValueChange={(value) =>
-                                            value &&
-                                            setType(value as PriceType)
+                                            value && setType(value as PriceType)
                                         }
                                         className="w-full"
                                     >
@@ -175,6 +230,53 @@ export default function CreatePriceDrawer({
                                         </ToggleGroupItem>
                                     </ToggleGroup>
                                 </div>
+
+                                {type === 'recurring' &&
+                                    (selectablePlans.length > 0 ? (
+                                        <div className="grid gap-2">
+                                            <Label>Plan</Label>
+                                            <Select
+                                                value={planId}
+                                                onValueChange={setPlanId}
+                                            >
+                                                <SelectTrigger data-test="price-plan">
+                                                    <SelectValue placeholder="Choose a plan" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {selectablePlans.map(
+                                                        (plan) => (
+                                                            <SelectItem
+                                                                key={plan.id}
+                                                                value={String(
+                                                                    plan.id,
+                                                                )}
+                                                            >
+                                                                {plan.name}
+                                                                {plan.status ===
+                                                                    'draft' &&
+                                                                    ' (draft)'}
+                                                            </SelectItem>
+                                                        ),
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                            <InputError
+                                                message={
+                                                    errors['plan_id' as never]
+                                                }
+                                            />
+                                            <p className="text-sm text-muted-foreground">
+                                                Recurring prices are variants of
+                                                a plan — the tier a customer
+                                                picks.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                                            Add a plan first — recurring prices
+                                            must belong to one.
+                                        </div>
+                                    ))}
 
                                 {type === 'recurring' && (
                                     <div className="grid gap-2">
@@ -250,14 +352,12 @@ export default function CreatePriceDrawer({
                                         </div>
                                         <InputError
                                             message={
-                                                errors[
-                                                    'unit_amount' as never
-                                                ]
+                                                errors['unit_amount' as never]
                                             }
                                         />
                                         <p className="text-sm text-muted-foreground">
-                                            To sell in another currency, add
-                                            a separate price.
+                                            To sell in another currency, add a
+                                            separate price.
                                         </p>
                                     </div>
                                 )}
@@ -274,8 +374,7 @@ export default function CreatePriceDrawer({
                                             <ChevronRight
                                                 className={`size-4 transition-transform ${advancedOpen ? 'rotate-90' : ''}`}
                                             />
-                                            Advanced pricing (graduated
-                                            tiers)
+                                            Advanced pricing (graduated tiers)
                                         </button>
                                     </CollapsibleTrigger>
                                     <CollapsibleContent className="mt-3 space-y-3">
@@ -320,16 +419,14 @@ export default function CreatePriceDrawer({
                                                         <Input
                                                             placeholder={
                                                                 index ===
-                                                                tiers.length -
-                                                                    1
+                                                                tiers.length - 1
                                                                     ? 'and up'
                                                                     : 'Up to (qty)'
                                                             }
                                                             type="number"
                                                             disabled={
                                                                 index ===
-                                                                tiers.length -
-                                                                    1
+                                                                tiers.length - 1
                                                             }
                                                             value={tier.upTo}
                                                             data-test={`tier-up-to-${index}`}
@@ -433,7 +530,8 @@ export default function CreatePriceDrawer({
                                                         data-test="tier-preview"
                                                     >
                                                         <span className="text-muted-foreground">
-                                                            Customers will see{' '}
+                                                            Customers will
+                                                            see{' '}
                                                         </span>
                                                         <span className="font-medium">
                                                             {tierSummary}
@@ -444,6 +542,100 @@ export default function CreatePriceDrawer({
                                         )}
                                     </CollapsibleContent>
                                 </Collapsible>
+
+                                {type === 'recurring' && (
+                                    <div className="grid gap-3 rounded-lg border p-3">
+                                        <label className="flex items-center gap-2">
+                                            <Checkbox
+                                                checked={trialEnabled}
+                                                onCheckedChange={(checked) =>
+                                                    setTrialEnabled(
+                                                        checked === true,
+                                                    )
+                                                }
+                                                data-test="price-trial-enabled"
+                                            />
+                                            <span className="text-sm font-medium">
+                                                Offer a free trial
+                                            </span>
+                                        </label>
+
+                                        {trialEnabled && (
+                                            <div className="grid gap-3">
+                                                <div className="flex items-center gap-2">
+                                                    <Input
+                                                        type="number"
+                                                        min={1}
+                                                        className="w-20"
+                                                        value={trialLength}
+                                                        onChange={(e) =>
+                                                            setTrialLength(
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        data-test="price-trial-length"
+                                                    />
+                                                    <Select
+                                                        value={trialUnit}
+                                                        onValueChange={(v) =>
+                                                            setTrialUnit(
+                                                                v as TrialUnit,
+                                                            )
+                                                        }
+                                                    >
+                                                        <SelectTrigger className="w-40">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="day">
+                                                                Day(s)
+                                                            </SelectItem>
+                                                            <SelectItem value="week">
+                                                                Week(s)
+                                                            </SelectItem>
+                                                            <SelectItem value="month">
+                                                                Month(s)
+                                                            </SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                    <Checkbox
+                                                        checked={
+                                                            trialRequiresPaymentInfo
+                                                        }
+                                                        onCheckedChange={(
+                                                            checked,
+                                                        ) =>
+                                                            setTrialRequiresPaymentInfo(
+                                                                checked ===
+                                                                    true,
+                                                            )
+                                                        }
+                                                    />
+                                                    Require a card at signup
+                                                </label>
+                                                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                    <Checkbox
+                                                        checked={
+                                                            trialOncePerCustomer
+                                                        }
+                                                        onCheckedChange={(
+                                                            checked,
+                                                        ) =>
+                                                            setTrialOncePerCustomer(
+                                                                checked ===
+                                                                    true,
+                                                            )
+                                                        }
+                                                    />
+                                                    Limit to one trial per
+                                                    customer
+                                                </label>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                                 {pricingModel === 'standard' && (
                                     <div
@@ -477,13 +669,16 @@ export default function CreatePriceDrawer({
 
                             <SheetFooter className="flex-row justify-end gap-2">
                                 <SheetClose asChild>
-                                    <Button variant="secondary">
-                                        Cancel
-                                    </Button>
+                                    <Button variant="secondary">Cancel</Button>
                                 </SheetClose>
                                 <Button
                                     type="submit"
-                                    disabled={processing}
+                                    disabled={
+                                        processing ||
+                                        (type === 'recurring' &&
+                                            (selectablePlans.length === 0 ||
+                                                planId === ''))
+                                    }
                                     data-test="create-price-submit"
                                 >
                                     {processing && <Spinner />}

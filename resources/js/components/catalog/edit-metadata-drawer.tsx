@@ -81,8 +81,8 @@ export default function EditMetadataDrawer({
                                 <SheetTitle>Edit metadata</SheetTitle>
                                 <SheetDescription>
                                     Attach your own key/value data to this
-                                    product — visible via the Bouclay API,
-                                    never shown to customers.
+                                    product — visible via the Bouclay API, never
+                                    shown to customers.
                                 </SheetDescription>
                             </SheetHeader>
 
@@ -182,9 +182,7 @@ export default function EditMetadataDrawer({
 
                             <SheetFooter className="flex-row justify-end gap-2">
                                 <SheetClose asChild>
-                                    <Button variant="secondary">
-                                        Cancel
-                                    </Button>
+                                    <Button variant="secondary">Cancel</Button>
                                 </SheetClose>
                                 <Button
                                     type="submit"

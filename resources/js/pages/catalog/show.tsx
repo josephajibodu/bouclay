@@ -18,7 +18,9 @@ import EditMetadataDrawer from '@/components/catalog/edit-metadata-drawer';
 import EditPriceDrawer from '@/components/catalog/edit-price-drawer';
 import EditProductDrawer from '@/components/catalog/edit-product-drawer';
 import PaymentLinkModal from '@/components/catalog/payment-link-modal';
+import PlanDrawer from '@/components/catalog/plan-drawer';
 import PriceDetailDrawer from '@/components/catalog/price-detail-drawer';
+import PricePhasesDrawer from '@/components/catalog/price-phases-drawer';
 import { ProductMonogram } from '@/components/catalog/product-monogram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,7 +38,7 @@ import {
     toMonthlyEquivalent,
 } from '@/lib/utils';
 import { index as productsIndex } from '@/routes/catalog/products';
-import type { Price, ProductDetail } from '@/types';
+import type { Plan, Price, ProductDetail } from '@/types';
 
 async function copyToClipboard(value: string, label: string) {
     await navigator.clipboard.writeText(value);
@@ -45,11 +47,22 @@ async function copyToClipboard(value: string, label: string) {
 
 type Props = {
     product: ProductDetail;
+    plans: Plan[];
     prices: Price[];
     permissions: {
         canManageProducts: boolean;
+        canManagePlans: boolean;
         canManagePrices: boolean;
     };
+};
+
+const PLAN_STATUS_VARIANT: Record<
+    Plan['status'],
+    'secondary' | 'outline' | 'destructive'
+> = {
+    active: 'secondary',
+    draft: 'outline',
+    archived: 'destructive',
 };
 
 function priceLabel(price: Price): string {
@@ -73,12 +86,22 @@ function priceLabel(price: Price): string {
     return 'Price';
 }
 
-export default function ProductShow({ product, prices, permissions }: Props) {
+export default function ProductShow({
+    product,
+    plans,
+    prices,
+    permissions,
+}: Props) {
     const [copied, setCopied] = useState(false);
     const [editProductOpen, setEditProductOpen] = useState(false);
     const [archiveProductOpen, setArchiveProductOpen] = useState(false);
     const [editMetadataOpen, setEditMetadataOpen] = useState(false);
+    const [createPlanOpen, setCreatePlanOpen] = useState(false);
+    const [editPlanTarget, setEditPlanTarget] = useState<Plan | null>(null);
     const [createPriceOpen, setCreatePriceOpen] = useState(false);
+    const [createPricePlanId, setCreatePricePlanId] = useState<
+        number | undefined
+    >(undefined);
     const [editPriceTarget, setEditPriceTarget] = useState<Price | null>(null);
     const [archivePriceTarget, setArchivePriceTarget] = useState<Price | null>(
         null,
@@ -89,9 +112,18 @@ export default function ProductShow({ product, prices, permissions }: Props) {
     const [detailPriceTarget, setDetailPriceTarget] = useState<Price | null>(
         null,
     );
+    const [phasesPriceTarget, setPhasesPriceTarget] = useState<Price | null>(
+        null,
+    );
 
     const activePrices = prices.filter((p) => p.status === 'active');
+    const planNameById = new Map(plans.map((p) => [p.id, p.name]));
     const metadataEntries = Object.entries(product.customData ?? {});
+
+    const openCreatePrice = (planId?: number) => {
+        setCreatePricePlanId(planId);
+        setCreatePriceOpen(true);
+    };
 
     const copyId = async () => {
         await navigator.clipboard.writeText(product.publicId);
@@ -249,9 +281,7 @@ export default function ProductShow({ product, prices, permissions }: Props) {
                     </div>
                 </div>
                 <div>
-                    <p className="text-xs text-muted-foreground">
-                        Return link
-                    </p>
+                    <p className="text-xs text-muted-foreground">Return link</p>
                     {product.websiteUrl ? (
                         <a
                             href={product.websiteUrl}
@@ -273,29 +303,126 @@ export default function ProductShow({ product, prices, permissions }: Props) {
 
             <Separator />
 
-            {/* Pricing — the primary section */}
+            {/* Plans — the tiers a customer picks */}
+            <section className="space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 className="text-lg font-semibold">Plans</h2>
+                        <p className="text-sm text-muted-foreground">
+                            The named tiers customers pick — "Premium", "Team".
+                            A draft or archived plan's prices can't be
+                            subscribed to.
+                        </p>
+                    </div>
+                    {permissions.canManagePlans && (
+                        <Button
+                            data-test="add-plan-trigger"
+                            onClick={() => setCreatePlanOpen(true)}
+                        >
+                            <Plus /> Add plan
+                        </Button>
+                    )}
+                </div>
+
+                {plans.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        <p className="mb-1 font-medium text-foreground">
+                            No plans yet
+                        </p>
+                        <p>
+                            A recurring price is always a variant of a plan —
+                            add a plan before pricing {product.name}.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="divide-y rounded-lg border">
+                        {plans.map((plan) => (
+                            <div
+                                key={plan.id}
+                                className="flex items-center justify-between gap-4 p-4"
+                                data-test="plan-row"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <span className="font-medium">
+                                        {plan.name}
+                                    </span>
+                                    <Badge
+                                        variant={
+                                            PLAN_STATUS_VARIANT[plan.status]
+                                        }
+                                        className="capitalize"
+                                    >
+                                        {plan.status}
+                                    </Badge>
+                                    {plan.code && (
+                                        <span className="font-mono text-xs text-muted-foreground">
+                                            {plan.code}
+                                        </span>
+                                    )}
+                                </div>
+                                {permissions.canManagePlans && (
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="shrink-0"
+                                                data-test="plan-row-actions-trigger"
+                                            >
+                                                <MoreHorizontal className="size-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem
+                                                onSelect={() =>
+                                                    setEditPlanTarget(plan)
+                                                }
+                                                data-test="edit-plan-trigger"
+                                            >
+                                                Edit plan
+                                            </DropdownMenuItem>
+                                            {permissions.canManagePrices &&
+                                                plan.status !== 'archived' && (
+                                                    <DropdownMenuItem
+                                                        onSelect={() =>
+                                                            openCreatePrice(
+                                                                plan.id,
+                                                            )
+                                                        }
+                                                        data-test="add-price-to-plan-trigger"
+                                                    >
+                                                        Add price to plan
+                                                    </DropdownMenuItem>
+                                                )}
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            <Separator />
+
+            {/* Pricing — the billable variants */}
             <section className="space-y-3">
                 <div className="flex items-start justify-between gap-4">
                     <div>
                         <h2 className="text-lg font-semibold">Pricing</h2>
                         <p className="text-sm text-muted-foreground">
-                            Products are containers — prices define how
-                            customers are actually billed. Trials now live on
-                            the price itself.
+                            Prices define how customers are billed. Recurring
+                            prices belong to a plan; trials and phase schedules
+                            live on the price itself.
                         </p>
                     </div>
                     {permissions.canManagePrices && (
-                        <CreatePriceDrawer
-                            productId={product.id}
-                            productName={product.name}
-                            defaultCurrency={activePrices[0]?.currency ?? 'NGN'}
-                            open={createPriceOpen}
-                            onOpenChange={setCreatePriceOpen}
+                        <Button
+                            data-test="add-price-trigger"
+                            onClick={() => openCreatePrice()}
                         >
-                            <Button data-test="add-price-trigger">
-                                <Plus /> Add price
-                            </Button>
-                        </CreatePriceDrawer>
+                            <Plus /> Add price
+                        </Button>
                     )}
                 </div>
 
@@ -316,9 +443,18 @@ export default function ProductShow({ product, prices, permissions }: Props) {
                             <PriceRow
                                 key={price.id}
                                 price={price}
+                                planName={
+                                    price.planId !== null
+                                        ? (planNameById.get(price.planId) ??
+                                          null)
+                                        : null
+                                }
                                 canManagePrices={permissions.canManagePrices}
                                 onEdit={() => setEditPriceTarget(price)}
                                 onArchive={() => setArchivePriceTarget(price)}
+                                onConfigurePhases={() =>
+                                    setPhasesPriceTarget(price)
+                                }
                                 onCreatePaymentLink={() =>
                                     setPaymentLinkTarget(price)
                                 }
@@ -431,26 +567,66 @@ export default function ProductShow({ product, prices, permissions }: Props) {
                 <EditPriceDrawer
                     productId={product.id}
                     price={editPriceTarget}
+                    plans={plans}
                     open={editPriceTarget !== null}
                     onOpenChange={(open) => !open && setEditPriceTarget(null)}
                 />
             )}
+            {phasesPriceTarget && (
+                <PricePhasesDrawer
+                    productId={product.id}
+                    price={phasesPriceTarget}
+                    candidatePrices={prices}
+                    open={phasesPriceTarget !== null}
+                    onOpenChange={(open) => !open && setPhasesPriceTarget(null)}
+                />
+            )}
+
+            {/* Plans: one create drawer + an edit drawer for the chosen row */}
+            <PlanDrawer
+                productId={product.id}
+                open={createPlanOpen}
+                onOpenChange={setCreatePlanOpen}
+            />
+            {editPlanTarget && (
+                <PlanDrawer
+                    productId={product.id}
+                    plan={editPlanTarget}
+                    open={editPlanTarget !== null}
+                    onOpenChange={(open) => !open && setEditPlanTarget(null)}
+                />
+            )}
+
+            {/* Price create drawer, opened from the header or a plan row */}
+            <CreatePriceDrawer
+                productId={product.id}
+                productName={product.name}
+                plans={plans}
+                defaultPlanId={createPricePlanId}
+                defaultCurrency={activePrices[0]?.currency ?? 'NGN'}
+                open={createPriceOpen}
+                onOpenChange={setCreatePriceOpen}
+            />
         </div>
     );
 }
 
 function PriceRow({
     price,
+    planName,
     canManagePrices,
     onEdit,
     onArchive,
+    onConfigurePhases,
     onCreatePaymentLink,
     onOpenDetail,
 }: {
     price: Price;
+    planName: string | null;
     canManagePrices: boolean;
     onEdit: () => void;
     onArchive: () => void;
+    onConfigurePhases: () => void;
     onCreatePaymentLink: () => void;
     onOpenDetail: () => void;
 }) {
@@ -485,10 +661,16 @@ function PriceRow({
                     >
                         {price.status}
                     </Badge>
+                    {planName && <Badge variant="outline">{planName}</Badge>}
                     {price.trialLength !== null && (
                         <Badge variant="outline">
                             <Gift className="size-3" /> {price.trialLength}-
                             {price.trialUnit} trial
+                        </Badge>
+                    )}
+                    {price.phases.length > 0 && (
+                        <Badge variant="outline">
+                            {price.phases.length}-phase schedule
                         </Badge>
                     )}
                     {!price.purchasable && (
@@ -561,6 +743,15 @@ function PriceRow({
                             >
                                 Edit price
                             </DropdownMenuItem>
+                            {price.type === 'recurring' &&
+                                !price.hasBeenUsed && (
+                                    <DropdownMenuItem
+                                        onSelect={onConfigurePhases}
+                                        data-test="configure-phases-trigger"
+                                    >
+                                        Configure phases
+                                    </DropdownMenuItem>
+                                )}
                             <DropdownMenuItem
                                 variant="destructive"
                                 onSelect={onArchive}

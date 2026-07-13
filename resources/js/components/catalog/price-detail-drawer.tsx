@@ -9,7 +9,11 @@ import {
     SheetTitle,
 } from '@/components/ui/sheet';
 import { useClipboard } from '@/hooks/use-clipboard';
-import { formatMoney, formatPriceInterval, formatTierSummary } from '@/lib/utils';
+import {
+    formatMoney,
+    formatPriceInterval,
+    formatTierSummary,
+} from '@/lib/utils';
 import type { Price } from '@/types';
 
 type Props = PropsWithChildren<{
@@ -104,9 +108,7 @@ export default function PriceDetailDrawer({
                             <p className="text-xs text-muted-foreground">
                                 Product
                             </p>
-                            <p className="text-sm font-medium">
-                                {productName}
-                            </p>
+                            <p className="text-sm font-medium">{productName}</p>
                         </div>
                         <div>
                             <p className="text-xs text-muted-foreground">

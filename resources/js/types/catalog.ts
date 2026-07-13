@@ -14,6 +14,16 @@ export type PriceTier = {
     flatAmount: number | null;
 };
 
+export type PricePhase = {
+    id: number;
+    sequence: number;
+    chargePriceId: number;
+    chargePriceLabel: string;
+    chargePriceUnitAmount: number | null;
+    durationInterval: BillingInterval;
+    durationCount: number;
+};
+
 export type Price = {
     id: number;
     publicId: string;
@@ -38,6 +48,7 @@ export type Price = {
     paymentLink: { id: string; url: string; priceLabel: string } | null;
     createdAt: string | null;
     tiers: PriceTier[];
+    phases: PricePhase[];
 };
 
 export type PriceRef = { id: number; label: string };

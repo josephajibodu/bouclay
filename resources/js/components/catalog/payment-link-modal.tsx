@@ -112,9 +112,9 @@ export default function PaymentLinkModal({
                         <DialogHeader>
                             <DialogTitle>Payment link</DialogTitle>
                             <DialogDescription>
-                                Share this hosted checkout page anywhere.
-                                Buyers enter their email, then pay the exact
-                                catalog price on Nomba.
+                                Share this hosted checkout page anywhere. Buyers
+                                enter their email, then pay the exact catalog
+                                price on Nomba.
                             </DialogDescription>
                         </DialogHeader>
 

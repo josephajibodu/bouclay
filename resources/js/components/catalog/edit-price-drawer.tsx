@@ -1,10 +1,11 @@
 import { Form } from '@inertiajs/react';
-import { ChevronRight, Lock, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Layers, Plus, Trash2 } from 'lucide-react';
 import type { PropsWithChildren } from 'react';
 import { useState } from 'react';
 import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Collapsible,
     CollapsibleContent,
@@ -33,13 +34,21 @@ import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { formatPriceInterval, formatTierSummary } from '@/lib/utils';
 import { update } from '@/routes/catalog/prices';
-import type { BillingInterval, Price, PriceType, PricingModel } from '@/types';
+import type {
+    BillingInterval,
+    Plan,
+    Price,
+    PriceType,
+    PricingModel,
+    TrialUnit,
+} from '@/types';
 
 type Tier = { upTo: string; unitAmount: string; flatAmount: string };
 
 type Props = PropsWithChildren<{
     productId: number;
     price: Price;
+    plans: Plan[];
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }>;
@@ -63,13 +72,21 @@ export default function EditPriceDrawer({
     children,
     productId,
     price,
+    plans,
     open,
     onOpenChange,
 }: Props) {
-    const locked = price.hasBeenUsed;
+    // Reads as "edit" everywhere; once the price has subscribers the save
+    // executes as a replace on the server — a new version, old one archived,
+    // existing subscribers grandfathered. Fields stay editable either way.
+    const willReplace = price.hasBeenUsed;
+    const selectablePlans = plans.filter((p) => p.status !== 'archived');
 
     const [name, setName] = useState(price.name ?? '');
     const [type, setType] = useState<PriceType>(price.type);
+    const [planId, setPlanId] = useState(
+        price.planId !== null ? String(price.planId) : '',
+    );
     const [pricingModel, setPricingModel] = useState<PricingModel>(
         price.pricingModel,
     );
@@ -87,6 +104,21 @@ export default function EditPriceDrawer({
         String(price.billingFrequency),
     );
     const [tiers, setTiers] = useState<Tier[]>(tiersFromPrice(price));
+    const [trialEnabled, setTrialEnabled] = useState(
+        price.trialLength !== null,
+    );
+    const [trialLength, setTrialLength] = useState(
+        price.trialLength !== null ? String(price.trialLength) : '7',
+    );
+    const [trialUnit, setTrialUnit] = useState<TrialUnit>(
+        price.trialUnit ?? 'day',
+    );
+    const [trialRequiresPaymentInfo, setTrialRequiresPaymentInfo] = useState(
+        price.trialRequiresPaymentInfo,
+    );
+    const [trialOncePerCustomer, setTrialOncePerCustomer] = useState(
+        price.trialOncePerCustomer,
+    );
 
     const handleOpenChange = (nextOpen: boolean) => {
         onOpenChange(nextOpen);
@@ -94,6 +126,7 @@ export default function EditPriceDrawer({
         if (nextOpen) {
             setName(price.name ?? '');
             setType(price.type);
+            setPlanId(price.planId !== null ? String(price.planId) : '');
             setPricingModel(price.pricingModel);
             setAdvancedOpen(price.pricingModel === 'graduated');
             setUnitAmount(
@@ -102,6 +135,13 @@ export default function EditPriceDrawer({
             setBillingInterval(price.billingInterval ?? 'month');
             setBillingFrequency(String(price.billingFrequency));
             setTiers(tiersFromPrice(price));
+            setTrialEnabled(price.trialLength !== null);
+            setTrialLength(
+                price.trialLength !== null ? String(price.trialLength) : '7',
+            );
+            setTrialUnit(price.trialUnit ?? 'day');
+            setTrialRequiresPaymentInfo(price.trialRequiresPaymentInfo);
+            setTrialOncePerCustomer(price.trialOncePerCustomer);
         }
     };
 
@@ -118,44 +158,50 @@ export default function EditPriceDrawer({
                 <Form
                     key={`${price.id}-${String(open)}`}
                     {...update.form([productId, price.id])}
-                    transform={(data) =>
-                        locked
-                            ? { name: data.name }
-                            : {
-                                  ...data,
-                                  type,
-                                  pricing_model: pricingModel,
-                                  unit_amount:
-                                      pricingModel === 'standard'
-                                          ? Number(unitAmount)
-                                          : undefined,
-                                  billing_interval:
-                                      type === 'recurring'
-                                          ? billingInterval
-                                          : undefined,
-                                  billing_frequency:
-                                      Number(billingFrequency) || 1,
-                                  tiers:
-                                      pricingModel === 'graduated'
-                                          ? tiers
-                                                .filter(
-                                                    (t) =>
-                                                        t.unitAmount.trim() !==
-                                                        '',
-                                                )
-                                                .map((t) => ({
-                                                    up_to: t.upTo
-                                                        ? Number(t.upTo)
-                                                        : null,
-                                                    unit_amount:
-                                                        Number(t.unitAmount),
-                                                    flat_amount: t.flatAmount
-                                                        ? Number(t.flatAmount)
-                                                        : null,
-                                                }))
-                                          : undefined,
-                              }
-                    }
+                    transform={(data) => ({
+                        ...data,
+                        type,
+                        plan_id:
+                            type === 'recurring' && planId !== ''
+                                ? Number(planId)
+                                : null,
+                        pricing_model: pricingModel,
+                        unit_amount:
+                            pricingModel === 'standard'
+                                ? Number(unitAmount)
+                                : undefined,
+                        billing_interval:
+                            type === 'recurring' ? billingInterval : undefined,
+                        billing_frequency: Number(billingFrequency) || 1,
+                        tiers:
+                            pricingModel === 'graduated'
+                                ? tiers
+                                      .filter((t) => t.unitAmount.trim() !== '')
+                                      .map((t) => ({
+                                          up_to: t.upTo ? Number(t.upTo) : null,
+                                          unit_amount: Number(t.unitAmount),
+                                          flat_amount: t.flatAmount
+                                              ? Number(t.flatAmount)
+                                              : null,
+                                      }))
+                                : undefined,
+                        trial_length:
+                            type === 'recurring' && trialEnabled
+                                ? Number(trialLength)
+                                : null,
+                        trial_unit:
+                            type === 'recurring' && trialEnabled
+                                ? trialUnit
+                                : null,
+                        trial_requires_payment_info:
+                            type === 'recurring' && trialEnabled
+                                ? trialRequiresPaymentInfo
+                                : false,
+                        trial_once_per_customer:
+                            type === 'recurring' && trialEnabled
+                                ? trialOncePerCustomer
+                                : true,
+                    })}
                     className="flex h-full flex-col"
                     onSuccess={() => handleOpenChange(false)}
                 >
@@ -164,23 +210,21 @@ export default function EditPriceDrawer({
                             <SheetHeader>
                                 <SheetTitle>Edit price</SheetTitle>
                                 <SheetDescription>
-                                    {locked
-                                        ? 'This price has been used and can no longer change its shape — only the display name can still be edited.'
-                                        : 'Amount, interval, and pricing model are still editable — no customers have subscribed to this price yet.'}
+                                    {willReplace
+                                        ? 'This price has subscribers — saving a change creates a new version and archives this one. Existing subscribers keep their current rate.'
+                                        : 'Amount, plan, interval, and trial are all editable — no customers have subscribed to this price yet.'}
                                 </SheetDescription>
                             </SheetHeader>
 
                             <div className="flex flex-col gap-6 overflow-y-auto px-4">
-                                {locked && (
+                                {willReplace && (
                                     <div className="flex items-start gap-2 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                                        <Lock className="mt-0.5 size-4 shrink-0" />
+                                        <Layers className="mt-0.5 size-4 shrink-0" />
                                         <span>
-                                            Changing the amount, currency,
-                                            interval, or pricing model
-                                            requires creating a new price and
-                                            archiving this one — existing
-                                            subscribers keep their current
-                                            rate.
+                                            Saving issues a new version of this
+                                            price. New signups get the updated
+                                            rate; current subscribers are
+                                            grandfathered on the original.
                                         </span>
                                     </div>
                                 )}
@@ -209,10 +253,8 @@ export default function EditPriceDrawer({
                                         variant="outline"
                                         value={type}
                                         onValueChange={(value) =>
-                                            value &&
-                                            setType(value as PriceType)
+                                            value && setType(value as PriceType)
                                         }
-                                        disabled={locked}
                                         className="w-full"
                                     >
                                         <ToggleGroupItem
@@ -230,6 +272,40 @@ export default function EditPriceDrawer({
                                     </ToggleGroup>
                                 </div>
 
+                                {type === 'recurring' &&
+                                    selectablePlans.length > 0 && (
+                                        <div className="grid gap-2">
+                                            <Label>Plan</Label>
+                                            <Select
+                                                value={planId}
+                                                onValueChange={setPlanId}
+                                            >
+                                                <SelectTrigger data-test="edit-price-plan">
+                                                    <SelectValue placeholder="Choose a plan" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {selectablePlans.map(
+                                                        (plan) => (
+                                                            <SelectItem
+                                                                key={plan.id}
+                                                                value={String(
+                                                                    plan.id,
+                                                                )}
+                                                            >
+                                                                {plan.name}
+                                                            </SelectItem>
+                                                        ),
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                            <InputError
+                                                message={
+                                                    errors['plan_id' as never]
+                                                }
+                                            />
+                                        </div>
+                                    )}
+
                                 {type === 'recurring' && (
                                     <div className="grid gap-2">
                                         <Label>Bills every</Label>
@@ -239,7 +315,6 @@ export default function EditPriceDrawer({
                                                 min={1}
                                                 className="w-20"
                                                 value={billingFrequency}
-                                                disabled={locked}
                                                 onChange={(e) =>
                                                     setBillingFrequency(
                                                         e.target.value,
@@ -248,7 +323,6 @@ export default function EditPriceDrawer({
                                             />
                                             <Select
                                                 value={billingInterval}
-                                                disabled={locked}
                                                 onValueChange={(value) =>
                                                     setBillingInterval(
                                                         value as BillingInterval,
@@ -295,7 +369,6 @@ export default function EditPriceDrawer({
                                                 min={0}
                                                 step="0.01"
                                                 value={unitAmount}
-                                                disabled={locked}
                                                 onChange={(e) =>
                                                     setUnitAmount(
                                                         e.target.value,
@@ -312,6 +385,100 @@ export default function EditPriceDrawer({
                                     </div>
                                 )}
 
+                                {type === 'recurring' && (
+                                    <div className="grid gap-3 rounded-lg border p-3">
+                                        <label className="flex items-center gap-2">
+                                            <Checkbox
+                                                checked={trialEnabled}
+                                                onCheckedChange={(checked) =>
+                                                    setTrialEnabled(
+                                                        checked === true,
+                                                    )
+                                                }
+                                                data-test="edit-price-trial-enabled"
+                                            />
+                                            <span className="text-sm font-medium">
+                                                Offer a free trial
+                                            </span>
+                                        </label>
+
+                                        {trialEnabled && (
+                                            <div className="grid gap-3">
+                                                <div className="flex items-center gap-2">
+                                                    <Input
+                                                        type="number"
+                                                        min={1}
+                                                        className="w-20"
+                                                        value={trialLength}
+                                                        onChange={(e) =>
+                                                            setTrialLength(
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        data-test="edit-price-trial-length"
+                                                    />
+                                                    <Select
+                                                        value={trialUnit}
+                                                        onValueChange={(v) =>
+                                                            setTrialUnit(
+                                                                v as TrialUnit,
+                                                            )
+                                                        }
+                                                    >
+                                                        <SelectTrigger className="w-40">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="day">
+                                                                Day(s)
+                                                            </SelectItem>
+                                                            <SelectItem value="week">
+                                                                Week(s)
+                                                            </SelectItem>
+                                                            <SelectItem value="month">
+                                                                Month(s)
+                                                            </SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                    <Checkbox
+                                                        checked={
+                                                            trialRequiresPaymentInfo
+                                                        }
+                                                        onCheckedChange={(
+                                                            checked,
+                                                        ) =>
+                                                            setTrialRequiresPaymentInfo(
+                                                                checked ===
+                                                                    true,
+                                                            )
+                                                        }
+                                                    />
+                                                    Require a card at signup
+                                                </label>
+                                                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                    <Checkbox
+                                                        checked={
+                                                            trialOncePerCustomer
+                                                        }
+                                                        onCheckedChange={(
+                                                            checked,
+                                                        ) =>
+                                                            setTrialOncePerCustomer(
+                                                                checked ===
+                                                                    true,
+                                                            )
+                                                        }
+                                                    />
+                                                    Limit to one trial per
+                                                    customer
+                                                </label>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 <Collapsible
                                     open={advancedOpen}
                                     onOpenChange={setAdvancedOpen}
@@ -324,8 +491,7 @@ export default function EditPriceDrawer({
                                             <ChevronRight
                                                 className={`size-4 transition-transform ${advancedOpen ? 'rotate-90' : ''}`}
                                             />
-                                            Advanced pricing (graduated
-                                            tiers)
+                                            Advanced pricing (graduated tiers)
                                         </button>
                                     </CollapsibleTrigger>
                                     <CollapsibleContent className="mt-3 space-y-3">
@@ -335,7 +501,6 @@ export default function EditPriceDrawer({
                                                 type="single"
                                                 variant="outline"
                                                 value={pricingModel}
-                                                disabled={locked}
                                                 onValueChange={(value) =>
                                                     value &&
                                                     setPricingModel(
@@ -369,17 +534,14 @@ export default function EditPriceDrawer({
                                                         <Input
                                                             placeholder={
                                                                 index ===
-                                                                tiers.length -
-                                                                    1
+                                                                tiers.length - 1
                                                                     ? 'and up'
                                                                     : 'Up to (qty)'
                                                             }
                                                             type="number"
                                                             disabled={
-                                                                locked ||
                                                                 index ===
-                                                                    tiers.length -
-                                                                        1
+                                                                tiers.length - 1
                                                             }
                                                             value={tier.upTo}
                                                             onChange={(e) =>
@@ -406,7 +568,6 @@ export default function EditPriceDrawer({
                                                         <Input
                                                             placeholder="Price per unit"
                                                             type="number"
-                                                            disabled={locked}
                                                             value={
                                                                 tier.unitAmount
                                                             }
@@ -436,7 +597,6 @@ export default function EditPriceDrawer({
                                                             type="button"
                                                             variant="ghost"
                                                             size="icon"
-                                                            disabled={locked}
                                                             onClick={() =>
                                                                 setTiers(
                                                                     (prev) =>
@@ -455,29 +615,23 @@ export default function EditPriceDrawer({
                                                         </Button>
                                                     </div>
                                                 ))}
-                                                {!locked && (
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() =>
-                                                            setTiers(
-                                                                (prev) => [
-                                                                    ...prev,
-                                                                    {
-                                                                        upTo: '',
-                                                                        unitAmount:
-                                                                            '',
-                                                                        flatAmount:
-                                                                            '',
-                                                                    },
-                                                                ],
-                                                            )
-                                                        }
-                                                    >
-                                                        <Plus /> Add tier
-                                                    </Button>
-                                                )}
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                        setTiers((prev) => [
+                                                            ...prev,
+                                                            {
+                                                                upTo: '',
+                                                                unitAmount: '',
+                                                                flatAmount: '',
+                                                            },
+                                                        ])
+                                                    }
+                                                >
+                                                    <Plus /> Add tier
+                                                </Button>
                                             </div>
                                         )}
                                     </CollapsibleContent>
@@ -529,9 +683,7 @@ export default function EditPriceDrawer({
 
                             <SheetFooter className="flex-row justify-end gap-2">
                                 <SheetClose asChild>
-                                    <Button variant="secondary">
-                                        Cancel
-                                    </Button>
+                                    <Button variant="secondary">Cancel</Button>
                                 </SheetClose>
                                 <Button
                                     type="submit"
@@ -539,7 +691,9 @@ export default function EditPriceDrawer({
                                     data-test="edit-price-submit"
                                 >
                                     {processing && <Spinner />}
-                                    Save changes
+                                    {willReplace
+                                        ? 'Save as new version'
+                                        : 'Save changes'}
                                 </Button>
                             </SheetFooter>
                         </>

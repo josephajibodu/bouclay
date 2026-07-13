@@ -73,14 +73,10 @@ export default function EditProductDrawer({
                                     <Textarea
                                         id="edit-product-description"
                                         name="description"
-                                        defaultValue={
-                                            product.description ?? ''
-                                        }
+                                        defaultValue={product.description ?? ''}
                                         rows={3}
                                     />
-                                    <InputError
-                                        message={errors.description}
-                                    />
+                                    <InputError message={errors.description} />
                                 </div>
 
                                 <div className="grid gap-2">
@@ -101,30 +97,24 @@ export default function EditProductDrawer({
                                     </Label>
                                     <p className="text-sm text-muted-foreground">
                                         Where customers land if they click
-                                        "return to site" after paying for
-                                        this product.
+                                        "return to site" after paying for this
+                                        product.
                                     </p>
                                     <Input
                                         id="edit-product-website"
                                         type="url"
                                         name="website_url"
                                         placeholder="https://example.com"
-                                        defaultValue={
-                                            product.websiteUrl ?? ''
-                                        }
+                                        defaultValue={product.websiteUrl ?? ''}
                                         data-test="edit-product-website"
                                     />
-                                    <InputError
-                                        message={errors.website_url}
-                                    />
+                                    <InputError message={errors.website_url} />
                                 </div>
                             </div>
 
                             <SheetFooter className="flex-row justify-end gap-2">
                                 <SheetClose asChild>
-                                    <Button variant="secondary">
-                                        Cancel
-                                    </Button>
+                                    <Button variant="secondary">Cancel</Button>
                                 </SheetClose>
                                 <Button
                                     type="submit"
