@@ -1,8 +1,8 @@
 <?php
 
+use App\Console\Commands\AdvanceSubscriptionPhases;
 use App\Console\Commands\ApplyScheduledChanges;
 use App\Console\Commands\BillSubscriptionRenewals;
-use App\Console\Commands\ConvertTrialSubscriptions;
 use App\Console\Commands\DeliverPendingWebhooks;
 use App\Console\Commands\ExpireIncompleteSubscriptions;
 use App\Console\Commands\ProcessDunningRetries;
@@ -17,7 +17,7 @@ Schedule::call(function () {
         ->delete();
 })->daily()->description('Delete expired team invitations');
 
-Schedule::command(ConvertTrialSubscriptions::class)->hourly();
+Schedule::command(AdvanceSubscriptionPhases::class)->hourly();
 Schedule::command(ApplyScheduledChanges::class)->hourly();
 Schedule::command(BillSubscriptionRenewals::class)->hourly();
 Schedule::command(DeliverPendingWebhooks::class)->everyMinute();

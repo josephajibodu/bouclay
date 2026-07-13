@@ -42,7 +42,14 @@ class RenewSubscription
             return null;
         }
 
-        $subscription->loadMissing(['customer', 'items.price.product', 'paymentMethod', 'team']);
+        $subscription->loadMissing(['customer', 'items.price.product', 'items.price.phases.chargePrice', 'paymentMethod', 'team']);
+
+        // A subscription still stepping through a paid ramp is owned by
+        // `subscriptions:advance-phases` until it reaches its steady-state
+        // phase — don't renew it out from under the ramp.
+        if ($this->isProgressingThroughPhases($subscription)) {
+            return null;
+        }
 
         /** @var Invoice|null $invoice */
         $invoice = DB::transaction(function () use ($subscription): ?Invoice {
@@ -55,7 +62,7 @@ class RenewSubscription
             $periodStart = $subscription->current_period_end->copy();
             $anchorItem = $subscription->items
                 ->first(fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active);
-            $anchorPrice = $anchorItem?->price;
+            $anchorPrice = $anchorItem?->effectiveChargePrice();
             $periodEnd = $anchorPrice !== null
                 ? $this->addInterval(
                     $periodStart->copy(),
@@ -103,7 +110,7 @@ class RenewSubscription
         return array_values($subscription->items
             ->filter(fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active)
             ->map(function (SubscriptionItem $item): array {
-                $price = $item->price;
+                $price = $item->effectiveChargePrice();
                 $product = $price->product;
 
                 return [
@@ -127,6 +134,14 @@ class RenewSubscription
         }
 
         return $subscription->paymentMethod;
+    }
+
+    private function isProgressingThroughPhases(Subscription $subscription): bool
+    {
+        return $subscription->items->contains(
+            fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active
+                && $item->isProgressingThroughPhases(),
+        );
     }
 
     private function addInterval(CarbonInterface $date, BillingInterval $interval, int $count): Carbon
