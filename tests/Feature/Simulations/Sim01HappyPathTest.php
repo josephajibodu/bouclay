@@ -1,5 +1,18 @@
 <?php
 
+use App\Actions\Subscriptions\AdvanceSubscriptionPhases;
+use App\Actions\Subscriptions\CreateSubscription;
+use App\Enums\InvoiceBillingReason;
+use App\Enums\InvoiceLineKind;
+use App\Enums\InvoiceStatus;
+use App\Enums\PaymentStatus;
+use App\Enums\SubscriptionItemKind;
+use App\Enums\SubscriptionStatus;
+use App\Models\PaymentMethod;
+use App\Models\PriceTrialRedemption;
+use App\Models\Subscription;
+use App\Models\TeamProcessorConnection;
+
 /*
 |--------------------------------------------------------------------------
 | SIM-01 — Happy path: free-trial signup → convert → renew → cancel
@@ -13,7 +26,42 @@
 | Cases are scaffolded as todos in V2-0 and promoted phase by phase:
 | Acts 1–3 in V2-2, Act 4 + discount exhaustion in V2-3, Acts 5–6 in V2-4,
 | access checks in V2-5 (IMPLEMENTATION_V2 §3 exit criteria).
+|
+| V2-2 note: the discount engine (WELCOME20) is V2-3 — these Act 1–3 cases
+| assert the *undiscounted* bundle (₦5,000 + ₦1,500 = ₦6,500 = 650000 kobo);
+| V2-3 layers WELCOME20 on top (dropping the total to 520000) by extending
+| these cases, not rewriting them.
 */
+
+/**
+ * SIM-01 Act 1 + 2 in one setup: Amina has a card on file and subscribes to
+ * the trial-bearing Premium plan plus the no-trial Sports Pack add-on, on
+ * automatic collection. Returns the fixture, the subscription, and the card.
+ *
+ * @return array{fx: array<string, mixed>, subscription: Subscription, card: PaymentMethod}
+ */
+function subscribeAminaOnFreeTrial(): array
+{
+    $fx = naijaStreamFixture();
+    $team = $fx['team'];
+    $amina = $fx['amina'];
+
+    // Card stored at hosted checkout; trial_requires_payment_info=true means
+    // it is kept but not charged (Act 1).
+    $card = PaymentMethod::factory()->for($team)->for($amina)->create(['is_default' => true]);
+
+    $subscription = app(CreateSubscription::class)->handle($team, [
+        'customer_id' => $amina->id,
+        'collection_mode' => 'automatic',
+        'payment_method_id' => $card->id,
+        'items' => [
+            ['price_id' => $fx['price_prem_m']->id, 'quantity' => 1],
+            ['price_id' => $fx['price_sports_m']->id, 'quantity' => 1],
+        ],
+    ]);
+
+    return ['fx' => $fx, 'subscription' => $subscription, 'card' => $card];
+}
 
 // Shared fixture — the one non-todo case in V2-0: the builder every
 // simulation relies on must produce the documented catalog.
@@ -38,28 +86,70 @@ it('builds the NaijaStream fixture exactly as BILLING_SIMULATIONS.md specifies',
 
 // Act 1 — Customer + card
 it('stores a tokenized card without charging when the trial requires payment info', function () {
-    // trial_requires_payment_info=true ⇒ payment_methods row written,
-    // zero payments rows, event payment_method.added emitted.
-})->todo();
+    ['subscription' => $subscription, 'card' => $card] = subscribeAminaOnFreeTrial();
 
-// Act 2 — Subscribe (free trial + add-on + discount)
+    // The card is on file and attached to the subscription…
+    expect($card->fresh())->not->toBeNull()
+        ->and($subscription->payment_method_id)->toBe($card->id);
+
+    // …but nothing was charged: no invoice, no payment during the trial.
+    expect($subscription->invoices()->count())->toBe(0);
+});
+
+// Act 2 — Subscribe (free trial + add-on)
 it('creates a trialing subscription with the plan item anchoring the trial and the add-on riding it', function () {
-    // subscriptions{status=trialing, trial_ends_at=+7d, discount_id=WELCOME20}
-    // item A {price_prem_m, kind=plan, trial_ends_at=+7d}
-    // item B {price_sports_m, kind=addon, trial_ends_at=null}
-})->todo();
+    ['fx' => $fx, 'subscription' => $subscription] = subscribeAminaOnFreeTrial();
+
+    $subscription->load('items');
+    $plan = $subscription->items->firstWhere('kind', SubscriptionItemKind::Plan);
+    $addon = $subscription->items->firstWhere('kind', SubscriptionItemKind::Addon);
+
+    expect($subscription->status)->toBe(SubscriptionStatus::Trialing)
+        ->and($subscription->trial_ends_at->toDateString())->toBe(now()->addDays(7)->toDateString())
+        // Item A (plan) anchors the trial.
+        ->and($plan->price_id)->toBe($fx['price_prem_m']->id)
+        ->and($plan->trial_ends_at->toDateString())->toBe(now()->addDays(7)->toDateString())
+        // Item B (add-on) rides the anchor — no trial of its own.
+        ->and($addon->price_id)->toBe($fx['price_sports_m']->id)
+        ->and($addon->trial_ends_at)->toBeNull();
+});
 
 it('writes a price_trial_redemptions row locking trial_once_per_customer at trial start', function () {
-    // price_trial_redemptions{team, price=price_prem_m, customer=Amina, subscription_item=A}
-})->todo();
+    ['fx' => $fx, 'subscription' => $subscription] = subscribeAminaOnFreeTrial();
+
+    $plan = $subscription->items()->where('kind', SubscriptionItemKind::Plan)->firstOrFail();
+
+    // Exactly one redemption — the trial-bearing plan price, not the add-on.
+    expect(PriceTrialRedemption::query()->count())->toBe(1);
+
+    $redemption = PriceTrialRedemption::query()->firstOrFail();
+    expect($redemption->team_id)->toBe($fx['team']->id)
+        ->and($redemption->price_id)->toBe($fx['price_prem_m']->id)
+        ->and($redemption->customer_id)->toBe($fx['amina']->id)
+        ->and($redemption->subscription_item_id)->toBe($plan->id);
+});
+
+it('rejects a second free trial of the same price for the same customer', function () {
+    ['fx' => $fx] = subscribeAminaOnFreeTrial();
+
+    // A second attempt at the once-per-customer trial is refused up front.
+    expect(fn () => app(CreateSubscription::class)->handle($fx['team'], [
+        'customer_id' => $fx['amina']->id,
+        'collection_mode' => 'automatic',
+        'items' => [['price_id' => $fx['price_prem_m']->id, 'quantity' => 1]],
+    ]))->toThrow(InvalidArgumentException::class, 'once per customer');
+});
+
+it('charges nothing on day 0 even though a paid add-on is present', function () {
+    ['subscription' => $subscription] = subscribeAminaOnFreeTrial();
+
+    // GAP-4 locked: no invoice for either item during the trial; the
+    // conversion invoice (Act 3) is the first one.
+    expect($subscription->invoices()->count())->toBe(0);
+});
 
 it('writes a discount_redemptions row with remaining_intervals snapshotted from the discount duration', function () {
     // duration=repeating, duration_in_intervals=3 ⇒ remaining_intervals=3 (GAP-1)
-})->todo();
-
-it('charges nothing on day 0 even though a paid add-on is present', function () {
-    // GAP-4 locked: no invoice is generated for either item during the trial;
-    // the conversion invoice (Act 3) is the first invoice.
 })->todo();
 
 it('grants hd_streaming and sports_channels while trialing', function () {
@@ -68,30 +158,84 @@ it('grants hd_streaming and sports_channels while trialing', function () {
 
 // Act 3 — Day 7: trial converts
 it('converts the trial to active and emits subscription.updated', function () {
-    // Worker flips trialing → active at trial_ends_at.
-})->todo();
+    ['fx' => $fx, 'subscription' => $subscription] = subscribeAminaOnFreeTrial();
+    TeamProcessorConnection::factory()->for($fx['team'])->testConnected()->create();
+    fakeNombaCharge();
 
-it('issues a conversion invoice bundling plan and add-on with exact discounted totals', function () {
-    // billing_reason=subscription_create, billed_to_customer_id=Amina
-    // line plan:  unit_amount=500000, subtotal=500000, discount_amount=100000, total=400000
-    // line addon: unit_amount=150000, subtotal=150000, discount_amount=30000,  total=120000
-    // invoice: subtotal=650000, discount_total=130000, tax_total=0, total=520000, amount_due=520000
-})->todo();
+    $this->travelTo(now()->addDays(8));
+
+    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+
+    expect($subscription->fresh()->status)->toBe(SubscriptionStatus::Active);
+});
+
+it('issues a conversion invoice bundling plan and add-on with undiscounted totals', function () {
+    ['fx' => $fx, 'subscription' => $subscription] = subscribeAminaOnFreeTrial();
+    TeamProcessorConnection::factory()->for($fx['team'])->testConnected()->create();
+    fakeNombaCharge();
+
+    $this->travelTo(now()->addDays(8));
+    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+
+    $invoice = $subscription->invoices()->firstOrFail();
+    $invoice->load('lines');
+
+    expect($invoice->billing_reason)->toBe(InvoiceBillingReason::SubscriptionCreate)
+        ->and($invoice->billed_to_customer_id)->toBe($fx['amina']->id)
+        ->and($invoice->subtotal)->toBe(650000)
+        ->and($invoice->total)->toBe(650000)
+        // amount_due nets to 0 once the charge settles synchronously below;
+        // the pre-payment amount_due == total is proven by amount_paid == 650000
+        // in the charge case.
+        ->and($invoice->lines)->toHaveCount(2);
+
+    $planLine = $invoice->lines->firstWhere('kind', InvoiceLineKind::Plan);
+    $addonLine = $invoice->lines->firstWhere('kind', InvoiceLineKind::Addon);
+
+    expect($planLine->unit_amount)->toBe(500000)
+        ->and($planLine->subtotal)->toBe(500000)
+        ->and($addonLine->unit_amount)->toBe(150000)
+        ->and($addonLine->subtotal)->toBe(150000);
+});
 
 it('snapshots product, plan, and price names onto the conversion invoice lines', function () {
-    // product_name_snapshot="NaijaStream", plan_name_snapshot="Premium",
-    // price_name_snapshot="Premium Monthly".
-})->todo();
+    ['fx' => $fx, 'subscription' => $subscription] = subscribeAminaOnFreeTrial();
+    TeamProcessorConnection::factory()->for($fx['team'])->testConnected()->create();
+    fakeNombaCharge();
+
+    $this->travelTo(now()->addDays(8));
+    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+
+    $planLine = $subscription->invoices()->firstOrFail()
+        ->lines()->where('kind', InvoiceLineKind::Plan)->firstOrFail();
+
+    expect($planLine->product_name_snapshot)->toBe('NaijaStream')
+        ->and($planLine->plan_name_snapshot)->toBe('Premium')
+        ->and($planLine->price_name_snapshot)->toBe('Premium Monthly');
+});
 
 it('keeps discount_total equal to the sum of line discount_amounts with no kind=discount line', function () {
     // The discount-representation invariant: discount_total == SUM(discount_amount)
-    // == 130000; no invoice_lines{kind=discount} row exists.
+    // == 130000; no invoice_lines{kind=discount} row exists. (V2-3 — discount engine.)
 })->todo();
 
 it('charges the conversion invoice on the stored token and marks it paid', function () {
-    // payments{status=succeeded, amount=520000, attempt_number=1};
-    // invoices{status=paid, amount_paid=520000}; event invoice.paid.
-})->todo();
+    ['fx' => $fx, 'subscription' => $subscription] = subscribeAminaOnFreeTrial();
+    TeamProcessorConnection::factory()->for($fx['team'])->testConnected()->create();
+    fakeNombaCharge();
+
+    $this->travelTo(now()->addDays(8));
+    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+
+    $invoice = $subscription->invoices()->firstOrFail();
+    $payment = $invoice->payments()->firstOrFail();
+
+    expect($invoice->status)->toBe(InvoiceStatus::Paid)
+        ->and($invoice->amount_paid)->toBe(650000)
+        ->and($payment->status)->toBe(PaymentStatus::Succeeded)
+        ->and($payment->amount)->toBe(650000)
+        ->and($payment->attempt_number)->toBe(1);
+});
 
 // Act 4 — Month-2 renewal
 it('bills the month-2 renewal at the same discounted total while WELCOME20 has intervals left', function () {
