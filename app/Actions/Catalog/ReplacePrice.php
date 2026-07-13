@@ -58,6 +58,8 @@ class ReplacePrice
             ? $changes['trial_length']
             : $original->trial_length;
 
+        $originalTrialUnit = $original->trial_unit?->value;
+
         return Price::create([
             'team_id' => $original->team_id,
             'product_id' => $original->product_id,
@@ -80,7 +82,7 @@ class ReplacePrice
             'version' => $original->version + 1,
             'trial_length' => $trialLength,
             'trial_unit' => $trialLength !== null
-                ? (array_key_exists('trial_unit', $changes) ? $changes['trial_unit'] : ($original->trial_unit?->value ?? 'day'))
+                ? (array_key_exists('trial_unit', $changes) ? $changes['trial_unit'] : ($originalTrialUnit ?? 'day'))
                 : null,
             'trial_requires_payment_info' => (bool) ($changes['trial_requires_payment_info'] ?? $original->trial_requires_payment_info),
             'trial_once_per_customer' => (bool) ($changes['trial_once_per_customer'] ?? $original->trial_once_per_customer),
