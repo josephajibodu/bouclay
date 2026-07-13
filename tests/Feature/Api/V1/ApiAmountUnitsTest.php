@@ -3,6 +3,7 @@
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 
@@ -10,8 +11,10 @@ test('api responses return amounts in major currency units', function () {
     ['token' => $token, 'team' => $team] = apiAuthFixture();
     $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
     $product = Product::factory()->for($team)->create();
+    $plan = Plan::factory()->for($team)->for($product)->create();
 
     $priceResponse = $this->postJson("/api/v1/products/{$product->public_id}/prices", [
+        'planId' => $plan->public_id,
         'type' => 'recurring',
         'pricingModel' => 'standard',
         'unitAmount' => 15000,
@@ -68,8 +71,10 @@ test('archived product reports archived status in api responses', function () {
 test('recurring api prices require billing interval', function () {
     ['token' => $token, 'team' => $team] = apiAuthFixture();
     $product = Product::factory()->for($team)->create();
+    $plan = Plan::factory()->for($team)->for($product)->create();
 
     $this->postJson("/api/v1/products/{$product->public_id}/prices", [
+        'planId' => $plan->public_id,
         'type' => 'recurring',
         'pricingModel' => 'standard',
         'unitAmount' => 1000,
@@ -78,4 +83,19 @@ test('recurring api prices require billing interval', function () {
         ->assertUnprocessable()
         ->assertJsonPath('error.code', 'invalid_field')
         ->assertJsonFragment(['field' => 'billingInterval']);
+});
+
+test('recurring api prices require a plan', function () {
+    ['token' => $token, 'team' => $team] = apiAuthFixture();
+    $product = Product::factory()->for($team)->create();
+
+    $this->postJson("/api/v1/products/{$product->public_id}/prices", [
+        'type' => 'recurring',
+        'pricingModel' => 'standard',
+        'unitAmount' => 1000,
+        'currency' => 'NGN',
+        'billingInterval' => 'month',
+    ], apiHeaders($token, 'missing-plan-1'))
+        ->assertUnprocessable()
+        ->assertJsonFragment(['field' => 'planId']);
 });

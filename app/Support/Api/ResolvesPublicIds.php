@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
+use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Subscription;
@@ -55,6 +56,12 @@ trait ResolvesPublicIds
     {
         /** @var Product */
         return $this->findByPublicId($team, Product::class, $publicId);
+    }
+
+    protected function findPlan(Team $team, string $publicId): Plan
+    {
+        /** @var Plan */
+        return $this->findByPublicId($team, Plan::class, $publicId);
     }
 
     protected function findPrice(Team $team, string $publicId): Price

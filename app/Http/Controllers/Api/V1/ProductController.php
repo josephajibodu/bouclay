@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\Catalog\CreatePrice;
 use App\Enums\CatalogStatus;
+use App\Enums\PlanStatus;
 use App\Http\Controllers\Api\V1Controller;
 use App\Models\Product;
 use App\Support\Api\CursorPaginator;
@@ -51,6 +52,9 @@ class ProductController extends V1Controller
             'category' => ['nullable', 'string', 'max:255'],
             'customData' => ['nullable', 'array'],
             'price' => ['nullable', 'array'],
+            // A recurring inline price needs a plan (schema.md §3) — one is
+            // created alongside, named here or after the product.
+            'price.planName' => ['nullable', 'string', 'max:255'],
             'price.name' => ['nullable', 'string', 'max:255'],
             'price.type' => ['required_with:price', 'in:one_time,recurring'],
             'price.pricingModel' => ['required_with:price', 'in:standard,graduated'],
@@ -78,6 +82,16 @@ class ProductController extends V1Controller
                 'billing_interval' => $data['price']['billingInterval'] ?? null,
                 'billing_frequency' => $data['price']['billingFrequency'] ?? 1,
             ];
+
+            if ($data['price']['type'] === 'recurring') {
+                $plan = $product->plans()->create([
+                    'team_id' => $context->team->id,
+                    'name' => $data['price']['planName'] ?? $product->name,
+                    'status' => PlanStatus::Active,
+                ]);
+
+                $priceData['plan_id'] = $plan->id;
+            }
 
             $this->createPrice->handle($product, $priceData);
         }

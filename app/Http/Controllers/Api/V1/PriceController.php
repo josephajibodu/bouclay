@@ -30,6 +30,15 @@ class PriceController extends V1Controller
             $query->where('product_id', $product->id);
         }
 
+        if ($request->filled('planId')) {
+            $plan = $this->findPlan($context->team, (string) $request->query('planId'));
+            $query->where('plan_id', $plan->id);
+        }
+
+        if ($request->boolean('purchasable')) {
+            $query->purchasableForNewSubscriptions();
+        }
+
         if ($request->query('status') === 'archived') {
             $query->where('status', CatalogStatus::Archived);
         } elseif ($request->query('status') !== 'all') {
@@ -53,6 +62,7 @@ class PriceController extends V1Controller
         $productModel = $this->findProduct($context->team, $product);
 
         $data = $request->validate([
+            'planId' => ['required_if:type,recurring', 'prohibited_if:type,one_time', 'nullable', 'string'],
             'name' => ['nullable', 'string', 'max:255'],
             'type' => ['required', 'in:one_time,recurring'],
             'pricingModel' => ['required', 'in:standard,graduated'],
@@ -60,10 +70,29 @@ class PriceController extends V1Controller
             'currency' => ['nullable', 'string', 'size:3'],
             'billingInterval' => ['required_if:type,recurring', 'in:month,week,year,day'],
             'billingFrequency' => ['nullable', 'integer', 'min:1'],
+            'trialLength' => ['nullable', 'integer', 'min:1', 'prohibited_if:type,one_time'],
+            'trialUnit' => ['required_with:trialLength', 'nullable', 'in:day,week,month'],
+            'trialRequiresPaymentInfo' => ['nullable', 'boolean'],
+            'trialOncePerCustomer' => ['nullable', 'boolean'],
             'customData' => ['nullable', 'array'],
         ]);
 
+        $planId = null;
+
+        if (isset($data['planId'])) {
+            $plan = $this->findPlan($context->team, (string) $data['planId']);
+
+            if ($plan->product_id !== $productModel->id) {
+                throw ValidationException::withMessages([
+                    'planId' => 'The plan must belong to the product the price is being created under.',
+                ]);
+            }
+
+            $planId = $plan->id;
+        }
+
         $price = $this->createPrice->handle($productModel, [
+            'plan_id' => $planId,
             'name' => $data['name'] ?? null,
             'type' => $data['type'],
             'pricing_model' => $data['pricingModel'],
@@ -71,6 +100,10 @@ class PriceController extends V1Controller
             'currency' => $data['currency'] ?? $context->team->default_currency,
             'billing_interval' => $data['billingInterval'] ?? null,
             'billing_frequency' => $data['billingFrequency'] ?? 1,
+            'trial_length' => $data['trialLength'] ?? null,
+            'trial_unit' => $data['trialUnit'] ?? null,
+            'trial_requires_payment_info' => $data['trialRequiresPaymentInfo'] ?? false,
+            'trial_once_per_customer' => $data['trialOncePerCustomer'] ?? true,
             'custom_data' => $data['customData'] ?? null,
         ]);
 

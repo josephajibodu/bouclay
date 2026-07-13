@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\CustomerPaymentMethodController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\InvoiceController;
 use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\PlanController;
 use App\Http\Controllers\Api\V1\PriceController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
@@ -33,6 +34,12 @@ Route::post('products', [ProductController::class, 'store']);
 Route::get('products/{product}', [ProductController::class, 'show']);
 Route::patch('products/{product}', [ProductController::class, 'update']);
 Route::post('products/{product}/archive', [ProductController::class, 'archive']);
+
+Route::get('plans', [PlanController::class, 'index']);
+Route::post('products/{product}/plans', [PlanController::class, 'store']);
+Route::get('plans/{plan}', [PlanController::class, 'show']);
+Route::patch('plans/{plan}', [PlanController::class, 'update']);
+Route::post('plans/{plan}/archive', [PlanController::class, 'archive']);
 
 Route::get('prices', [PriceController::class, 'index']);
 Route::post('products/{product}/prices', [PriceController::class, 'store']);

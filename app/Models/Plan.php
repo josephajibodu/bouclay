@@ -98,6 +98,26 @@ class Plan extends Model
     }
 
     /**
+     * Serialise for the public Billing API.
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        $this->loadMissing('product');
+
+        return [
+            'id' => $this->public_id,
+            'productId' => $this->product->public_id,
+            'code' => $this->code,
+            'name' => $this->name,
+            'status' => $this->status->value,
+            'customData' => $this->custom_data,
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
