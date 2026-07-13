@@ -2,6 +2,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import {
     Check,
     ChevronLeft,
+    Clock,
     Copy,
     CreditCard,
     Gift,
@@ -15,9 +16,6 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import ManageSubscriptionItemSheet from '@/components/subscriptions/manage-subscription-item-sheet';
-import { SUBSCRIPTION_STATUS_META } from '@/components/subscriptions/subscription-status';
-import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription-status-badge';
 import {
     INVOICE_STATUS_COLOR,
     INVOICE_STATUS_LABEL,
@@ -26,6 +24,9 @@ import {
     PAYMENT_STATUS_COLOR,
     PAYMENT_STATUS_LABEL,
 } from '@/components/invoices/payment-status';
+import ManageSubscriptionItemSheet from '@/components/subscriptions/manage-subscription-item-sheet';
+import { SUBSCRIPTION_STATUS_META } from '@/components/subscriptions/subscription-status';
+import { SubscriptionStatusBadge } from '@/components/subscriptions/subscription-status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,8 +45,9 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { show as customerShow } from '@/routes/customers';
-import { cancel, index, pause, resume, retryPayment, undoCancel } from '@/routes/subscriptions';
 import { show as invoiceShow } from '@/routes/invoices';
+import { cancel, index, pause, resume, retryPayment, undoCancel } from '@/routes/subscriptions';
+import { destroy as destroyScheduledChange } from '@/routes/subscriptions/scheduled-changes';
 import type {
     CreateProductOption,
     InvoiceSummary,
@@ -141,6 +143,11 @@ export default function SubscriptionShow({
 
     const meta = SUBSCRIPTION_STATUS_META[subscription.status];
     const scheduledCancel = scheduledChanges.find((c) => c.action === 'cancel');
+    // Deferred item changes (downgrades, quantity drops, add-on removals) that
+    // apply at the next renewal and can be undone until then (schema.md §6).
+    const scheduledUpdates = scheduledChanges.filter(
+        (c) => c.action === 'update',
+    );
     const isTerminal =
         subscription.status === 'canceled' ||
         subscription.status === 'incomplete_expired';
@@ -165,6 +172,11 @@ export default function SubscriptionShow({
         router.post(undoCancel(subscription.id).url, {}, { preserveScroll: true });
     const doRetryPayment = () =>
         router.post(retryPayment(subscription.id).url, {}, { preserveScroll: true });
+    const doDeleteScheduledChange = (changeId: number) =>
+        router.delete(
+            destroyScheduledChange({ subscription: subscription.id, change: changeId }).url,
+            { preserveScroll: true },
+        );
 
     const doCancel = (mode: 'immediately' | 'period_end') => {
         router.post(
@@ -397,6 +409,48 @@ export default function SubscriptionShow({
                     </div>
                 )}
             </section>
+
+            {/* Scheduled item changes — deferred downgrades / removals */}
+            {scheduledUpdates.length > 0 && (
+                <section className="space-y-3">
+                    <h2 className="text-lg font-semibold">Scheduled changes</h2>
+                    <div className="divide-y rounded-lg border">
+                        {scheduledUpdates.map((change, i) => (
+                            <div
+                                key={change.id ?? i}
+                                className="flex items-center justify-between gap-3 p-4"
+                                data-test="scheduled-change"
+                            >
+                                <div className="flex items-start gap-3">
+                                    <Clock className="mt-0.5 size-5 text-amber-500" />
+                                    <div>
+                                        <p className="text-sm font-medium">
+                                            {change.description ??
+                                                'Scheduled change'}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Applies{' '}
+                                            {formatDate(change.effectiveAt)}
+                                        </p>
+                                    </div>
+                                </div>
+                                {canManage && change.id !== undefined && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() =>
+                                            doDeleteScheduledChange(change.id!)
+                                        }
+                                    >
+                                        Undo
+                                    </Button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
 
             {/* Trial */}
             {primaryItem?.trialEndsAt && (

@@ -65,8 +65,10 @@ export type SubscriptionItem = {
 };
 
 export type SubscriptionScheduledChange = {
+    id?: number;
     action: string;
     effectiveAt: string;
+    description?: string;
 };
 
 export type SubscriptionTimelineEvent = {
