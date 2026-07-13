@@ -56,6 +56,7 @@ class CreateSubscription
         private readonly CreateInvoice $createInvoice,
         private readonly CollectInvoice $collectInvoice,
         private readonly EmitOutboundEvent $emitOutboundEvent,
+        private readonly RedeemDiscount $redeemDiscount,
     ) {
         //
     }
@@ -160,7 +161,9 @@ class CreateSubscription
             // snapshot the interval budget, attach it to the subscription. The
             // day-0 invoice (if any) applies + decrements it below; a free
             // trial's first application is deferred to conversion.
-            $redemption = $this->redeemDiscount($subscription, $customer, $discount, $currency, $now);
+            $redemption = $discount !== null
+                ? $this->redeemDiscount->handle($subscription, $discount, $now)
+                : null;
 
             $invoice = $this->settleInitialState($team, $subscription, $customer, $collectionMode, $items, $now, $freeTrial, $discount, $redemption);
 
@@ -429,43 +432,6 @@ class CreateSubscription
         }
 
         return null;
-    }
-
-    /**
-     * Redeem a discount onto the freshly-built subscription (schema.md §7):
-     * gate on eligibility + the global cap, attach `discount_id`, snapshot the
-     * interval budget, and bump `times_redeemed`. Returns the redemption so the
-     * caller can decrement it when it first applies.
-     */
-    private function redeemDiscount(
-        Subscription $subscription,
-        Customer $customer,
-        ?Discount $discount,
-        string $currency,
-        Carbon $now,
-    ): ?DiscountRedemption {
-        if ($discount === null) {
-            return null;
-        }
-
-        if (! $discount->isRedeemableBySubscriptionItems($subscription->items()->get(), $currency)) {
-            throw new InvalidArgumentException(
-                "Discount {$discount->public_id} isn't eligible for this subscription (or has reached its redemption limit)."
-            );
-        }
-
-        $subscription->forceFill(['discount_id' => $discount->id])->save();
-
-        $redemption = $subscription->discountRedemptions()->create([
-            'discount_id' => $discount->id,
-            'customer_id' => $customer->id,
-            'remaining_intervals' => $discount->initialRemainingIntervals(),
-            'applied_at' => $now,
-        ]);
-
-        $discount->increment('times_redeemed');
-
-        return $redemption;
     }
 
     /**

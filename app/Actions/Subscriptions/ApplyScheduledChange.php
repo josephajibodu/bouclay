@@ -3,13 +3,17 @@
 namespace App\Actions\Subscriptions;
 
 use App\Enums\ScheduledChangeAction;
+use App\Enums\SubscriptionItemStatus;
 use App\Models\ScheduledChange;
+use App\Models\Subscription;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use LogicException;
 
 /**
- * Apply a queued cancel/pause/resume when its effective time arrives.
+ * Apply a queued cancel/pause/resume/update when its effective time arrives.
+ * An `update` row carries a deferred item change (downgrade, quantity change,
+ * add-on removal) the worker applies before the next cycle is billed
+ * (schema.md §6, GAP-2).
  */
 class ApplyScheduledChange
 {
@@ -35,17 +39,55 @@ class ApplyScheduledChange
                         : null,
                 ),
                 ScheduledChangeAction::Resume => $subscription->apply('resume'),
-                // Deferred item changes carry a payload the V2-3 worker
-                // applies; until that ships, surfacing the gap loudly beats
-                // silently stamping applied_at on an unapplied change.
-                ScheduledChangeAction::Update => throw new LogicException(
-                    'scheduled_changes.update rows are applied by subscriptions:apply-scheduled-changes (V2-3).',
-                ),
+                ScheduledChangeAction::Update => $this->applyItemUpdate($subscription, $change),
             };
 
             $change->update(['applied_at' => Carbon::now()]);
         });
 
         return true;
+    }
+
+    /**
+     * Apply a deferred item change: remove the add-on, or swap its price/plan
+     * and/or quantity to the payload state (schema.md §6). No proration — the
+     * change lands before the next cycle invoice is computed, which bills the
+     * new state directly.
+     */
+    private function applyItemUpdate(Subscription $subscription, ScheduledChange $change): void
+    {
+        $payload = $change->payload ?? [];
+
+        $item = $subscription->items()->whereKey($payload['subscription_item_id'] ?? 0)->first();
+
+        if ($item === null) {
+            return;
+        }
+
+        if (($payload['remove'] ?? false) === true) {
+            $item->forceFill(['status' => SubscriptionItemStatus::Removed])->save();
+
+            return;
+        }
+
+        $attributes = [];
+
+        if (isset($payload['price_id'])) {
+            $price = $subscription->team->prices()->whereKey($payload['price_id'])->first();
+
+            if ($price !== null) {
+                $attributes['price_id'] = $price->id;
+                $attributes['plan_id'] = $price->plan_id;
+                $attributes['product_id'] = $price->product_id;
+            }
+        }
+
+        if (isset($payload['quantity'])) {
+            $attributes['quantity'] = (int) $payload['quantity'];
+        }
+
+        if ($attributes !== []) {
+            $item->forceFill($attributes)->save();
+        }
     }
 }

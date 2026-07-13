@@ -11,6 +11,7 @@ use App\Enums\CatalogStatus;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceStatus;
 use App\Enums\PriceType;
+use App\Enums\ProrationBehavior;
 use App\Enums\ScheduledChangeAction;
 use App\Enums\SubscriptionStatus;
 use App\Exceptions\Subscriptions\IllegalStateTransition;
@@ -19,6 +20,7 @@ use App\Http\Requests\Subscriptions\StoreSubscriptionRequest;
 use App\Http\Requests\Subscriptions\UpdateSubscriptionItemRequest;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
+use App\Models\ScheduledChange;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
 use App\Models\Team;
@@ -182,9 +184,11 @@ class SubscriptionController extends Controller
             ],
             'paymentMethod' => $subscription->paymentMethod?->toDashboardArray(),
             'items' => $subscription->items->map(fn ($item) => $item->toDashboardArray())->all(),
-            'scheduledChanges' => $subscription->scheduledChanges->map(fn ($change) => [
+            'scheduledChanges' => $subscription->scheduledChanges->map(fn (ScheduledChange $change) => [
+                'id' => $change->id,
                 'action' => $change->action->value,
                 'effectiveAt' => $change->effective_at->toISOString(),
+                'description' => $this->describeScheduledChange($subscription, $change),
             ])->all(),
             'timeline' => $this->buildTimeline($subscription),
             // Invoices this subscription has generated so far, and every
@@ -250,12 +254,40 @@ class SubscriptionController extends Controller
                 item: $item,
                 quantity: isset($validated['quantity']) ? (int) $validated['quantity'] : null,
                 priceId: isset($validated['price_id']) ? (int) $validated['price_id'] : null,
+                prorationBehavior: isset($validated['proration_behavior'])
+                    ? ProrationBehavior::from((string) $validated['proration_behavior'])
+                    : null,
+                remove: (bool) ($validated['remove'] ?? false),
             );
         } catch (InvalidArgumentException $e) {
             throw ValidationException::withMessages(['quantity' => $e->getMessage()]);
         }
 
         Inertia::flash('toast', ['type' => 'success', 'message' => 'Subscription item updated.']);
+
+        return back();
+    }
+
+    /**
+     * Delete a pending scheduled change (a deferred downgrade / removal, or a
+     * scheduled cancel) before it applies — a row delete, not a transition
+     * (schema.md §6). Undoing a scheduled cancel also clears the sub's cancel
+     * timestamps.
+     */
+    public function deleteScheduledChange(Request $request, Subscription $subscription, ScheduledChange $change): RedirectResponse
+    {
+        $subscription = $this->authorizeManage($request, $subscription);
+
+        abort_unless($change->subscription_id === $subscription->id, 404);
+        abort_unless($change->applied_at === null, 404);
+
+        if ($change->action === ScheduledChangeAction::Cancel) {
+            $subscription->forceFill(['canceled_at' => null, 'ends_at' => null])->save();
+        }
+
+        $change->delete();
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => 'Scheduled change removed.']);
 
         return back();
     }
@@ -423,6 +455,47 @@ class SubscriptionController extends Controller
             SubscriptionStatus::Incomplete => 'Subscription created — send the customer a checkout link to activate it.',
             default => 'Subscription created.',
         };
+    }
+
+    /**
+     * A one-line, plain-language summary of a pending scheduled change for the
+     * subscription hub — e.g. "15 → 10 seats at next renewal" (schema.md §6).
+     */
+    private function describeScheduledChange(Subscription $subscription, ScheduledChange $change): string
+    {
+        if ($change->action !== ScheduledChangeAction::Update) {
+            return match ($change->action) {
+                ScheduledChangeAction::Cancel => 'Cancels at period end',
+                ScheduledChangeAction::Pause => 'Pauses at period end',
+                ScheduledChangeAction::Resume => 'Resumes at period end',
+            };
+        }
+
+        $payload = $change->payload ?? [];
+        $item = $subscription->items->firstWhere('id', $payload['subscription_item_id'] ?? null);
+        $label = $item?->product->name ?? 'Item';
+
+        if (($payload['remove'] ?? false) === true) {
+            return "Removes {$label} at next renewal";
+        }
+
+        $parts = [];
+
+        if (isset($payload['quantity'])) {
+            $from = $item?->quantity;
+            $parts[] = $from !== null
+                ? "{$from} → {$payload['quantity']}"
+                : "quantity → {$payload['quantity']}";
+        }
+
+        if (isset($payload['price_id'])) {
+            $newPrice = $subscription->team->prices()->whereKey($payload['price_id'])->first();
+            $parts[] = 'switches to '.($newPrice?->toPickerLabel() ?? 'a new price');
+        }
+
+        $detail = $parts === [] ? 'changes' : implode(', ', $parts);
+
+        return "{$label}: {$detail} at next renewal";
     }
 
     /**

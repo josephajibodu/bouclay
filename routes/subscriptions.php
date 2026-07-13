@@ -18,4 +18,5 @@ Route::prefix('subscriptions')
         Route::post('{subscription}/retry-payment', [SubscriptionController::class, 'retryPayment'])->name('retry-payment');
         Route::post('{subscription}/cancel', [SubscriptionController::class, 'cancel'])->name('cancel');
         Route::post('{subscription}/undo-cancel', [SubscriptionController::class, 'resumeSchedule'])->name('undo-cancel');
+        Route::delete('{subscription}/scheduled-changes/{change}', [SubscriptionController::class, 'deleteScheduledChange'])->name('scheduled-changes.destroy');
     });

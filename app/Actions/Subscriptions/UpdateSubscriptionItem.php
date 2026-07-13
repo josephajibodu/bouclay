@@ -7,6 +7,8 @@ use App\Actions\Invoicing\CreateInvoice;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
+use App\Enums\ProrationBehavior;
+use App\Enums\ScheduledChangeAction;
 use App\Enums\SubscriptionStatus;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
@@ -20,7 +22,17 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
- * Change a subscription item's plan or quantity and invoice the prorated delta.
+ * Change a subscription item's plan, quantity, or presence, applying the
+ * locked mid-cycle policy (schema.md §6, GAP-2/3/6).
+ *
+ * `proration_behavior` (a request parameter, never a column) governs when a
+ * change lands and whether it prorates: `always` prorates + charges the delta
+ * now, `none` applies now and bills nothing, `next_cycle` defers to the next
+ * renewal via a scheduled `update` row. Defaults are policy — increases →
+ * `always`, decreases/removals → `next_cycle` (MVP has no credit balance to
+ * hold a mid-cycle credit). Any change while `trialing` applies immediately
+ * with no proration (no money has moved; the conversion invoice reflects the
+ * final composition).
  */
 class UpdateSubscriptionItem
 {
@@ -36,13 +48,19 @@ class UpdateSubscriptionItem
         SubscriptionItem $item,
         ?int $quantity = null,
         ?int $priceId = null,
+        ?ProrationBehavior $prorationBehavior = null,
+        bool $remove = false,
     ): ?Invoice {
         if ($item->subscription_id !== $subscription->id) {
             throw new InvalidArgumentException('The item does not belong to this subscription.');
         }
 
-        if (! in_array($subscription->status, [SubscriptionStatus::Active, SubscriptionStatus::PastDue], true)) {
-            throw new InvalidArgumentException('Only active subscriptions can be updated.');
+        // Removing an add-on takes effect at the next renewal — no mid-cycle
+        // credit in MVP (GAP-3). It's a deferred `update` with `remove:true`.
+        if ($remove) {
+            $this->scheduleUpdate($subscription, ['subscription_item_id' => $item->id, 'remove' => true]);
+
+            return null;
         }
 
         $newQuantity = $quantity ?? $item->quantity;
@@ -64,13 +82,44 @@ class UpdateSubscriptionItem
 
         $this->assertSingleCadence($subscription, $item, $newPrice);
 
+        // While trialing, no money has moved yet: apply immediately, never
+        // prorate — the conversion invoice reflects the final composition (ADV-01).
+        if ($subscription->status === SubscriptionStatus::Trialing) {
+            $this->applyItemChange($item, $newPrice, $newQuantity);
+
+            return null;
+        }
+
+        if (! in_array($subscription->status, [SubscriptionStatus::Active, SubscriptionStatus::PastDue], true)) {
+            throw new InvalidArgumentException('Only active or trialing subscriptions can be updated.');
+        }
+
+        $behavior = $prorationBehavior ?? $this->defaultBehavior($item, $newPrice, $newQuantity);
+
+        // Defer to next renewal: write the scheduled payload, touch nothing now.
+        if ($behavior === ProrationBehavior::NextCycle) {
+            $this->scheduleUpdate($subscription, $this->updatePayload($item, $newPrice, $newQuantity, $priceId, $quantity));
+
+            return null;
+        }
+
+        // `none` applies immediately and bills nothing (support / goodwill edits).
+        if ($behavior === ProrationBehavior::None) {
+            $this->applyItemChange($item, $newPrice, $newQuantity);
+
+            return null;
+        }
+
+        // `always` — prorate and charge the delta now.
         $subscription->loadMissing(['customer', 'paymentMethod', 'team']);
         $item->loadMissing('price.product');
 
         $oldPrice = $item->price;
         $oldQuantity = $item->quantity;
         $fraction = $this->prorationFraction($subscription);
-        $periodStart = Carbon::instance($subscription->current_period_start ?? now());
+        // The proration lines cover the *remaining* window — from the change
+        // moment to period end (SIM-02: day 12 → day 30).
+        $periodStart = Carbon::now();
         $periodEnd = Carbon::instance($subscription->current_period_end ?? now());
 
         /** @var Invoice|null $invoice */
@@ -85,11 +134,7 @@ class UpdateSubscriptionItem
             $periodStart,
             $periodEnd,
         ): ?Invoice {
-            $item->forceFill([
-                'quantity' => $newQuantity,
-                'price_id' => $newPrice->id,
-                'product_id' => $newPrice->product_id,
-            ])->save();
+            $this->applyItemChange($item, $newPrice, $newQuantity);
 
             $lines = $this->buildProrationLines(
                 item: $item,
@@ -132,6 +177,71 @@ class UpdateSubscriptionItem
         );
 
         return $invoice;
+    }
+
+    /**
+     * Swap an item's plan / price / quantity in place (denormalising plan and
+     * product alongside the price, schema.md §6).
+     */
+    private function applyItemChange(SubscriptionItem $item, Price $newPrice, int $newQuantity): void
+    {
+        $item->forceFill([
+            'quantity' => $newQuantity,
+            'price_id' => $newPrice->id,
+            'plan_id' => $newPrice->plan_id,
+            'product_id' => $newPrice->product_id,
+        ])->save();
+    }
+
+    /**
+     * The default proration behavior for a change (schema.md §6): an increase
+     * in billed value prorates + charges now; a decrease defers to next cycle.
+     * Equal value (a same-price swap) applies now — its proration nets to zero.
+     */
+    private function defaultBehavior(SubscriptionItem $item, Price $newPrice, int $newQuantity): ProrationBehavior
+    {
+        $oldValue = $item->quantity * ($item->price->unit_amount ?? 0);
+        $newValue = $newQuantity * ($newPrice->unit_amount ?? 0);
+
+        return $newValue >= $oldValue ? ProrationBehavior::Always : ProrationBehavior::NextCycle;
+    }
+
+    /**
+     * The scheduled `update` payload for a deferred change — only the fields
+     * that actually change (schema.md §6).
+     *
+     * @return array<string, mixed>
+     */
+    private function updatePayload(SubscriptionItem $item, Price $newPrice, int $newQuantity, ?int $priceId, ?int $quantity): array
+    {
+        $payload = ['subscription_item_id' => $item->id];
+
+        if ($priceId !== null && $newPrice->id !== $item->price_id) {
+            $payload['price_id'] = $newPrice->id;
+            $payload['plan_id'] = $newPrice->plan_id;
+        }
+
+        if ($quantity !== null && $newQuantity !== $item->quantity) {
+            $payload['quantity'] = $newQuantity;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Queue a deferred item change for the next renewal boundary (schema.md §6,
+     * GAP-2). One row per item change, all sharing `current_period_end`;
+     * `subscriptions:apply-scheduled-changes` applies the payload there.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function scheduleUpdate(Subscription $subscription, array $payload): void
+    {
+        $subscription->scheduledChanges()->create([
+            'action' => ScheduledChangeAction::Update,
+            'effective_at' => $subscription->current_period_end ?? Carbon::now(),
+            'payload' => $payload,
+        ]);
     }
 
     /**

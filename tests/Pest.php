@@ -3,15 +3,21 @@
 use App\Actions\Invoicing\ChargeInvoice;
 use App\Enums\ApiKeyKind;
 use App\Enums\ApiKeyMode;
+use App\Enums\SubscriptionItemKind;
+use App\Enums\SubscriptionStatus;
 use App\Models\ApiKey;
 use App\Models\Customer;
+use App\Models\PaymentMethod;
 use App\Models\Price;
 use App\Models\Product;
+use App\Models\Subscription;
+use App\Models\SubscriptionItem;
 use App\Models\Team;
 use App\Models\TeamProcessorConnection;
 use App\Models\User;
 use Database\Seeders\DemoTeamSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
@@ -127,6 +133,41 @@ function naijaStreamFixture(): array
     $catalog = (new DemoTeamSeeder)->seedCatalog($team);
 
     return ['team' => $team, 'owner' => $owner, ...$catalog];
+}
+
+/**
+ * An active, automatic Team seat subscription (price_seat_m, ₦1,000/seat/mo)
+ * with a card on file and a clean 30-day cycle starting now — the shared
+ * fixture for SIM-02 / SIM-03 / ADV-02..04 mid-cycle proration cases.
+ *
+ * @return array{fx: array<string, mixed>, subscription: Subscription, item: SubscriptionItem}
+ */
+function seatSubscription(int $quantity): array
+{
+    $fx = naijaStreamFixture();
+    $team = $fx['team'];
+
+    $card = PaymentMethod::factory()->for($team)->for($fx['amina'])->create(['is_default' => true]);
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+
+    $start = Carbon::now();
+    $subscription = Subscription::factory()->for($team)->for($fx['amina'])->create([
+        'status' => SubscriptionStatus::Active,
+        'currency' => 'NGN',
+        'payment_method_id' => $card->id,
+        'current_period_start' => $start,
+        'current_period_end' => $start->copy()->addDays(30),
+    ]);
+
+    $item = SubscriptionItem::factory()->for($subscription)->create([
+        'price_id' => $fx['price_seat_m']->id,
+        'plan_id' => $fx['teamPlan']->id,
+        'product_id' => $fx['naijastream']->id,
+        'kind' => SubscriptionItemKind::Plan,
+        'quantity' => $quantity,
+    ]);
+
+    return ['fx' => $fx, 'subscription' => $subscription, 'item' => $item];
 }
 
 /**

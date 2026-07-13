@@ -22,8 +22,12 @@ class UpdateSubscriptionItemRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'quantity' => ['nullable', 'integer', 'min:1', 'max:1000', 'required_without:price_id'],
-            'price_id' => ['nullable', 'integer', 'required_without:quantity'],
+            'quantity' => ['nullable', 'integer', 'min:1', 'max:1000', 'required_without_all:price_id,remove'],
+            'price_id' => ['nullable', 'integer', 'required_without_all:quantity,remove'],
+            // Mid-cycle policy (schema.md §6): omit to take the direction
+            // default (increase → always, decrease → next_cycle).
+            'proration_behavior' => ['nullable', 'string', 'in:always,none,next_cycle'],
+            'remove' => ['nullable', 'boolean'],
         ];
     }
 }
