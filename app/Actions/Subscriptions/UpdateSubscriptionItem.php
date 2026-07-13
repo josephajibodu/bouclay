@@ -62,6 +62,8 @@ class UpdateSubscriptionItem
             throw new InvalidArgumentException('Only recurring prices can be subscribed to.');
         }
 
+        $this->assertSingleCadence($subscription, $item, $newPrice);
+
         $subscription->loadMissing(['customer', 'paymentMethod', 'team']);
         $item->loadMissing('price.product');
 
@@ -130,6 +132,29 @@ class UpdateSubscriptionItem
         );
 
         return $invoice;
+    }
+
+    /**
+     * One renewal clock per subscription (schema.md §6, GAP-5): a price swap
+     * may not introduce a `billing_interval`/`billing_frequency` that differs
+     * from the subscription's other active items. A customer who needs a
+     * second cadence holds a second subscription (ADV-05).
+     */
+    private function assertSingleCadence(Subscription $subscription, SubscriptionItem $item, Price $newPrice): void
+    {
+        $siblings = $subscription->activeItems()
+            ->whereKeyNot($item->id)
+            ->with('price')
+            ->get();
+
+        foreach ($siblings as $sibling) {
+            if ($sibling->price->billing_interval !== $newPrice->billing_interval
+                || $sibling->price->billing_frequency !== $newPrice->billing_frequency) {
+                throw new InvalidArgumentException(
+                    'All items on a subscription must share one billing cadence — use a separate subscription for a different interval.'
+                );
+            }
+        }
     }
 
     private function prorationFraction(Subscription $subscription): float
