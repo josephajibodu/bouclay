@@ -238,6 +238,18 @@ class Team extends Model
     }
 
     /**
+     * Get all simple-trial redemptions recorded for this team — the durable
+     * anti-abuse ledger behind `trial_once_per_customer` (schema.md §3),
+     * always scoped by `team_id` directly rather than through a join.
+     *
+     * @return HasMany<PriceTrialRedemption, $this>
+     */
+    public function priceTrialRedemptions(): HasMany
+    {
+        return $this->hasMany(PriceTrialRedemption::class);
+    }
+
+    /**
      * Get all entitlements this team defines.
      *
      * @return HasMany<Entitlement, $this>

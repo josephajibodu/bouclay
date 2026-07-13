@@ -103,6 +103,56 @@ class SubscriptionItem extends Model
     }
 
     /**
+     * The price actually charged for this item right now (schema.md §5/§6).
+     *
+     * `price_id` is the nominal "home" price the customer signed up for; when
+     * the item is progressing through `price_phases` (`current_phase_sequence`
+     * set), the effective charge is the current phase's `charge_price`. A
+     * simple trial or a plain item never touches phases, so the home price is
+     * also the effective one. Every biller (renewal, conversion, day-0)
+     * resolves the amount to charge through here so phase ramps settle down
+     * the one invoicing path.
+     */
+    public function effectiveChargePrice(): Price
+    {
+        if ($this->current_phase_sequence === null) {
+            return $this->price;
+        }
+
+        $phase = $this->price->phases
+            ->first(fn (PricePhase $phase): bool => $phase->sequence === $this->current_phase_sequence);
+
+        return $phase?->chargePrice ?? $this->price;
+    }
+
+    /**
+     * The final phase index of this item's schedule, or null when it has no
+     * phases (a simple trial or a plain item).
+     */
+    public function lastPhaseSequence(): ?int
+    {
+        $last = $this->price->phases->max('sequence');
+
+        return $last === null ? null : (int) $last;
+    }
+
+    /**
+     * Whether this item still has a phase boundary ahead of it — it's threading
+     * `price_phases` and hasn't reached the final (steady-state) phase yet.
+     * A paid-trial ramp is mid-progress until it lands on its regular phase;
+     * `subscriptions:advance-phases` owns it until then, and renewal takes over
+     * once it's steady.
+     */
+    public function isProgressingThroughPhases(): bool
+    {
+        $last = $this->lastPhaseSequence();
+
+        return $this->current_phase_sequence !== null
+            && $last !== null
+            && $this->current_phase_sequence < $last;
+    }
+
+    /**
      * Serialise this item for the subscription hub (SUBSCRIPTIONS_DESIGN §11.1).
      *
      * @return array<string, mixed>
