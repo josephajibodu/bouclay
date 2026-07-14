@@ -4,6 +4,7 @@ namespace App\Support\Api;
 
 use App\Enums\ApiKeyMode;
 use App\Models\Customer;
+use App\Models\Discount;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
@@ -79,6 +80,12 @@ trait ResolvesPublicIds
     protected function findSubscriptionItem(Subscription $subscription, string $publicId): SubscriptionItem
     {
         return $subscription->items()->where('public_id', $publicId)->firstOrFail();
+    }
+
+    protected function findDiscount(Team $team, string $publicId): Discount
+    {
+        /** @var Discount */
+        return $this->findByPublicId($team, Discount::class, $publicId);
     }
 
     protected function findInvoice(Team $team, string $publicId): Invoice

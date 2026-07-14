@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\CheckoutSessionController;
 use App\Http\Controllers\Api\V1\CustomerAddressController;
 use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\CustomerPaymentMethodController;
+use App\Http\Controllers\Api\V1\DiscountController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\InvoiceController;
 use App\Http\Controllers\Api\V1\PaymentController;
@@ -46,6 +47,9 @@ Route::post('products/{product}/prices', [PriceController::class, 'store']);
 Route::get('prices/{price}', [PriceController::class, 'show']);
 Route::patch('prices/{price}', [PriceController::class, 'update']);
 Route::post('prices/{price}/archive', [PriceController::class, 'archive']);
+
+Route::get('discounts', [DiscountController::class, 'index']);
+Route::get('discounts/{discount}', [DiscountController::class, 'show']);
 
 Route::get('subscriptions', [SubscriptionController::class, 'index']);
 Route::post('subscriptions', [SubscriptionController::class, 'store']);

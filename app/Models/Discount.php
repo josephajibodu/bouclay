@@ -6,6 +6,7 @@ use App\Actions\Invoicing\CreateInvoice;
 use App\Concerns\HasPublicId;
 use App\Enums\DiscountDuration;
 use App\Enums\DiscountType;
+use App\Support\Api\ApiMoney;
 use Database\Factories\DiscountFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
@@ -172,6 +173,82 @@ class Discount extends Model
         }
 
         return (int) round($subtotal * ((float) $this->percentage) / 100);
+    }
+
+    /**
+     * A short human summary of the reduction and how long it lasts, e.g.
+     * "20% off · 3 months" or "NGN 1,000.00 off · once".
+     */
+    public function summaryLabel(): string
+    {
+        $magnitude = $this->type === DiscountType::Percentage
+            ? rtrim(rtrim((string) $this->percentage, '0'), '.').'%'
+            : ($this->currency ?? '').' '.number_format((int) ($this->amount ?? 0) / 100, 2);
+
+        $duration = match ($this->duration) {
+            DiscountDuration::Once => 'once',
+            DiscountDuration::Forever => 'forever',
+            DiscountDuration::Repeating => $this->duration_in_intervals === 1
+                ? '1 interval'
+                : "{$this->duration_in_intervals} intervals",
+        };
+
+        return trim($magnitude).' off · '.$duration;
+    }
+
+    /**
+     * Serialise for the dashboard discounts list + edit drawer (amounts in
+     * major units, mirroring {@see Price::toCatalogArray()}).
+     *
+     * @return array<string, mixed>
+     */
+    public function toDashboardArray(): array
+    {
+        return [
+            'id' => $this->id,
+            'publicId' => $this->public_id,
+            'code' => $this->code,
+            'type' => $this->type->value,
+            'amount' => $this->amount !== null ? $this->amount / 100 : null,
+            'percentage' => $this->percentage !== null ? (float) $this->percentage : null,
+            'currency' => $this->currency,
+            'duration' => $this->duration->value,
+            'durationInIntervals' => $this->duration_in_intervals,
+            'maxRedemptions' => $this->max_redemptions,
+            'timesRedeemed' => $this->times_redeemed,
+            'eligiblePlanIds' => $this->eligible_plan_ids,
+            'eligiblePriceIds' => $this->eligible_price_ids,
+            'startsAt' => $this->starts_at?->toISOString(),
+            'expiresAt' => $this->expires_at?->toISOString(),
+            'active' => $this->active,
+            'summary' => $this->summaryLabel(),
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
+    }
+
+    /**
+     * Serialise for the public Billing API (amounts in major units).
+     *
+     * @return array<string, mixed>
+     */
+    public function toApiObject(): array
+    {
+        return [
+            'id' => $this->public_id,
+            'code' => $this->code,
+            'type' => $this->type->value,
+            'amount' => ApiMoney::toMajorUnits($this->amount),
+            'percentage' => $this->percentage !== null ? (float) $this->percentage : null,
+            'currency' => $this->currency,
+            'duration' => $this->duration->value,
+            'durationInIntervals' => $this->duration_in_intervals,
+            'maxRedemptions' => $this->max_redemptions,
+            'timesRedeemed' => $this->times_redeemed,
+            'active' => $this->active,
+            'startsAt' => $this->starts_at?->toISOString(),
+            'expiresAt' => $this->expires_at?->toISOString(),
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
     }
 
     /**

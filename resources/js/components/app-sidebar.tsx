@@ -28,8 +28,9 @@ import { index as customers } from '@/routes/customers';
 import { index as apiKeys } from '@/routes/developers/api-keys';
 import { show as nombaIntegration } from '@/routes/developers/nomba';
 import { show as webhooks } from '@/routes/developers/webhooks';
-import { index as subscriptions } from '@/routes/subscriptions';
+import { index as discounts } from '@/routes/discounts';
 import { index as invoices } from '@/routes/invoices';
+import { index as subscriptions } from '@/routes/subscriptions';
 import type { NavItem } from '@/types';
 
 export function AppSidebar() {
@@ -40,6 +41,9 @@ export function AppSidebar() {
         ? [
               ...(teamPermissions?.canViewProducts
                   ? [{ title: 'Products', href: products() }]
+                  : []),
+              ...(teamPermissions?.canViewDiscounts
+                  ? [{ title: 'Discounts', href: discounts() }]
                   : []),
           ]
         : [];
