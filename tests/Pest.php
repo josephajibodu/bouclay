@@ -192,6 +192,24 @@ function fakeNombaCharge(bool $approved = true): void
 }
 
 /**
+ * Fake the Nomba refund endpoint (+ token issue) for refund-path tests.
+ */
+function fakeNombaRefund(bool $success = true): void
+{
+    Http::fake([
+        '*/v1/auth/token/issue' => Http::response(['code' => '00', 'data' => ['access_token' => 'fake-token']]),
+        '*/v1/transactions/refund' => Http::response([
+            'code' => '00',
+            'data' => [
+                'status' => $success ? 'SUCCESS' : 'FAILED',
+                'transactionRef' => 'REF-refund-'.fake()->uuid(),
+                'message' => $success ? 'Refund processed.' : 'Refund declined.',
+            ],
+        ]),
+    ]);
+}
+
+/**
  * Fake Nomba hosted checkout order creation and verification for invoice
  * collection paths that generate a checkout link.
  */

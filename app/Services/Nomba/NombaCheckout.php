@@ -94,6 +94,31 @@ class NombaCheckout
     }
 
     /**
+     * Reverse a (possibly partial) amount of a settled charge, by its order
+     * reference. Nomba returns the refund's own transaction reference.
+     *
+     * @return array{success: bool, reference: string|null, message: string}
+     *
+     * @throws NombaConnectionException
+     */
+    public function refund(TeamProcessorConnection $connection, ApiKeyMode $mode, string $orderReference, int $amountMinor, string $currency): array
+    {
+        $body = $this->post($connection, $mode, '/v1/transactions/refund', [
+            'orderReference' => $orderReference,
+            'amount' => number_format($amountMinor / 100, 2, '.', ''),
+            'currency' => $currency,
+        ]);
+
+        $data = $body['data'] ?? [];
+
+        return [
+            'success' => ($data['status'] ?? null) === 'SUCCESS' || ($data['status'] ?? false) === true,
+            'reference' => isset($data['transactionRef']) ? (string) $data['transactionRef'] : null,
+            'message' => (string) ($data['message'] ?? 'Refund processed.'),
+        ];
+    }
+
+    /**
      * List a customer's tokenised cards by email — the synchronous fallback
      * for capturing a token when the webhook hasn't arrived yet.
      *

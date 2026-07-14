@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Plan;
 use App\Models\Product;
+use App\Services\Gateways\GatewayManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Date;
@@ -18,7 +19,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // One gateway registry per process so driver registrations (and test
+        // overrides via extend()) persist across resolutions (V2-4).
+        $this->app->singleton(GatewayManager::class);
     }
 
     /**

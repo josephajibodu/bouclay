@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Invoicing\RefundPayment;
 use App\Actions\Subscriptions\AdvanceSubscriptionPhases;
 use App\Actions\Subscriptions\CreateSubscription;
 use App\Actions\Subscriptions\RenewSubscription;
@@ -7,6 +8,7 @@ use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\RefundStatus;
 use App\Enums\SubscriptionItemKind;
 use App\Enums\SubscriptionStatus;
 use App\Models\DiscountRedemption;
@@ -346,9 +348,21 @@ it('moves the subscription to past_due on decline and recovers it when a retry s
 
 // Act 6 — Partial refund
 it('records a partial refund as its own row without overwriting the charge', function () {
-    // refunds{payment_id, invoice_id, amount=200000, status=succeeded};
-    // refunds.amount <= payments.amount; source payments{status→refunded}.
-})->todo();
+    ['subscription' => $subscription] = convertedAminaSubscription();
+    $payment = $subscription->invoices()->firstOrFail()->payments()->firstOrFail();
+
+    fakeNombaRefund();
+    $refund = app(RefundPayment::class)->handle($payment, 200000, 'Partial goodwill');
+
+    expect($refund->payment_id)->toBe($payment->id)
+        ->and($refund->invoice_id)->toBe($payment->invoice_id)
+        ->and($refund->amount)->toBe(200000)
+        ->and($refund->status)->toBe(RefundStatus::Succeeded)
+        ->and($refund->amount)->toBeLessThanOrEqual($payment->amount)
+        // schema.md §8: a partial refund is its own row; the source charge
+        // flips to `refunded` only when *fully* reversed.
+        ->and($payment->fresh()->status)->toBe(PaymentStatus::Succeeded);
+});
 
 // Act 7 — Cancel at period end
 it('schedules cancellation at period end while status stays active', function () {
