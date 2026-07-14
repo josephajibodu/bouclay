@@ -192,6 +192,33 @@ function fakeNombaCharge(bool $approved = true): void
 }
 
 /**
+ * Fake a *sequence* of Nomba tokenized-card charge outcomes across successive
+ * attempts — the way to simulate "fail, fail, succeed" dunning in one test,
+ * since Http::fake is first-registered-wins (a second fakeNombaCharge() can't
+ * override the first). Register this BEFORE any other charge fake so it owns
+ * the charge endpoint. The verify endpoint always confirms (it's only hit when
+ * a charge is approved).
+ */
+function fakeNombaChargeAttempts(bool ...$approvals): void
+{
+    $index = 0;
+
+    Http::fake([
+        '*/v1/auth/token/issue' => Http::response(['code' => '00', 'data' => ['access_token' => 'fake-token']]),
+        '*/v1/checkout/tokenized-card-payment' => function () use (&$index, $approvals) {
+            $approved = $approvals[$index] ?? ($approvals === [] ? true : $approvals[count($approvals) - 1]);
+            $index++;
+
+            return Http::response([
+                'code' => '00',
+                'data' => ['status' => $approved, 'message' => $approved ? 'Approved by Financial Insitution' : 'Insufficient funds'],
+            ]);
+        },
+        '*/v1/transactions/accounts/single*' => Http::response(['code' => '00', 'data' => ['status' => 'SUCCESS']]),
+    ]);
+}
+
+/**
  * Fake the Nomba refund endpoint (+ token issue) for refund-path tests.
  */
 function fakeNombaRefund(bool $success = true): void

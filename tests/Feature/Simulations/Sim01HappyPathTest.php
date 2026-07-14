@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Dunning\RetryPastDueInvoice;
 use App\Actions\Invoicing\RefundPayment;
 use App\Actions\Subscriptions\AdvanceSubscriptionPhases;
 use App\Actions\Subscriptions\CreateSubscription;
@@ -335,16 +336,50 @@ it('stops applying WELCOME20 after its third interval', function () {
         ->and($latest->discount_total)->toBe(0);
 });
 
-// Act 5 — Month-4 renewal fails → dunning → recover
+// Act 5 — renewal fails → dunning → recover
 it('records every charge attempt as its own payments row against one invoice', function () {
-    // Exactly 3 payments rows (failed, failed, succeeded) sharing one invoice_id.
-})->todo();
+    // Conversion succeeds; the renewal + first retry decline; the second
+    // retry recovers (charge outcomes sequenced up front — Http::fake is
+    // first-registered-wins, so this must precede the conversion's own fake).
+    fakeNombaChargeAttempts(true, false, false, true);
+
+    ['subscription' => $subscription] = convertedAminaSubscription();
+
+    $this->travelTo(Carbon::instance($subscription->fresh()->current_period_end)->addDay());
+    app(RenewSubscription::class)->handle($subscription->fresh());
+
+    $invoice = $subscription->invoices()->where('billing_reason', InvoiceBillingReason::SubscriptionCycle)->firstOrFail();
+
+    app(RetryPastDueInvoice::class)->handle($subscription->fresh(), force: true);
+    app(RetryPastDueInvoice::class)->handle($subscription->fresh(), force: true);
+
+    // Three attempts, one invoice: failed, failed, succeeded.
+    expect($invoice->fresh()->payments()->count())->toBe(3)
+        ->and($invoice->payments()->where('status', PaymentStatus::Succeeded)->count())->toBe(1)
+        ->and($invoice->payments()->where('status', PaymentStatus::Failed)->count())->toBe(2)
+        ->and($invoice->payments()->pluck('attempt_number')->sort()->values()->all())->toBe([1, 2, 3]);
+});
 
 it('moves the subscription to past_due on decline and recovers it when a retry succeeds', function () {
-    // active → past_due (markPastDue), invoice stays open, events
-    // invoice.payment_failed + subscription.updated; then past_due → active
-    // (recover), invoice paid, amount_paid == total.
-})->todo();
+    fakeNombaChargeAttempts(true, false, true);
+
+    ['subscription' => $subscription] = convertedAminaSubscription();
+
+    $this->travelTo(Carbon::instance($subscription->fresh()->current_period_end)->addDay());
+    app(RenewSubscription::class)->handle($subscription->fresh());
+
+    // active → past_due on the decline.
+    expect($subscription->fresh()->status)->toBe(SubscriptionStatus::PastDue);
+
+    $invoice = $subscription->invoices()->where('billing_reason', InvoiceBillingReason::SubscriptionCycle)->firstOrFail();
+
+    // A successful retry recovers past_due → active and pays the invoice.
+    app(RetryPastDueInvoice::class)->handle($subscription->fresh(), force: true);
+
+    expect($subscription->fresh()->status)->toBe(SubscriptionStatus::Active)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and($invoice->fresh()->amount_paid)->toBe($invoice->fresh()->total);
+});
 
 // Act 6 — Partial refund
 it('records a partial refund as its own row without overwriting the charge', function () {
