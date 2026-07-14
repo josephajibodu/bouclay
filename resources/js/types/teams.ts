@@ -120,6 +120,8 @@ export type TeamPermissions = {
     canManageSubscriptions: boolean;
     canViewInvoices: boolean;
     canManageInvoices: boolean;
+    canViewRefunds: boolean;
+    canProcessRefunds: boolean;
 };
 
 export type RoleOption = {

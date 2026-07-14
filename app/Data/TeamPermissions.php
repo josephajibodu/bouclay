@@ -33,6 +33,8 @@ readonly class TeamPermissions
         public bool $canManageSubscriptions,
         public bool $canViewInvoices,
         public bool $canManageInvoices,
+        public bool $canViewRefunds,
+        public bool $canProcessRefunds,
     ) {
         //
     }

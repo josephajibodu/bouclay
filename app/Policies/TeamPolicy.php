@@ -256,6 +256,23 @@ class TeamPolicy
     }
 
     /**
+     * Determine whether the user can view the team's refunds.
+     */
+    public function viewRefunds(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::RefundsView)
+            || $user->hasTeamPermission($team, PermissionName::RefundsProcess);
+    }
+
+    /**
+     * Determine whether the user can process refunds against payments.
+     */
+    public function processRefunds(User $user, Team $team): bool
+    {
+        return $user->hasTeamPermission($team, PermissionName::RefundsProcess);
+    }
+
+    /**
      * Determine whether the user can view the team's subscriptions.
      */
     public function viewSubscriptions(User $user, Team $team): bool

@@ -208,6 +208,8 @@ trait HasTeams
             canManageSubscriptions: $has(PermissionName::SubscriptionsManage),
             canViewInvoices: $has(PermissionName::InvoicesView) || $has(PermissionName::InvoicesManage),
             canManageInvoices: $has(PermissionName::InvoicesManage),
+            canViewRefunds: $has(PermissionName::RefundsView) || $has(PermissionName::RefundsProcess),
+            canProcessRefunds: $has(PermissionName::RefundsProcess),
         );
     }
 
