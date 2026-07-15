@@ -59,7 +59,7 @@ class CollectInvoice
                 team: $team,
                 invoice: $invoice,
                 tokenizeCard: true,
-                allowedPaymentMethods: ['Card'],
+                cardOnly: true,
                 setDefaultPaymentMethod: true,
             );
         } catch (InvalidArgumentException|GatewayException $exception) {

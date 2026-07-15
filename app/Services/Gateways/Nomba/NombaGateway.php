@@ -10,6 +10,7 @@ use App\Services\Gateways\GatewayConfigField;
 use App\Services\Gateways\GatewayConfigFieldRole;
 use App\Services\Gateways\GatewayConfigSchema;
 use App\Services\Gateways\GatewayException;
+use App\Services\Gateways\GatewayOrder;
 use App\Services\Gateways\GatewayWebhookEvent;
 use App\Services\Gateways\GatewayWebhookEventType;
 use App\Services\Gateways\PaymentGateway;
@@ -105,14 +106,45 @@ class NombaGateway implements PaymentGateway
         );
     }
 
-    public function createCheckout(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, bool $tokenizeCard = true): array
+    public function createCheckout(TeamProcessorConnection $connection, ApiKeyMode $mode, GatewayOrder $order, bool $tokenizeCard = true): array
     {
-        return $this->checkout->createOrder($connection, $mode, $order, $tokenizeCard);
+        return $this->checkout->createOrder($connection, $mode, $this->toNombaOrder($order), $tokenizeCard);
     }
 
-    public function chargeToken(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, string $tokenKey): array
+    public function chargeToken(TeamProcessorConnection $connection, ApiKeyMode $mode, GatewayOrder $order, string $tokenKey): array
     {
-        return $this->checkout->chargeTokenizedCard($connection, $mode, $order, $tokenKey);
+        return $this->checkout->chargeTokenizedCard($connection, $mode, $this->toNombaOrder($order), $tokenKey);
+    }
+
+    /**
+     * Bouclay's order in Nomba's words: major-unit amount as a fixed-2 string,
+     * `orderReference`, and `allowedPaymentMethods: ['Card']` for the
+     * card-only intent.
+     *
+     * @return array<string, mixed>
+     */
+    private function toNombaOrder(GatewayOrder $order): array
+    {
+        $payload = [
+            'amount' => $order->amountMajor(),
+            'currency' => $order->currency,
+            'orderReference' => $order->reference,
+            'customerEmail' => $order->customerEmail,
+        ];
+
+        if ($order->customerReference !== null) {
+            $payload['customerId'] = $order->customerReference;
+        }
+
+        if ($order->callbackUrl !== null) {
+            $payload['callbackUrl'] = $order->callbackUrl;
+        }
+
+        if ($order->cardOnly) {
+            $payload['allowedPaymentMethods'] = ['Card'];
+        }
+
+        return $payload;
     }
 
     public function verifyCharge(TeamProcessorConnection $connection, ApiKeyMode $mode, string $reference): bool

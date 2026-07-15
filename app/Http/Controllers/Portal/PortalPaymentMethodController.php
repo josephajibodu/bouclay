@@ -16,6 +16,7 @@ use App\Services\Gateways\CheckoutIntents;
 use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
 use App\Services\Gateways\GatewayModeResolver;
+use App\Services\Gateways\GatewayOrder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -32,9 +33,9 @@ class PortalPaymentMethodController extends Controller
 
     /**
      * Tokenisation is a byproduct of a real payment — so a card update is a
-     * small verification charge.
+     * small verification charge (₦100, in minor units).
      */
-    private const string VERIFICATION_AMOUNT = '100.00';
+    private const int VERIFICATION_AMOUNT_MINOR = 10_000;
 
     public function __construct(
         private readonly GatewayManager $gateways,
@@ -77,15 +78,15 @@ class PortalPaymentMethodController extends Controller
         ]);
 
         try {
-            $result = $this->gateways->forConnection($connection)->createCheckout($connection, $mode, [
-                'amount' => self::VERIFICATION_AMOUNT,
-                'currency' => $currency,
-                'orderReference' => $orderReference,
-                'customerId' => $customer->public_id,
-                'customerEmail' => $customer->email,
-                'callbackUrl' => route('portal.payment-method.callback', $customer->portal_token),
-                'allowedPaymentMethods' => ['Card'],
-            ], tokenizeCard: true);
+            $result = $this->gateways->forConnection($connection)->createCheckout($connection, $mode, new GatewayOrder(
+                reference: $orderReference,
+                customerEmail: $customer->email,
+                amountMinor: self::VERIFICATION_AMOUNT_MINOR,
+                currency: $currency,
+                customerReference: $customer->public_id,
+                callbackUrl: route('portal.payment-method.callback', $customer->portal_token),
+                cardOnly: true,
+            ), tokenizeCard: true);
         } catch (GatewayException $e) {
             CheckoutIntents::clear($orderReference);
 

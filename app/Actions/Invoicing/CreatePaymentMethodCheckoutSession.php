@@ -47,7 +47,7 @@ class CreatePaymentMethodCheckoutSession
             team: $team,
             invoice: $invoice,
             tokenizeCard: true,
-            allowedPaymentMethods: ['Card'],
+            cardOnly: true,
             setDefaultPaymentMethod: $setDefault,
             mode: $mode,
         );

@@ -41,7 +41,7 @@ class FakeGateway implements PaymentGateway
     /**
      * Recorded charge calls, for assertions.
      *
-     * @var list<array<string, mixed>>
+     * @var list<array{order: GatewayOrder, tokenKey: string, mode: string}>
      */
     public static array $charges = [];
 
@@ -55,7 +55,7 @@ class FakeGateway implements PaymentGateway
     /**
      * Recorded checkout calls, for assertions.
      *
-     * @var list<array<string, mixed>>
+     * @var list<array{order: GatewayOrder, tokenizeCard: bool, mode: string}>
      */
     public static array $checkouts = [];
 
@@ -132,19 +132,17 @@ class FakeGateway implements PaymentGateway
         }
     }
 
-    public function createCheckout(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, bool $tokenizeCard = true): array
+    public function createCheckout(TeamProcessorConnection $connection, ApiKeyMode $mode, GatewayOrder $order, bool $tokenizeCard = true): array
     {
         self::$checkouts[] = ['order' => $order, 'tokenizeCard' => $tokenizeCard, 'mode' => $mode->value];
 
-        $orderReference = (string) ($order['orderReference'] ?? 'fake-order-'.count(self::$checkouts));
-
         return [
-            'checkoutLink' => 'https://fake-gateway.test/checkout/'.$orderReference,
-            'orderReference' => $orderReference,
+            'checkoutLink' => 'https://fake-gateway.test/checkout/'.$order->reference,
+            'orderReference' => $order->reference,
         ];
     }
 
-    public function chargeToken(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, string $tokenKey): array
+    public function chargeToken(TeamProcessorConnection $connection, ApiKeyMode $mode, GatewayOrder $order, string $tokenKey): array
     {
         self::$charges[] = ['order' => $order, 'tokenKey' => $tokenKey, 'mode' => $mode->value];
 

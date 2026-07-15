@@ -12,6 +12,7 @@ use App\Services\Gateways\CheckoutIntents;
 use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
 use App\Services\Gateways\GatewayModeResolver;
+use App\Services\Gateways\GatewayOrder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -78,17 +79,17 @@ class ChargeController extends Controller
         ]);
 
         try {
-            $result = $this->gateways->forConnection($connection)->createCheckout($connection, $mode, [
-                'amount' => number_format((float) $validated['amount'], 2, '.', ''),
-                'currency' => $currency,
-                'orderReference' => $orderReference,
-                'customerId' => $customer->public_id,
-                'customerEmail' => $customer->email,
-                'callbackUrl' => route('customers.charge.callback', $customer),
-                // Tokenisation only works with cards, so restrict the hosted
-                // page to card payments (a transfer/USSD mints no token).
-                'allowedPaymentMethods' => ['Card'],
-            ]);
+            $result = $this->gateways->forConnection($connection)->createCheckout($connection, $mode, new GatewayOrder(
+                reference: $orderReference,
+                customerEmail: $customer->email,
+                amountMinor: (int) round(((float) $validated['amount']) * 100),
+                currency: $currency,
+                customerReference: $customer->public_id,
+                callbackUrl: route('customers.charge.callback', $customer),
+                // Tokenisation only works with cards — a transfer or USSD
+                // payment mints no reusable token.
+                cardOnly: true,
+            ));
         } catch (GatewayException $e) {
             CheckoutIntents::clear($orderReference);
 

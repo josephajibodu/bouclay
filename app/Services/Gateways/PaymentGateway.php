@@ -53,13 +53,11 @@ interface PaymentGateway
      * Create a hosted checkout the customer is redirected to, optionally
      * tokenizing the card as a byproduct of the payment.
      *
-     * @param  array<string, mixed>  $order  processor-agnostic order shape:
-     *                                       {orderReference, customerId, customerEmail, amount, currency, callbackUrl, allowedPaymentMethods?}
      * @return array{checkoutLink: string, orderReference: string}
      *
      * @throws GatewayException
      */
-    public function createCheckout(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, bool $tokenizeCard = true): array;
+    public function createCheckout(TeamProcessorConnection $connection, ApiKeyMode $mode, GatewayOrder $order, bool $tokenizeCard = true): array;
 
     /**
      * Charge a previously tokenized card directly (server-to-server, no
@@ -67,12 +65,11 @@ interface PaymentGateway
      * synchronous result is not settlement authority; confirm with
      * {@see verifyCharge()} before granting value.
      *
-     * @param  array<string, mixed>  $order  same shape as {@see createCheckout()}
      * @return array{approved: bool, message: string}
      *
      * @throws GatewayException
      */
-    public function chargeToken(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, string $tokenKey): array;
+    public function chargeToken(TeamProcessorConnection $connection, ApiKeyMode $mode, GatewayOrder $order, string $tokenKey): array;
 
     /**
      * Confirm a charge actually settled, by its reference.

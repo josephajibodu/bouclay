@@ -8,6 +8,7 @@ use App\Services\Gateways\FakeGateway;
 use App\Services\Gateways\GatewayConfigFieldRole;
 use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
+use App\Services\Gateways\GatewayOrder;
 use App\Services\Gateways\Nomba\NombaCredentials;
 use App\Services\Gateways\Nomba\NombaGateway;
 
@@ -23,6 +24,21 @@ use App\Services\Gateways\Nomba\NombaGateway;
 */
 
 beforeEach(fn () => FakeGateway::reset());
+
+/**
+ * An order in Bouclay's terms — no processor's wire format anywhere in it.
+ */
+function fakeOrder(string $reference, int $amountMinor = 100000): GatewayOrder
+{
+    return new GatewayOrder(
+        reference: $reference,
+        customerEmail: 'amina@example.test',
+        amountMinor: $amountMinor,
+        currency: 'NGN',
+        customerReference: 'ctm_test',
+        cardOnly: true,
+    );
+}
 
 it('resolves the Nomba driver by processor', function () {
     $manager = app(GatewayManager::class);
@@ -51,7 +67,7 @@ it('runs the full charge → verify → refund contract against a registered dri
     $driver = $manager->driver('nomba');
 
     // Charge succeeds and is verifiable…
-    $charge = $driver->chargeToken($connection, ApiKeyMode::Test, ['orderReference' => 'ref-1', 'amount' => '100.00'], 'tok_abc');
+    $charge = $driver->chargeToken($connection, ApiKeyMode::Test, fakeOrder('ref-1'), 'tok_abc');
     expect($charge['approved'])->toBeTrue()
         ->and($driver->verifyCharge($connection, ApiKeyMode::Test, 'ref-1'))->toBeTrue();
 
@@ -70,7 +86,7 @@ it('classifies a declined charge through the driver', function () {
     FakeGateway::$approveCharges = false;
 
     $driver = $manager->driver('nomba');
-    $charge = $driver->chargeToken(TeamProcessorConnection::factory()->make(), ApiKeyMode::Test, [], 'tok');
+    $charge = $driver->chargeToken(TeamProcessorConnection::factory()->make(), ApiKeyMode::Test, fakeOrder('ref-x'), 'tok');
 
     expect($charge['approved'])->toBeFalse();
 });
@@ -147,16 +163,15 @@ it('runs checkout → token → charge → webhook → refund with no network', 
     $driver->verifyCredentials($mode, ['api_key' => 'sk_fake', 'merchant_ref' => 'm-1']);
 
     // 2. A hosted checkout is created, tokenizing the card as a byproduct.
-    $checkout = $driver->createCheckout($connection, $mode, [
-        'orderReference' => 'order-9',
-        'customerEmail' => 'amina@example.test',
-        'amount' => '5000.00',
-        'currency' => 'NGN',
-    ], tokenizeCard: true);
+    $checkout = $driver->createCheckout($connection, $mode, fakeOrder('order-9', 500000), tokenizeCard: true);
 
     expect($checkout['orderReference'])->toBe('order-9')
         ->and($checkout['checkoutLink'])->toContain('order-9')
-        ->and(FakeGateway::$checkouts[0]['tokenizeCard'])->toBeTrue();
+        ->and(FakeGateway::$checkouts[0]['tokenizeCard'])->toBeTrue()
+        // Money crosses the boundary in minor units, like everywhere else —
+        // formatting it for a wire is the driver's business.
+        ->and(FakeGateway::$checkouts[0]['order']->amountMinor)->toBe(500000)
+        ->and(FakeGateway::$checkouts[0]['order']->amountMajor())->toBe('5000.00');
 
     // 3. The token is resolvable synchronously (the webhook-lag fallback).
     $token = $driver->resolveToken($connection, $mode, 'amina@example.test', 'order-9');
@@ -174,7 +189,7 @@ it('runs checkout → token → charge → webhook → refund with no network', 
         ->and($event->token['last4'])->toBe('4242');
 
     // 5. The stored token charges server-to-server, then verifies.
-    $charge = $driver->chargeToken($connection, $mode, ['orderReference' => 'renew-1'], $token['tokenKey']);
+    $charge = $driver->chargeToken($connection, $mode, fakeOrder('renew-1'), $token['tokenKey']);
     expect($charge['approved'])->toBeTrue()
         ->and($driver->verifyCharge($connection, $mode, 'renew-1'))->toBeTrue();
 

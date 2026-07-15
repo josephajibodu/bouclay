@@ -12,6 +12,7 @@ use App\Models\Team;
 use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
 use App\Services\Gateways\GatewayModeResolver;
+use App\Services\Gateways\GatewayOrder;
 use App\Services\Invoicing\ClassifyPaymentFailure;
 use Illuminate\Support\Str;
 
@@ -62,17 +63,17 @@ class ChargeInvoice
         $invoice->loadMissing('customer');
 
         try {
-            $result = $gateway->chargeToken($connection, $mode, [
-                'orderReference' => $orderReference,
-                'customerId' => $invoice->customer->public_id,
-                'customerEmail' => $invoice->customer->email,
-                'amount' => number_format($invoice->total / 100, 2, '.', ''),
-                'currency' => $invoice->currency,
-                'callbackUrl' => route('webhooks.gateway.receive', [
+            $result = $gateway->chargeToken($connection, $mode, new GatewayOrder(
+                reference: $orderReference,
+                customerEmail: $invoice->customer->email,
+                amountMinor: $invoice->total,
+                currency: $invoice->currency,
+                customerReference: $invoice->customer->public_id,
+                callbackUrl: route('webhooks.gateway.receive', [
                     'processor' => $paymentMethod->processor->value,
                     'token' => $connection->inbound_webhook_token,
                 ]),
-            ], $paymentMethod->processor_token);
+            ), $paymentMethod->processor_token);
 
             // Never trust the synchronous response alone — confirm via the
             // driver's verify call before granting value.

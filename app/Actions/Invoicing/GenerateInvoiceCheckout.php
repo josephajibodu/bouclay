@@ -9,6 +9,7 @@ use App\Services\Gateways\CheckoutIntents;
 use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
 use App\Services\Gateways\GatewayModeResolver;
+use App\Services\Gateways\GatewayOrder;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -28,7 +29,6 @@ class GenerateInvoiceCheckout
     }
 
     /**
-     * @param  list<string>|null  $allowedPaymentMethods
      * @return array{checkoutLink: string, orderReference: string}
      *
      * @throws InvalidArgumentException
@@ -38,7 +38,7 @@ class GenerateInvoiceCheckout
         Team $team,
         Invoice $invoice,
         bool $tokenizeCard = false,
-        ?array $allowedPaymentMethods = null,
+        bool $cardOnly = false,
         bool $setDefaultPaymentMethod = false,
         ?ApiKeyMode $mode = null,
     ): array {
@@ -59,20 +59,15 @@ class GenerateInvoiceCheckout
 
         $orderReference = (string) Str::uuid();
 
-        $order = [
-            'amount' => number_format($invoice->total / 100, 2, '.', ''),
-            'currency' => $invoice->currency,
-            'orderReference' => $orderReference,
-            'customerId' => $invoice->customer->public_id,
-            'customerEmail' => $invoice->customer_snapshot['email'] ?? $invoice->customer->email,
-            'callbackUrl' => route('hosted.checkout.callback', ['orderReference' => $orderReference]),
-        ];
-
-        if ($allowedPaymentMethods !== null) {
-            $order['allowedPaymentMethods'] = $allowedPaymentMethods;
-        }
-
-        $result = $gateway->createCheckout($connection, $mode, $order, $tokenizeCard);
+        $result = $gateway->createCheckout($connection, $mode, new GatewayOrder(
+            reference: $orderReference,
+            customerEmail: $invoice->customer_snapshot['email'] ?? $invoice->customer->email,
+            amountMinor: $invoice->total,
+            currency: $invoice->currency,
+            customerReference: $invoice->customer->public_id,
+            callbackUrl: route('hosted.checkout.callback', ['orderReference' => $orderReference]),
+            cardOnly: $cardOnly,
+        ), $tokenizeCard);
 
         CheckoutIntents::put($orderReference, [
             'invoice_id' => $invoice->id,

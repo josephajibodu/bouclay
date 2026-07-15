@@ -137,7 +137,7 @@ class StartPaymentLinkCheckout
             team: $paymentLink->team,
             invoice: $invoice,
             tokenizeCard: true,
-            allowedPaymentMethods: ['Card'],
+            cardOnly: true,
             setDefaultPaymentMethod: true,
             mode: $this->modeResolver->forConnection($paymentLink->team->processorConnection),
         );
@@ -182,7 +182,7 @@ class StartPaymentLinkCheckout
             team: $paymentLink->team,
             invoice: $invoice,
             tokenizeCard: true,
-            allowedPaymentMethods: ['Card'],
+            cardOnly: true,
             setDefaultPaymentMethod: true,
         );
 
