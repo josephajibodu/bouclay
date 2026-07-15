@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Concerns\HasPublicId;
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
 use App\Enums\RefundStatus;
@@ -31,7 +32,7 @@ use Illuminate\Support\Carbon;
  * @property string $currency
  * @property PaymentStatus $status
  * @property string|null $risk_level
- * @property string|null $failure_code
+ * @property PaymentFailureCode|null $failure_code
  * @property string|null $failure_reason
  * @property int $attempt_number
  * @property string $idempotency_key
@@ -227,6 +228,7 @@ class Payment extends Model
         return [
             'processor' => PaymentProcessor::class,
             'status' => PaymentStatus::class,
+            'failure_code' => PaymentFailureCode::class,
             'raw_response' => 'array',
             'processed_at' => 'datetime',
         ];

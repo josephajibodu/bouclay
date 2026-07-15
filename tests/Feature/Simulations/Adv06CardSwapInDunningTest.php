@@ -3,6 +3,7 @@
 use App\Actions\Dunning\RetryPastDueInvoice;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceStatus;
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionItemStatus;
 use App\Enums\SubscriptionStatus;
@@ -11,7 +12,6 @@ use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Subscription;
 use App\Models\TeamProcessorConnection;
-use App\Services\Invoicing\ClassifyPaymentFailure;
 
 /*
 |--------------------------------------------------------------------------
@@ -64,7 +64,7 @@ function pastDueWithSpareCard(): array
 
     Payment::factory()->for($team)->for($invoice)->for($customer)->for($cardA, 'paymentMethod')->create([
         'status' => PaymentStatus::Failed,
-        'failure_code' => ClassifyPaymentFailure::INSUFFICIENT_FUNDS,
+        'failure_code' => PaymentFailureCode::InsufficientFunds,
         'attempt_number' => 1,
         'created_at' => now()->subDays(2),
     ]);

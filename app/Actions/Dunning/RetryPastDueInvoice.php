@@ -5,13 +5,13 @@ namespace App\Actions\Dunning;
 use App\Actions\Invoicing\ChargeInvoice;
 use App\Actions\Invoicing\SettleSubscriptionOnInvoicePayment;
 use App\Enums\CollectionMode;
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionStatus;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Subscription;
-use App\Services\Invoicing\ClassifyPaymentFailure;
 use App\Support\DunningConfig;
 use Illuminate\Support\Carbon;
 
@@ -23,7 +23,6 @@ class RetryPastDueInvoice
     public function __construct(
         private readonly ChargeInvoice $chargeInvoice,
         private readonly SettleSubscriptionOnInvoicePayment $settleSubscription,
-        private readonly ClassifyPaymentFailure $classifyFailure,
         private readonly ApplyDunningExhaustion $applyExhaustion,
         private readonly ResolveOpenRenewalInvoice $resolveOpenRenewalInvoice,
     ) {
@@ -99,7 +98,7 @@ class RetryPastDueInvoice
      *     maxAttempts: int,
      *     nextRetryAt: Carbon|null,
      *     shouldExhaust: bool,
-     *     latestFailureCode: string|null,
+     *     latestFailureCode: PaymentFailureCode|null,
      * }
      */
     public function summarize(Invoice $invoice, DunningConfig $config): array
@@ -117,7 +116,7 @@ class RetryPastDueInvoice
             ? $latestPayment->failure_code
             : null;
 
-        $isHardDecline = $this->classifyFailure->isHardDecline($latestFailureCode);
+        $isHardDecline = PaymentFailureCode::isHardCode($latestFailureCode?->value);
         $shouldExhaust = $attemptCount >= $config->maxAttempts
             || ($isHardDecline && $failedCount >= 1);
 

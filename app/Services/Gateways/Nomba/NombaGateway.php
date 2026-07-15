@@ -3,8 +3,10 @@
 namespace App\Services\Gateways\Nomba;
 
 use App\Enums\ApiKeyMode;
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentProcessor;
 use App\Models\TeamProcessorConnection;
+use App\Services\Gateways\CardNetworkDeclines;
 use App\Services\Gateways\GatewayCapabilities;
 use App\Services\Gateways\GatewayConfigField;
 use App\Services\Gateways\GatewayConfigFieldRole;
@@ -34,6 +36,7 @@ class NombaGateway implements PaymentGateway
         private readonly NombaClient $client,
         private readonly ResolveNombaTokenizedCard $resolveTokenizedCard,
         private readonly VerifyNombaWebhookSignature $verifySignature,
+        private readonly CardNetworkDeclines $declines,
     ) {}
 
     public function processor(): PaymentProcessor
@@ -207,6 +210,13 @@ class NombaGateway implements PaymentGateway
             failureReason: $type === GatewayWebhookEventType::PaymentFailed ? $this->failureReason($payload) : null,
             raw: $payload,
         );
+    }
+
+    public function classifyDecline(?string $reason): PaymentFailureCode
+    {
+        // Nomba hands the issuer's own response through untouched, so the
+        // network's vocabulary is the whole of this gateway's vocabulary.
+        return $this->declines->classify($reason);
     }
 
     public function identifiesConnection(TeamProcessorConnection $connection, array $payload): bool

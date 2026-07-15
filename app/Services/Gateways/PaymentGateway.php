@@ -3,6 +3,7 @@
 namespace App\Services\Gateways;
 
 use App\Enums\ApiKeyMode;
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentProcessor;
 use App\Models\TeamProcessorConnection;
 use Illuminate\Http\Request;
@@ -118,6 +119,16 @@ interface PaymentGateway
      * @param  array<string, mixed>  $payload
      */
     public function parseWebhookEvent(array $payload): ?GatewayWebhookEvent;
+
+    /**
+     * Map this gateway's decline vocabulary onto Bouclay's failure codes, so
+     * dunning behaves the same whichever gateway minted the token.
+     *
+     * A driver whose declines are just the card network's words passed
+     * through can delegate wholesale to {@see CardNetworkDeclines} — that is a
+     * real answer, and stating it here beats assuming it globally.
+     */
+    public function classifyDecline(?string $reason): PaymentFailureCode;
 
     /**
      * Whether an inbound payload was produced by this connection's own

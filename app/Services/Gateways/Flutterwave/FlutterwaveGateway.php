@@ -3,8 +3,10 @@
 namespace App\Services\Gateways\Flutterwave;
 
 use App\Enums\ApiKeyMode;
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentProcessor;
 use App\Models\TeamProcessorConnection;
+use App\Services\Gateways\CardNetworkDeclines;
 use App\Services\Gateways\GatewayCapabilities;
 use App\Services\Gateways\GatewayConfigField;
 use App\Services\Gateways\GatewayConfigFieldRole;
@@ -37,7 +39,10 @@ class FlutterwaveGateway implements PaymentGateway
 {
     private const string GATEWAY = 'Flutterwave';
 
-    public function __construct(private readonly FlutterwaveClient $client) {}
+    public function __construct(
+        private readonly FlutterwaveClient $client,
+        private readonly CardNetworkDeclines $declines,
+    ) {}
 
     public function processor(): PaymentProcessor
     {
@@ -270,6 +275,19 @@ class FlutterwaveGateway implements PaymentGateway
                 : (string) ($data['processor_response'] ?? 'Payment failed.'),
             raw: $payload,
         );
+    }
+
+    public function classifyDecline(?string $reason): PaymentFailureCode
+    {
+        $normalized = mb_strtolower(trim((string) $reason));
+
+        // Flutterwave's own phrasing; the rest is the issuer's response
+        // passed through, including its British "Do Not Honour".
+        return match (true) {
+            str_contains($normalized, 'transaction not permitted to cardholder') => PaymentFailureCode::TransactionNotPermitted,
+            str_contains($normalized, 'insufficient balance in wallet') => PaymentFailureCode::InsufficientFunds,
+            default => $this->declines->classify($reason),
+        };
     }
 
     public function identifiesConnection(TeamProcessorConnection $connection, array $payload): bool

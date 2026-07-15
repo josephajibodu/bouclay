@@ -3,8 +3,10 @@
 namespace App\Services\Gateways\Paystack;
 
 use App\Enums\ApiKeyMode;
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentProcessor;
 use App\Models\TeamProcessorConnection;
+use App\Services\Gateways\CardNetworkDeclines;
 use App\Services\Gateways\GatewayCapabilities;
 use App\Services\Gateways\GatewayConfigField;
 use App\Services\Gateways\GatewayConfigSchema;
@@ -34,7 +36,10 @@ class PaystackGateway implements PaymentGateway
 {
     private const string GATEWAY = 'Paystack';
 
-    public function __construct(private readonly PaystackClient $client) {}
+    public function __construct(
+        private readonly PaystackClient $client,
+        private readonly CardNetworkDeclines $declines,
+    ) {}
 
     public function processor(): PaymentProcessor
     {
@@ -248,6 +253,19 @@ class PaystackGateway implements PaymentGateway
                 : null,
             raw: $payload,
         );
+    }
+
+    public function classifyDecline(?string $reason): PaymentFailureCode
+    {
+        $normalized = mb_strtolower(trim((string) $reason));
+
+        // Paystack's own phrasing for things the network says differently.
+        // Everything else is the issuer's response passed through.
+        return match (true) {
+            str_contains($normalized, 'declined by financial institution') => PaymentFailureCode::GenericDecline,
+            str_contains($normalized, 'invalid pin'), str_contains($normalized, 'incorrect pin') => PaymentFailureCode::TransactionNotPermitted,
+            default => $this->declines->classify($reason),
+        };
     }
 
     public function identifiesConnection(TeamProcessorConnection $connection, array $payload): bool

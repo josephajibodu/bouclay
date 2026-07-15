@@ -3,6 +3,7 @@
 namespace App\Services\Gateways;
 
 use App\Enums\ApiKeyMode;
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentProcessor;
 use App\Models\TeamProcessorConnection;
 use Illuminate\Http\Request;
@@ -190,6 +191,11 @@ class FakeGateway implements PaymentGateway
     public function verifyWebhookSignature(TeamProcessorConnection $connection, ApiKeyMode $mode, Request $request): bool
     {
         return $request->header('x-fake-signature') === self::SIGNATURE;
+    }
+
+    public function classifyDecline(?string $reason): PaymentFailureCode
+    {
+        return (new CardNetworkDeclines)->classify($reason);
     }
 
     public function identifiesConnection(TeamProcessorConnection $connection, array $payload): bool

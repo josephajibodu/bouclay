@@ -13,7 +13,6 @@ use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
 use App\Services\Gateways\GatewayModeResolver;
 use App\Services\Gateways\GatewayOrder;
-use App\Services\Invoicing\ClassifyPaymentFailure;
 use Illuminate\Support\Str;
 
 /**
@@ -30,7 +29,6 @@ class ChargeInvoice
     public function __construct(
         private readonly GatewayManager $gateways,
         private readonly GatewayModeResolver $modeResolver,
-        private readonly ClassifyPaymentFailure $classifyFailure,
         private readonly EmitInvoicePaymentFailed $emitInvoicePaymentFailed,
     ) {
         //
@@ -114,7 +112,11 @@ class ChargeInvoice
         int $attemptNumber,
         string $reason,
     ): Payment {
-        $classification = $this->classifyFailure->classify($reason);
+        // The gateway that declined it names the reason in Bouclay's terms —
+        // dunning must read the same hard/soft answer whichever one it was.
+        $failureCode = $this->gateways
+            ->forPaymentMethod($paymentMethod)
+            ->classifyDecline($reason);
 
         $payment = $invoice->payments()->create([
             'team_id' => $invoice->team_id,
@@ -125,7 +127,7 @@ class ChargeInvoice
             'amount' => $invoice->total,
             'currency' => $invoice->currency,
             'status' => PaymentStatus::Failed,
-            'failure_code' => $classification['code'],
+            'failure_code' => $failureCode,
             'failure_reason' => $reason,
             'attempt_number' => $attemptNumber,
             'idempotency_key' => $idempotencyKey,

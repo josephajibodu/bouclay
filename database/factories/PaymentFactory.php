@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\PaymentFailureCode;
 use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
 use App\Models\Customer;
@@ -46,7 +47,10 @@ class PaymentFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'status' => PaymentStatus::Failed,
-            'failure_code' => 'card_declined',
+            // Code and reason must agree — a fixture that says one thing in
+            // the code and another in the reason teaches dunning tests
+            // nothing.
+            'failure_code' => PaymentFailureCode::InsufficientFunds,
             'failure_reason' => 'Insufficient funds.',
         ]);
     }

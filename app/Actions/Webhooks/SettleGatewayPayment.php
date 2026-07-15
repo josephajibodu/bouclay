@@ -14,9 +14,9 @@ use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\TeamProcessorConnection;
 use App\Services\Gateways\CheckoutIntents;
+use App\Services\Gateways\GatewayManager;
 use App\Services\Gateways\GatewayModeResolver;
 use App\Services\Gateways\GatewayWebhookEvent;
-use App\Services\Invoicing\ClassifyPaymentFailure;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -34,7 +34,7 @@ class SettleGatewayPayment
         private readonly SettleSubscriptionOnInvoicePayment $settleSubscription,
         private readonly StoreTokenizedPaymentMethod $storePaymentMethod,
         private readonly GatewayModeResolver $modeResolver,
-        private readonly ClassifyPaymentFailure $classifyFailure,
+        private readonly GatewayManager $gateways,
         private readonly EmitInvoicePaymentFailed $emitInvoicePaymentFailed,
         private readonly CreateSubscriptionFromPaymentLinkInvoice $createPaymentLinkSubscription,
     ) {
@@ -174,6 +174,7 @@ class SettleGatewayPayment
             }
 
             $reason = $event->failureReason ?? 'Payment failed.';
+            $failureCode = $this->gateways->forConnection($connection)->classifyDecline($reason);
 
             $existingPayment = Payment::query()
                 ->where('processor_reference', $event->orderReference)
@@ -188,7 +189,7 @@ class SettleGatewayPayment
                 if ($existingPayment->status !== PaymentStatus::Failed) {
                     $existingPayment->forceFill([
                         'status' => PaymentStatus::Failed,
-                        'failure_code' => $this->classifyFailure->classify($reason)['code'],
+                        'failure_code' => $failureCode,
                         'failure_reason' => $reason,
                         'raw_response' => $event->raw,
                     ])->save();
@@ -204,7 +205,7 @@ class SettleGatewayPayment
                     'amount' => $invoice->total,
                     'currency' => $invoice->currency,
                     'status' => PaymentStatus::Failed,
-                    'failure_code' => $this->classifyFailure->classify($reason)['code'],
+                    'failure_code' => $failureCode,
                     'failure_reason' => $reason,
                     'attempt_number' => $invoice->payments()->count() + 1,
                     'idempotency_key' => hash('sha256', "invoice:{$invoice->id}:webhook-failed:{$event->orderReference}"),
