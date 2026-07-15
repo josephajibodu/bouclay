@@ -9,4 +9,5 @@ Route::prefix('billing-settings')
     ->name('billing-settings.')
     ->group(function () {
         Route::get('/', [BillingSettingsController::class, 'show'])->name('show');
+        Route::put('dunning', [BillingSettingsController::class, 'updateDunning'])->name('dunning.update');
     });

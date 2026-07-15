@@ -11,6 +11,7 @@ use App\Models\TeamProcessorConnection;
 use App\Models\User;
 use App\Services\Gateways\FakeGateway;
 use App\Services\Gateways\GatewayManager;
+use Inertia\Testing\AssertableInertia;
 
 /**
  * A team + owner + a succeeded ₦5,000 payment, with the FakeGateway bound.
@@ -86,4 +87,88 @@ test('a payment from another team cannot be refunded', function () {
     $this->actingAs($owner)
         ->post(route('invoices.payments.refund', [$invoice, $foreignPayment]), ['amount' => 1000])
         ->assertNotFound();
+});
+
+/*
+|--------------------------------------------------------------------------
+| Refund state on the invoice page (IMPLEMENTATION_V2 §V2-4)
+|--------------------------------------------------------------------------
+|
+| The dashboard gates the refund action on the gateway's own capabilities(),
+| so a gateway that can't refund renders it disabled with copy rather than
+| failing mid-flight.
+*/
+
+test('the invoice page exposes what is still refundable on a payment', function () {
+    ['owner' => $owner, 'invoice' => $invoice, 'payment' => $payment] = refundControllerFixture();
+
+    Refund::factory()->for($payment)->create([
+        'team_id' => $payment->team_id,
+        'invoice_id' => $invoice->id,
+        'amount' => 200000,
+        'currency' => 'NGN',
+        'status' => RefundStatus::Succeeded,
+        'reason' => 'Goodwill',
+    ]);
+
+    $this->actingAs($owner)
+        ->get(route('invoices.show', $invoice))
+        ->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->component('invoices/show')
+            ->where('invoice.payments.0.refundedAmount', 200000)
+            ->where('invoice.payments.0.refundableAmount', 300000)
+            ->where('invoice.payments.0.refunds.0.amount', 200000)
+            ->where('invoice.payments.0.refunds.0.reason', 'Goodwill')
+            ->where('permissions.canProcessRefunds', true),
+        );
+});
+
+test('a failed refund does not count against the refundable balance', function () {
+    ['owner' => $owner, 'invoice' => $invoice, 'payment' => $payment] = refundControllerFixture();
+
+    Refund::factory()->for($payment)->create([
+        'team_id' => $payment->team_id,
+        'invoice_id' => $invoice->id,
+        'amount' => 200000,
+        'currency' => 'NGN',
+        'status' => RefundStatus::Failed,
+    ]);
+
+    // The gateway declined it, so no money moved — the whole charge is still
+    // refundable.
+    $this->actingAs($owner)
+        ->get(route('invoices.show', $invoice))
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('invoice.payments.0.refundedAmount', 0)
+            ->where('invoice.payments.0.refundableAmount', 500000),
+        );
+});
+
+test('the page advertises the refund support of the gateway that took the charge', function () {
+    ['owner' => $owner, 'invoice' => $invoice] = refundControllerFixture();
+
+    $this->actingAs($owner)
+        ->get(route('invoices.show', $invoice))
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('invoice.payments.0.refundSupport.refunds', true)
+            ->where('invoice.payments.0.refundSupport.partialRefunds', true)
+            ->where('invoice.payments.0.refundSupport.gatewayLabel', 'Fake Gateway'),
+        );
+});
+
+test('a member without refunds.process sees no refund permission', function () {
+    ['team' => $team, 'invoice' => $invoice] = refundControllerFixture();
+
+    // Finance can see the invoice and its payments, but holds no
+    // refunds.process — the action must not be offered.
+    $member = User::factory()->create();
+    attachTeamMember($team, $member, 'Finance');
+    $member->switchTeam($team);
+
+    $this->actingAs($member)
+        ->get(route('invoices.show', $invoice))
+        ->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('permissions.canProcessRefunds', false),
+        );
 });

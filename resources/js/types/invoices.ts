@@ -83,6 +83,25 @@ export type InvoiceLineDetail = {
     priceLabel: string | null;
 };
 
+export type RefundStatus = 'pending' | 'succeeded' | 'failed';
+
+export type InvoiceRefundDetail = {
+    id: number;
+    publicId: string;
+    status: RefundStatus;
+    amount: number;
+    currency: string;
+    reason: string | null;
+    createdAt: string | null;
+};
+
+/** What the gateway behind a charge can reverse, per its own capabilities(). */
+export type RefundSupport = {
+    refunds: boolean;
+    partialRefunds: boolean;
+    gatewayLabel: string;
+};
+
 export type InvoicePaymentDetail = {
     id: number;
     publicId: string;
@@ -92,6 +111,10 @@ export type InvoicePaymentDetail = {
     paymentMethodLabel: string;
     processedAt: string | null;
     failureReason: string | null;
+    refundedAmount: number;
+    refundableAmount: number;
+    refundSupport: RefundSupport;
+    refunds: InvoiceRefundDetail[];
 };
 
 /** Full shape for the invoice detail page. */

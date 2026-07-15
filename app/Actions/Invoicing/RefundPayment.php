@@ -38,10 +38,13 @@ class RefundPayment
             throw new InvalidArgumentException('Only a succeeded payment can be refunded.');
         }
 
-        $alreadyRefunded = (int) $payment->refunds()
-            ->where('status', RefundStatus::Succeeded)
-            ->sum('amount');
-        $refundable = $payment->amount - $alreadyRefunded;
+        // Re-read rather than trust a loaded relation: successive refunds
+        // against the same instance must each see what the last one wrote,
+        // or the remaining balance is computed from stale data.
+        $payment->load('refunds');
+
+        $alreadyRefunded = $payment->refundedAmount();
+        $refundable = $payment->refundableAmount();
 
         if ($amountMinor <= 0 || $amountMinor > $refundable) {
             throw new InvalidArgumentException(

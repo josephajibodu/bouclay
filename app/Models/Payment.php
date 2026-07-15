@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Concerns\HasPublicId;
 use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
+use App\Enums\RefundStatus;
 use App\Support\Api\ApiMoney;
 use Database\Factories\PaymentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -111,6 +112,29 @@ class Payment extends Model
     public function refunds(): HasMany
     {
         return $this->hasMany(Refund::class);
+    }
+
+    /**
+     * How much of this charge has actually been reversed. Only succeeded
+     * refunds count — a failed one moved no money.
+     */
+    public function refundedAmount(): int
+    {
+        return (int) $this->refunds
+            ->where('status', RefundStatus::Succeeded)
+            ->sum('amount');
+    }
+
+    /**
+     * What's still refundable on this charge, in minor units.
+     */
+    public function refundableAmount(): int
+    {
+        if ($this->status !== PaymentStatus::Succeeded) {
+            return 0;
+        }
+
+        return max(0, $this->amount - $this->refundedAmount());
     }
 
     /**

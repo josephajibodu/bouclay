@@ -9,6 +9,7 @@ use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceStatus;
 use App\Enums\InvoiceType;
 use App\Enums\OutboundEventType;
+use App\Services\Gateways\GatewayManager;
 use App\Support\Api\ApiMoney;
 use Database\Factories\InvoiceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -518,9 +519,57 @@ class Invoice extends Model
                         : 'Invoice',
                     'processedAt' => $payment->processed_at?->toISOString(),
                     'failureReason' => $payment->failure_reason,
+                    'refundedAmount' => $payment->refundedAmount(),
+                    'refundableAmount' => $payment->refundableAmount(),
+                    // Gate the refund action on what the gateway that minted
+                    // this charge's token actually supports — a driver
+                    // without refunds renders it disabled with copy, never a
+                    // mid-flight failure (IMPLEMENTATION_V2 §V2-4).
+                    'refundSupport' => $this->refundSupportFor($payment),
+                    'refunds' => $payment->refunds
+                        ->sortByDesc('created_at')
+                        ->map(fn (Refund $refund): array => [
+                            'id' => $refund->id,
+                            'publicId' => $refund->public_id,
+                            'status' => $refund->status->value,
+                            'amount' => $refund->amount,
+                            'currency' => $refund->currency,
+                            'reason' => $refund->reason,
+                            'createdAt' => $refund->created_at?->toISOString(),
+                        ])->values()->all(),
                 ])->values()->all(),
             'canVoid' => $this->canBeCanceled(),
             'canMarkUncollectible' => $this->canBeCanceled(),
+        ];
+    }
+
+    /**
+     * What the gateway behind one charge can reverse. Resolved by the
+     * payment's own processor (tokens are gateway-bound), not the team
+     * default — the same rule {@see RefundPayment}
+     * enforces server-side.
+     *
+     * @return array{refunds: bool, partialRefunds: bool, gatewayLabel: string}
+     */
+    private function refundSupportFor(Payment $payment): array
+    {
+        $gateways = app(GatewayManager::class);
+
+        if (! $gateways->has($payment->processor->value)) {
+            return [
+                'refunds' => false,
+                'partialRefunds' => false,
+                'gatewayLabel' => $payment->processor->label(),
+            ];
+        }
+
+        $gateway = $gateways->driver($payment->processor);
+        $capabilities = $gateway->capabilities();
+
+        return [
+            'refunds' => $capabilities->refunds,
+            'partialRefunds' => $capabilities->partialRefunds,
+            'gatewayLabel' => $gateway->configSchema()->label,
         ];
     }
 

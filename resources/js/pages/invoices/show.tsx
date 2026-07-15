@@ -7,6 +7,7 @@ import {
     Download,
     Eye,
     Receipt,
+    RotateCcw,
 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -18,6 +19,7 @@ import {
     PAYMENT_STATUS_COLOR,
     PAYMENT_STATUS_LABEL,
 } from '@/components/invoices/payment-status';
+import RefundPaymentDrawer from '@/components/refund-payment-drawer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,11 +37,11 @@ import {
     voidMethod as voidInvoice,
 } from '@/routes/invoices';
 import { show as subscriptionShow } from '@/routes/subscriptions';
-import type { InvoiceDetail } from '@/types';
+import type { InvoiceDetail, InvoicePaymentDetail } from '@/types';
 
 type Props = {
     invoice: InvoiceDetail;
-    permissions: { canManage: boolean };
+    permissions: { canManage: boolean; canProcessRefunds: boolean };
 };
 
 function formatDate(iso: string | null): string {
@@ -92,6 +94,8 @@ function businessAddress(business: InvoiceDetail['business']): string | null {
 export default function InvoiceShow({ invoice, permissions }: Props) {
     const { canManage } = permissions;
     const [copied, setCopied] = useState<'id' | 'number' | null>(null);
+    const [refundingPayment, setRefundingPayment] =
+        useState<InvoicePaymentDetail | null>(null);
 
     const title = invoice.number ?? invoice.publicId;
     const statusTimestamp =
@@ -531,41 +535,23 @@ export default function InvoiceShow({ invoice, permissions }: Props) {
                     <h2 className="text-lg font-semibold">Payments</h2>
                     <div className="divide-y rounded-lg border">
                         {invoice.payments.map((payment) => (
-                            <div
+                            <PaymentRow
                                 key={payment.id}
-                                className="flex items-center justify-between gap-3 p-4"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <Receipt className="size-5 text-muted-foreground" />
-                                    <div>
-                                        <p className="font-medium">
-                                            {money(
-                                                payment.amount,
-                                                payment.currency,
-                                            )}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                            {payment.paymentMethodLabel}
-                                            {payment.processedAt
-                                                ? ` · ${formatDateTime(payment.processedAt)}`
-                                                : ''}
-                                            {payment.failureReason
-                                                ? ` · ${payment.failureReason}`
-                                                : ''}
-                                        </p>
-                                    </div>
-                                </div>
-                                <Badge variant="secondary" className="gap-1">
-                                    <span
-                                        className={`size-1.5 rounded-full ${PAYMENT_STATUS_COLOR[payment.status]}`}
-                                    />
-                                    {PAYMENT_STATUS_LABEL[payment.status]}
-                                </Badge>
-                            </div>
+                                payment={payment}
+                                canRefund={permissions.canProcessRefunds}
+                                onRefund={() => setRefundingPayment(payment)}
+                            />
                         ))}
                     </div>
                 </section>
             )}
+
+            <RefundPaymentDrawer
+                invoiceId={invoice.id}
+                payment={refundingPayment}
+                open={refundingPayment !== null}
+                onOpenChange={(open) => !open && setRefundingPayment(null)}
+            />
         </div>
     );
 }
@@ -596,6 +582,119 @@ function TotalRow({
             <dd className={bold ? 'font-semibold text-stone-900' : 'text-stone-800'}>
                 {value}
             </dd>
+        </div>
+    );
+}
+
+/**
+ * One charge attempt, with whatever has been refunded against it. The refund
+ * action is gated on the gateway's own capabilities(), so a driver that can't
+ * refund shows a disabled button explaining why rather than failing after the
+ * click.
+ */
+function PaymentRow({
+    payment,
+    canRefund,
+    onRefund,
+}: {
+    payment: InvoicePaymentDetail;
+    canRefund: boolean;
+    onRefund: () => void;
+}) {
+    const gatewayCannotRefund = !payment.refundSupport.refunds;
+    const nothingLeftToRefund = payment.refundableAmount <= 0;
+    const isSucceeded = payment.status === 'succeeded';
+    const showRefundAction =
+        canRefund && (isSucceeded || payment.status === 'refunded');
+
+    return (
+        <div className="space-y-3 p-4">
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                    <Receipt className="size-5 text-muted-foreground" />
+                    <div>
+                        <p className="font-medium">
+                            {money(payment.amount, payment.currency)}
+                            {payment.refundedAmount > 0 && (
+                                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                    {money(
+                                        payment.refundedAmount,
+                                        payment.currency,
+                                    )}{' '}
+                                    refunded
+                                </span>
+                            )}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            {payment.paymentMethodLabel}
+                            {payment.processedAt
+                                ? ` · ${formatDateTime(payment.processedAt)}`
+                                : ''}
+                            {payment.failureReason
+                                ? ` · ${payment.failureReason}`
+                                : ''}
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    {showRefundAction && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={onRefund}
+                            disabled={gatewayCannotRefund || nothingLeftToRefund}
+                            title={
+                                gatewayCannotRefund
+                                    ? `${payment.refundSupport.gatewayLabel} doesn't support refunds`
+                                    : nothingLeftToRefund
+                                      ? 'This charge is fully refunded'
+                                      : undefined
+                            }
+                            data-test={`refund-payment-${payment.id}`}
+                        >
+                            Refund
+                        </Button>
+                    )}
+                    <Badge variant="secondary" className="gap-1">
+                        <span
+                            className={`size-1.5 rounded-full ${PAYMENT_STATUS_COLOR[payment.status]}`}
+                        />
+                        {PAYMENT_STATUS_LABEL[payment.status]}
+                    </Badge>
+                </div>
+            </div>
+
+            {showRefundAction && gatewayCannotRefund && (
+                <p className="pl-8 text-xs text-muted-foreground">
+                    {payment.refundSupport.gatewayLabel} can't process refunds
+                    through Bouclay — issue this one from your{' '}
+                    {payment.refundSupport.gatewayLabel} dashboard.
+                </p>
+            )}
+
+            {payment.refunds.length > 0 && (
+                <ul className="space-y-1 pl-8">
+                    {payment.refunds.map((item) => (
+                        <li
+                            key={item.id}
+                            className="flex items-center gap-2 text-xs text-muted-foreground"
+                        >
+                            <RotateCcw className="size-3" />
+                            <span>
+                                {money(item.amount, item.currency)} refunded
+                                {item.createdAt
+                                    ? ` · ${formatDateTime(item.createdAt)}`
+                                    : ''}
+                                {item.reason ? ` · ${item.reason}` : ''}
+                                {item.status !== 'succeeded'
+                                    ? ` · ${item.status}`
+                                    : ''}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            )}
         </div>
     );
 }

@@ -86,6 +86,7 @@ class InvoiceController extends Controller
             'lines.product',
             'lines.price',
             'payments.paymentMethod',
+            'payments.refunds',
         ]);
 
         $permissions = $request->user()->toTeamPermissions($team);
@@ -94,6 +95,7 @@ class InvoiceController extends Controller
             'invoice' => $invoice->toShowArray(),
             'permissions' => [
                 'canManage' => $permissions->canManageInvoices,
+                'canProcessRefunds' => $permissions->canProcessRefunds,
             ],
         ]);
     }
