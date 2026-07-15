@@ -159,7 +159,7 @@ class NombaCheckout
      */
     private function scopeOrderToSubaccount(array $order, TeamProcessorConnection $connection, ApiKeyMode $mode): array
     {
-        $subaccountId = $connection->credentialsFor($mode)['subaccountId'] ?? null;
+        $subaccountId = NombaCredentials::fromConnection($connection, $mode)?->subaccountId;
 
         if ($subaccountId && ! isset($order['accountId'])) {
             $order['accountId'] = $subaccountId;
@@ -200,7 +200,7 @@ class NombaCheckout
      */
     private function request(TeamProcessorConnection $connection, ApiKeyMode $mode, string $method, string $path, array $data): array
     {
-        $credentials = $connection->credentialsFor($mode);
+        $credentials = NombaCredentials::fromConnection($connection, $mode);
 
         if ($credentials === null) {
             throw GatewayException::invalidCredentials(self::GATEWAY, 'Nomba is not connected for this mode.');
@@ -208,9 +208,9 @@ class NombaCheckout
 
         $token = $this->client->accessToken(
             $mode,
-            $credentials['accountId'],
-            $credentials['clientId'],
-            $credentials['clientSecret'],
+            $credentials->accountId,
+            $credentials->clientId,
+            $credentials->clientSecret,
         );
 
         try {
@@ -220,7 +220,7 @@ class NombaCheckout
             $request = Http::baseUrl($this->baseUrlFor($mode))
                 ->timeout(20)
                 ->withToken($token)
-                ->withHeaders(['accountId' => $credentials['accountId']]);
+                ->withHeaders(['accountId' => $credentials->accountId]);
 
             $response = $method === 'get'
                 ? $request->get($path, $data)

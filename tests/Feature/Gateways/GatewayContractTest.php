@@ -5,8 +5,10 @@ use App\Enums\PaymentProcessor;
 use App\Models\PaymentMethod;
 use App\Models\TeamProcessorConnection;
 use App\Services\Gateways\FakeGateway;
+use App\Services\Gateways\GatewayConfigFieldRole;
 use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
+use App\Services\Gateways\Nomba\NombaCredentials;
 use App\Services\Gateways\Nomba\NombaGateway;
 
 /*
@@ -211,4 +213,105 @@ it('reports rejected credentials as a GatewayException, not a driver-specific ty
 
     expect(fn () => app(GatewayManager::class)->driver('nomba')->verifyCredentials(ApiKeyMode::Test, []))
         ->toThrow(GatewayException::class);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Credential shape and webhook secret are driver-owned
+|--------------------------------------------------------------------------
+|
+| The connection model holds an opaque blob; only a driver knows what its keys
+| mean. These pin the seam that GatewayBoundaryTest greps for.
+*/
+
+it('reads its own credential shape out of the shared blob', function () {
+    $connection = TeamProcessorConnection::factory()->make([
+        'test_credentials' => [
+            'account_id' => 'acct-1',
+            'subaccount_id' => 'sub-9',
+            'client_id' => 'cid',
+            'client_secret' => 'shh',
+            'webhook_secret' => 'whsec_x',
+        ],
+        'test_connected_at' => now(),
+    ]);
+
+    $credentials = NombaCredentials::fromConnection($connection, ApiKeyMode::Test);
+
+    expect($credentials->accountId)->toBe('acct-1')
+        ->and($credentials->subaccountId)->toBe('sub-9')
+        // Auth uses the parent account; business calls scope to the subaccount.
+        ->and($credentials->requestAccountId())->toBe('sub-9')
+        ->and($credentials->webhookSecret)->toBe('whsec_x');
+});
+
+it('falls back to the parent account when no subaccount is set', function () {
+    $connection = TeamProcessorConnection::factory()->make([
+        'test_credentials' => ['account_id' => 'acct-1', 'client_id' => 'cid', 'client_secret' => 'shh'],
+        'test_connected_at' => now(),
+    ]);
+
+    expect(NombaCredentials::fromConnection($connection, ApiKeyMode::Test)->requestAccountId())->toBe('acct-1');
+});
+
+it('reports incomplete credentials as unusable rather than half-built', function () {
+    $connection = TeamProcessorConnection::factory()->make([
+        'test_credentials' => ['account_id' => 'acct-1'],
+        'test_connected_at' => now(),
+    ]);
+
+    expect(NombaCredentials::fromConnection($connection, ApiKeyMode::Test))->toBeNull();
+});
+
+it('names the manifest field it verifies webhook signatures with', function () {
+    $fields = app(GatewayManager::class)->driver('nomba')->configSchema()
+        ->fieldsWithRole(GatewayConfigFieldRole::WebhookSecret);
+
+    // The webhooks page finds the field by role — it never names the key.
+    expect($fields)->toHaveCount(1)
+        ->and($fields[0]->key)->toBe('webhook_secret')
+        ->and($fields[0]->secret)->toBeTrue();
+});
+
+it('lets a gateway declare that it needs no separate webhook secret', function () {
+    $manager = app(GatewayManager::class);
+    $manager->extend('nomba', FakeGateway::class);
+
+    // FakeGateway signs with what it already holds — like Paystack, which
+    // HMACs the raw body with its secret key. The webhooks page must be able
+    // to learn that and render nothing to fill in.
+    expect($manager->driver('nomba')->configSchema()->fieldsWithRole(GatewayConfigFieldRole::WebhookSecret))
+        ->toBe([]);
+});
+
+it('rejects a webhook when no signing secret is saved', function () {
+    $connection = TeamProcessorConnection::factory()->make([
+        'test_credentials' => ['account_id' => 'a', 'client_id' => 'c', 'client_secret' => 's'],
+        'test_connected_at' => now(),
+    ]);
+
+    // An unsigned event is indistinguishable from a forged one.
+    expect(app(GatewayManager::class)->driver('nomba')
+        ->verifyWebhookSignature($connection, ApiKeyMode::Test, request()))
+        ->toBeFalse();
+});
+
+it('identifies which connection a tokenless payload came from', function () {
+    $driver = app(GatewayManager::class)->driver('nomba');
+
+    $mine = TeamProcessorConnection::factory()->make([
+        'test_credentials' => ['account_id' => 'acct-mine', 'client_id' => 'c', 'client_secret' => 's'],
+        'test_connected_at' => now(),
+    ]);
+    $theirs = TeamProcessorConnection::factory()->make([
+        'test_credentials' => ['account_id' => 'acct-theirs', 'client_id' => 'c', 'client_secret' => 's'],
+        'test_connected_at' => now(),
+    ]);
+
+    $payload = ['data' => ['merchant' => ['userId' => 'acct-mine']]];
+
+    expect($driver->identifiesConnection($mine, $payload))->toBeTrue()
+        ->and($driver->identifiesConnection($theirs, $payload))->toBeFalse()
+        // Nothing to match on is a "no", never a "maybe".
+        ->and($driver->identifiesConnection($mine, ['data' => []]))->toBeFalse();
 });

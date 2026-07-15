@@ -121,4 +121,18 @@ interface PaymentGateway
      * @param  array<string, mixed>  $payload
      */
     public function parseWebhookEvent(array $payload): ?GatewayWebhookEvent;
+
+    /**
+     * Whether an inbound payload was produced by this connection's own
+     * account — the reverse lookup for when a gateway can't be pointed at
+     * `/webhooks/{processor}/{token}` and the URL carries no token to
+     * identify the team by.
+     *
+     * Answering means comparing the payload's account identifiers against
+     * stored credentials, which is exactly the pair of things only a driver
+     * knows. Return false when the gateway offers nothing to match on.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function identifiesConnection(TeamProcessorConnection $connection, array $payload): bool;
 }

@@ -6,6 +6,9 @@ use App\Enums\ApiKeyMode;
 use App\Http\Controllers\Controller;
 use App\Models\TeamProcessorConnection;
 use App\Models\WebhookDelivery;
+use App\Services\Gateways\GatewayConfigField;
+use App\Services\Gateways\GatewayConfigFieldRole;
+use App\Services\Gateways\GatewayManager;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -18,6 +21,11 @@ use Inertia\Response;
 
 class WebhookController extends Controller
 {
+    public function __construct(private readonly GatewayManager $gateways)
+    {
+        //
+    }
+
     /**
      * Show the inbound webhook page for the current team.
      */
@@ -56,8 +64,14 @@ class WebhookController extends Controller
                 'inboundUrl' => $this->inboundUrlFor($connection),
                 'reachable' => $connection->webhook_verified_at !== null,
                 'verifiedAt' => $connection->webhook_verified_at?->toISOString(),
-                'testSecretSet' => $connection->hasWebhookSecret(ApiKeyMode::Test),
-                'liveSecretSet' => $connection->hasWebhookSecret(ApiKeyMode::Live),
+                // Whether there is a signing secret to configure at all — and
+                // what it's called — is the driver's answer, not ours. A
+                // gateway that signs with credentials it already holds
+                // declares no such field and this section renders as copy.
+                'signingSecretField' => $this->signingSecretField($connection)?->toArray(),
+                'gatewayLabel' => $this->gateways->forConnection($connection)->configSchema()->label,
+                'testSecretSet' => $this->secretIsSet($connection, ApiKeyMode::Test),
+                'liveSecretSet' => $this->secretIsSet($connection, ApiKeyMode::Live),
             ] : null,
             'canManage' => $request->user()->toTeamPermissions($team)->canManageWebhooks,
         ]);
@@ -68,7 +82,8 @@ class WebhookController extends Controller
      *
      * The secret is chosen by the integrator on the gateway's dashboard, not
      * generated here — Bouclay just needs the same value to recompute the
-     * signature on inbound events.
+     * signature on inbound events. Which blob key it lands under, and how it's
+     * validated, both come from the driver's manifest.
      */
     public function saveSecret(Request $request): RedirectResponse
     {
@@ -76,23 +91,57 @@ class WebhookController extends Controller
 
         Gate::authorize('manageWebhooks', $team);
 
-        $data = $request->validate([
-            'mode' => ['required', Rule::enum(ApiKeyMode::class)],
-            'secret' => ['required', 'string', 'min:8', 'max:255'],
-        ]);
-
         $connection = $team->processorConnection;
 
         abort_if(! $connection, 404);
 
+        $field = $this->signingSecretField($connection);
+
+        // Nothing to save for a gateway that signs with credentials it
+        // already holds — accepting a secret would imply it was used.
+        abort_if(! $field, 404);
+
+        $data = $request->validate([
+            'mode' => ['required', Rule::enum(ApiKeyMode::class)],
+            'secret' => $field->validationRules(),
+        ]);
+
         $mode = ApiKeyMode::from($data['mode']);
 
-        $connection->mergeCredentials($mode, ['webhook_secret' => $data['secret']]);
+        $connection->mergeCredentials($mode, [$field->key => $data['secret']]);
         $connection->save();
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Signing secret saved.')]);
 
         return to_route('developers.webhooks.show');
+    }
+
+    /**
+     * The manifest field this gateway signs inbound events with, if it needs
+     * one at all.
+     */
+    private function signingSecretField(TeamProcessorConnection $connection): ?GatewayConfigField
+    {
+        if (! $this->gateways->has($connection->processor)) {
+            return null;
+        }
+
+        return $this->gateways->forConnection($connection)
+            ->configSchema()
+            ->fieldsWithRole(GatewayConfigFieldRole::WebhookSecret)[0] ?? null;
+    }
+
+    private function secretIsSet(TeamProcessorConnection $connection, ApiKeyMode $mode): bool
+    {
+        $field = $this->signingSecretField($connection);
+
+        if ($field === null) {
+            return false;
+        }
+
+        $value = $connection->credentialBlobFor($mode)[$field->key] ?? null;
+
+        return is_string($value) && $value !== '';
     }
 
     /**

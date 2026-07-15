@@ -13,6 +13,8 @@ readonly class GatewayConfigField
      * @param  string  $key  the credential blob key it stores under
      * @param  bool  $secret  a value never sent back to the browser: the form
      *                        shows a masked preview instead
+     * @param  GatewayConfigFieldRole  $role  what the field is for, so callers
+     *                                        can find it without knowing its key
      * @param  list<string>  $rules  Laravel validation rules, minus required/nullable
      */
     public function __construct(
@@ -20,6 +22,7 @@ readonly class GatewayConfigField
         public string $label,
         public bool $secret = false,
         public bool $required = true,
+        public GatewayConfigFieldRole $role = GatewayConfigFieldRole::Credential,
         public ?string $help = null,
         public ?string $placeholder = null,
         public array $rules = ['string', 'max:255'],
@@ -39,7 +42,7 @@ readonly class GatewayConfigField
      * The manifest shape the connect form renders from. Never carries a value
      * — secrets stay server-side; the form sends new ones, it never reads old.
      *
-     * @return array{key: string, label: string, secret: bool, required: bool, help: string|null, placeholder: string|null}
+     * @return array{key: string, label: string, secret: bool, required: bool, role: string, help: string|null, placeholder: string|null}
      */
     public function toArray(): array
     {
@@ -48,6 +51,7 @@ readonly class GatewayConfigField
             'label' => $this->label,
             'secret' => $this->secret,
             'required' => $this->required,
+            'role' => $this->role->value,
             'help' => $this->help,
             'placeholder' => $this->placeholder,
         ];

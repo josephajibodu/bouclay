@@ -7,7 +7,9 @@ use App\Enums\PaymentProcessor;
 use App\Models\TeamProcessorConnection;
 use App\Services\Gateways\GatewayCapabilities;
 use App\Services\Gateways\GatewayConfigField;
+use App\Services\Gateways\GatewayConfigFieldRole;
 use App\Services\Gateways\GatewayConfigSchema;
+use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayWebhookEvent;
 use App\Services\Gateways\GatewayWebhookEventType;
 use App\Services\Gateways\PaymentGateway;
@@ -24,6 +26,8 @@ use Illuminate\Http\Request;
  */
 class NombaGateway implements PaymentGateway
 {
+    private const string GATEWAY = 'Nomba';
+
     public function __construct(
         private readonly NombaCheckout $checkout,
         private readonly NombaClient $client,
@@ -75,6 +79,7 @@ class NombaGateway implements PaymentGateway
                     key: 'webhook_secret',
                     label: 'Webhook signing secret',
                     secret: true,
+                    role: GatewayConfigFieldRole::WebhookSecret,
                     help: 'The signing key you set on Nomba’s dashboard. Bouclay rejects inbound events that don’t match it.',
                     rules: ['string', 'min:8', 'max:255'],
                 ),
@@ -85,13 +90,18 @@ class NombaGateway implements PaymentGateway
 
     public function verifyCredentials(ApiKeyMode $mode, array $credentials): void
     {
-        // Authentication always uses the parent account, never the subaccount
-        // — see TeamProcessorConnection::credentialsFor().
+        $parsed = NombaCredentials::fromBlob($credentials);
+
+        if ($parsed === null) {
+            throw GatewayException::invalidCredentials(self::GATEWAY, 'an account ID, client ID, and client secret are all required');
+        }
+
+        // Authentication always uses the parent account, never the subaccount.
         $this->client->verifyCredentials(
             $mode,
-            $credentials['account_id'] ?? '',
-            $credentials['client_id'] ?? '',
-            $credentials['client_secret'] ?? '',
+            $parsed->accountId,
+            $parsed->clientId,
+            $parsed->clientSecret,
         );
     }
 
@@ -129,9 +139,11 @@ class NombaGateway implements PaymentGateway
 
     public function verifyWebhookSignature(TeamProcessorConnection $connection, ApiKeyMode $mode, Request $request): bool
     {
-        $secret = $connection->webhookSecretFor($mode);
+        $secret = NombaCredentials::fromConnection($connection, $mode)?->webhookSecret;
 
-        if (! is_string($secret) || $secret === '') {
+        // No secret saved means nothing can be trusted — an unsigned event is
+        // indistinguishable from a forged one.
+        if ($secret === null) {
             return false;
         }
 
@@ -163,6 +175,33 @@ class NombaGateway implements PaymentGateway
             failureReason: $type === GatewayWebhookEventType::PaymentFailed ? $this->failureReason($payload) : null,
             raw: $payload,
         );
+    }
+
+    public function identifiesConnection(TeamProcessorConnection $connection, array $payload): bool
+    {
+        $accountId = $payload['data']['merchant']['userId']
+            ?? $payload['data']['order']['accountId']
+            ?? null;
+
+        if (! is_string($accountId) || $accountId === '') {
+            return false;
+        }
+
+        // Either environment's account may be the sender — the payload says
+        // nothing about which mode it came from.
+        foreach ([ApiKeyMode::Test, ApiKeyMode::Live] as $mode) {
+            $credentials = NombaCredentials::fromConnection($connection, $mode);
+
+            if ($credentials === null) {
+                continue;
+            }
+
+            if ($credentials->accountId === $accountId || $credentials->subaccountId === $accountId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

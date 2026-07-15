@@ -33,6 +33,22 @@ readonly class GatewayConfigSchema
     }
 
     /**
+     * The fields serving a given purpose — how callers find a field without
+     * knowing its key. Empty is a real answer: a gateway that signs inbound
+     * events with credentials it already holds declares no webhook-secret
+     * field, and the webhooks page then has nothing to ask for.
+     *
+     * @return list<GatewayConfigField>
+     */
+    public function fieldsWithRole(GatewayConfigFieldRole $role): array
+    {
+        return array_values(array_filter(
+            $this->fields,
+            fn (GatewayConfigField $field): bool => $field->role === $role,
+        ));
+    }
+
+    /**
      * Validation rules for a connect submission, keyed by field.
      *
      * @return array<string, list<string>>

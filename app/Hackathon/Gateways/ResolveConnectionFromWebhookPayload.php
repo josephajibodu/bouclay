@@ -3,26 +3,37 @@
 namespace App\Hackathon\Gateways;
 
 use App\Models\TeamProcessorConnection;
+use App\Services\Gateways\GatewayManager;
 
 /**
  * Hackathon-only team resolution for a gateway's fixed ingress URL.
  *
- * Nomba cannot be re-pointed at `/webhooks/{processor}/{token}` for the demo,
- * so this class maps payload account IDs → a {@see TeamProcessorConnection}.
- * The payload probing is Nomba-shaped by necessity — it exists precisely
- * because the normal token-in-URL routing isn't available.
+ * A gateway that can't be re-pointed at `/webhooks/{processor}/{token}` sends
+ * events to a URL with no token in it, so the team has to be recovered from
+ * the payload. Which payload fields identify an account, and which stored
+ * credentials to match them against, are both driver questions — this asks
+ * `identifiesConnection()` rather than knowing any of it.
  *
  * Delete {@see config('services.nomba.hackathon_ingress')}, its route, and
  * this namespace when the hackathon is over.
  */
 class ResolveConnectionFromWebhookPayload
 {
+    public function __construct(private readonly GatewayManager $gateways)
+    {
+        //
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      */
     public function handle(array $payload, string $processor = 'nomba'): ?TeamProcessorConnection
     {
-        $connection = $this->resolveByAccountId($payload, $processor);
+        if (! $this->gateways->has($processor)) {
+            return null;
+        }
+
+        $connection = $this->resolveByPayload($payload, $processor);
 
         if ($connection !== null) {
             return $connection;
@@ -34,34 +45,16 @@ class ResolveConnectionFromWebhookPayload
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function resolveByAccountId(array $payload, string $processor): ?TeamProcessorConnection
+    private function resolveByPayload(array $payload, string $processor): ?TeamProcessorConnection
     {
-        $accountId = $payload['data']['merchant']['userId']
-            ?? $payload['data']['order']['accountId']
-            ?? null;
+        $driver = $this->gateways->driver($processor);
 
-        if (! is_string($accountId) || $accountId === '') {
-            return null;
-        }
-
-        // Credentials are encrypted at rest — compare after decryption.
+        // Credentials are encrypted at rest, so this can't be a WHERE clause —
+        // each candidate is decrypted and offered to the driver to claim.
         return TeamProcessorConnection::query()
             ->where('processor', $processor)
             ->get()
-            ->first(function (TeamProcessorConnection $connection) use ($accountId): bool {
-                foreach ([$connection->test_credentials, $connection->live_credentials] as $blob) {
-                    if ($blob === null) {
-                        continue;
-                    }
-
-                    if (($blob['account_id'] ?? null) === $accountId
-                        || ($blob['subaccount_id'] ?? null) === $accountId) {
-                        return true;
-                    }
-                }
-
-                return false;
-            });
+            ->first(fn (TeamProcessorConnection $connection): bool => $driver->identifiesConnection($connection, $payload));
     }
 
     private function resolveByFallbackTeamId(string $processor): ?TeamProcessorConnection

@@ -61,6 +61,14 @@ export type WebhookConnection = {
     inboundUrl: string;
     reachable: boolean;
     verifiedAt: string | null;
+    /** The gateway this connection is for, by its driver's own label. */
+    gatewayLabel: string;
+    /**
+     * The manifest field this gateway signs inbound events with, or null when
+     * it signs with credentials it already holds and there's nothing to ask
+     * for.
+     */
+    signingSecretField: GatewayConfigField | null;
     testSecretSet: boolean;
     liveSecretSet: boolean;
 };

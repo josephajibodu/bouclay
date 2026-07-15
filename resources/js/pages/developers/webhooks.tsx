@@ -63,8 +63,8 @@ export default function Webhooks({
             <div className="space-y-1">
                 <h1 className="text-2xl font-semibold">Webhooks</h1>
                 <p className="text-sm text-muted-foreground">
-                    Receive billing events at your server and configure Nomba
-                    payment notifications.
+                    Receive billing events at your server, and configure the
+                    payment notifications your gateway sends Bouclay.
                 </p>
             </div>
 
@@ -77,10 +77,10 @@ export default function Webhooks({
                         Your endpoints
                     </TabsTrigger>
                     <TabsTrigger
-                        value="nomba-inbound"
-                        data-test="webhooks-tab-nomba-inbound"
+                        value="gateway-inbound"
+                        data-test="webhooks-tab-gateway-inbound"
                     >
-                        Nomba inbound
+                        {connection?.gatewayLabel ?? 'Gateway'} inbound
                     </TabsTrigger>
                 </TabsList>
 
@@ -92,8 +92,8 @@ export default function Webhooks({
                     />
                 </TabsContent>
 
-                <TabsContent value="nomba-inbound" className="mt-6">
-                    <NombaInboundTab
+                <TabsContent value="gateway-inbound" className="mt-6">
+                    <GatewayInboundTab
                         connection={connection}
                         canManage={canManage}
                         rotateOpen={rotateOpen}
@@ -363,7 +363,7 @@ function DeliveryStatusBadge({
     return <Badge variant={variant}>{label}</Badge>;
 }
 
-function NombaInboundTab({
+function GatewayInboundTab({
     connection,
     canManage,
     rotateOpen,
@@ -378,8 +378,9 @@ function NombaInboundTab({
         <>
             <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">
-                    Nomba sends payment events here. Bouclay verifies them
-                    with the webhook secret you saved when connecting Nomba.
+                    {connection
+                        ? `${connection.gatewayLabel} sends payment events here. Bouclay verifies every one before acting on it.`
+                        : 'Your payment gateway sends payment events here. Bouclay verifies every one before acting on it.'}
                 </p>
             </div>
 
@@ -387,8 +388,9 @@ function NombaInboundTab({
                 <div className="space-y-2 rounded-lg border border-dashed p-6">
                     <p className="font-medium">No webhook configured</p>
                     <p className="text-sm text-muted-foreground">
-                        Your webhook URL appears once Nomba is connected —
-                        it's how payment outcomes reach Bouclay in real time.
+                        Your webhook URL appears once a payment gateway is
+                        connected — it's how payment outcomes reach Bouclay in
+                        real time.
                     </p>
                 </div>
             ) : (
@@ -397,7 +399,8 @@ function NombaInboundTab({
                         <Label>Inbound webhook URL</Label>
                         <CopyableUrl url={connection.inboundUrl} />
                         <p className="text-sm text-muted-foreground">
-                            Paste this into Nomba → Settings → Webhooks.
+                            Paste this into your {connection.gatewayLabel}{' '}
+                            dashboard's webhook settings.
                         </p>
                     </div>
 
@@ -437,33 +440,55 @@ function NombaInboundTab({
                         )}
                     </div>
 
-                    <div className="space-y-3">
-                        <Label>Signing secrets</Label>
-                        <p className="text-sm text-muted-foreground">
-                            The secret you set on Nomba's dashboard for each
-                            environment — Bouclay uses it to verify events
-                            genuinely came from Nomba.
-                        </p>
-                        <SigningSecretRow
-                            mode="test"
-                            secretSet={connection.testSecretSet}
-                            canManage={canManage}
-                        />
-                        <SigningSecretRow
-                            mode="live"
-                            secretSet={connection.liveSecretSet}
-                            canManage={canManage}
-                        />
-                    </div>
+                    {/* Whether there's a secret to configure at all is the
+                        driver's answer — a gateway that signs with credentials
+                        it already holds has nothing to ask for here. */}
+                    {connection.signingSecretField ? (
+                        <div className="space-y-3">
+                            <Label>
+                                {connection.signingSecretField.label} per
+                                environment
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                                {connection.signingSecretField.help ??
+                                    `The value you set on ${connection.gatewayLabel}'s dashboard for each environment — Bouclay uses it to verify events genuinely came from ${connection.gatewayLabel}.`}
+                            </p>
+                            <SigningSecretRow
+                                mode="test"
+                                secretSet={connection.testSecretSet}
+                                canManage={canManage}
+                                fieldLabel={connection.signingSecretField.label}
+                                gatewayLabel={connection.gatewayLabel}
+                            />
+                            <SigningSecretRow
+                                mode="live"
+                                secretSet={connection.liveSecretSet}
+                                canManage={canManage}
+                                fieldLabel={connection.signingSecretField.label}
+                                gatewayLabel={connection.gatewayLabel}
+                            />
+                        </div>
+                    ) : (
+                        <div className="space-y-1 rounded-lg border bg-muted/30 p-4">
+                            <p className="text-sm font-medium">
+                                No signing secret needed
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                {connection.gatewayLabel} signs events with the
+                                credentials you already connected, so there's
+                                nothing to configure here.
+                            </p>
+                        </div>
+                    )}
 
                     {canManage && (
                         <div className="flex items-center justify-between rounded-lg border p-4">
                             <div>
                                 <p className="font-medium">Rotate endpoint</p>
                                 <p className="text-sm text-muted-foreground">
-                                    Generates a new URL. Update it in Nomba's
-                                    dashboard immediately, or events will
-                                    stop arriving.
+                                    Generates a new URL. Update it in your{' '}
+                                    {connection.gatewayLabel} dashboard
+                                    immediately, or events will stop arriving.
                                 </p>
                             </div>
                             <Button
@@ -525,10 +550,14 @@ function SigningSecretRow({
     mode,
     secretSet,
     canManage,
+    fieldLabel,
+    gatewayLabel,
 }: {
     mode: 'test' | 'live';
     secretSet: boolean;
     canManage: boolean;
+    fieldLabel: string;
+    gatewayLabel: string;
 }) {
     const [editing, setEditing] = useState(!secretSet);
 
@@ -587,7 +616,7 @@ function SigningSecretRow({
                         type="password"
                         required
                         autoComplete="new-password"
-                        placeholder="Paste the signing key from Nomba"
+                        placeholder={`Paste the ${fieldLabel.toLowerCase()} from ${gatewayLabel}`}
                         className="flex-1"
                         data-test={`webhook-secret-input-${mode}`}
                     />

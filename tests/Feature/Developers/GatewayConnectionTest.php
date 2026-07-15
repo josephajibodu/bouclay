@@ -4,6 +4,7 @@ use App\Enums\ApiKeyMode;
 use App\Models\Team;
 use App\Models\TeamProcessorConnection;
 use App\Models\User;
+use App\Services\Gateways\Nomba\NombaCredentials;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -78,7 +79,7 @@ test('test credentials can be connected with a valid response from nomba', funct
     expect($connection->test_connected_at)->not->toBeNull();
     expect($connection->test_credentials['account_id'])->toBe('account-123');
     expect($connection->test_credentials['client_secret'])->toBe('secret-123');
-    expect($connection->webhookSecretFor(ApiKeyMode::Test))->toBe('whsec_1234567890');
+    expect(NombaCredentials::fromConnection($connection, ApiKeyMode::Test)->webhookSecret)->toBe('whsec_1234567890');
     expect($connection->live_connected_at)->toBeNull();
 });
 
@@ -108,10 +109,10 @@ test('a connection with no subaccount resolves the request account to the main a
         ]);
 
     $connection = TeamProcessorConnection::where('team_id', $team->id)->firstOrFail();
-    $credentials = $connection->credentialsFor(ApiKeyMode::Test);
+    $credentials = NombaCredentials::fromConnection($connection, ApiKeyMode::Test);
 
-    expect($credentials['subaccountId'])->toBeNull();
-    expect($credentials['requestAccountId'])->toBe('account-123');
+    expect($credentials->subaccountId)->toBeNull();
+    expect($credentials->requestAccountId())->toBe('account-123');
 
     Http::assertSent(fn (Request $request) => $request->header('accountId')[0] === 'account-123');
 });
@@ -145,12 +146,12 @@ test('a subaccount id can be connected and requests are scoped to it, while auth
     $response->assertRedirect(route('developers.gateways.show', ['processor' => 'nomba']));
 
     $connection = TeamProcessorConnection::where('team_id', $team->id)->firstOrFail();
-    $credentials = $connection->credentialsFor(ApiKeyMode::Test);
+    $credentials = NombaCredentials::fromConnection($connection, ApiKeyMode::Test);
 
     expect($connection->test_credentials['subaccount_id'])->toBe('subaccount-456');
-    expect($credentials['accountId'])->toBe('account-123');
-    expect($credentials['subaccountId'])->toBe('subaccount-456');
-    expect($credentials['requestAccountId'])->toBe('subaccount-456');
+    expect($credentials->accountId)->toBe('account-123');
+    expect($credentials->subaccountId)->toBe('subaccount-456');
+    expect($credentials->requestAccountId())->toBe('subaccount-456');
 
     // The token-issue call authenticates with the main account, never the subaccount.
     Http::assertSent(fn (Request $request) => $request->header('accountId')[0] === 'account-123');

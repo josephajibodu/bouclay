@@ -35,6 +35,9 @@ class FakeGateway implements PaymentGateway
     /** The token `resolveToken()` hands back, or null for "no token yet". */
     public static ?string $resolvableToken = 'fake-token';
 
+    /** The account id `identifiesConnection()` recognises as its own. */
+    public static string $merchantRef = 'fake-merchant';
+
     /**
      * Recorded charge calls, for assertions.
      *
@@ -72,6 +75,7 @@ class FakeGateway implements PaymentGateway
         self::$approveRefunds = true;
         self::$approveCredentials = true;
         self::$resolvableToken = 'fake-token';
+        self::$merchantRef = 'fake-merchant';
         self::$charges = [];
         self::$refunds = [];
         self::$checkouts = [];
@@ -188,6 +192,11 @@ class FakeGateway implements PaymentGateway
     public function verifyWebhookSignature(TeamProcessorConnection $connection, ApiKeyMode $mode, Request $request): bool
     {
         return $request->header('x-fake-signature') === self::SIGNATURE;
+    }
+
+    public function identifiesConnection(TeamProcessorConnection $connection, array $payload): bool
+    {
+        return isset($payload['merchant']) && $payload['merchant'] === self::$merchantRef;
     }
 
     public function parseWebhookEvent(array $payload): ?GatewayWebhookEvent

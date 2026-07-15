@@ -17,10 +17,11 @@ use Illuminate\Support\Str;
  * route through — charges on a stored card always go through the processor
  * that minted the token.
  *
- * Credentials are one encrypted JSON blob per mode, keyed by the driver's
- * `configSchema()` manifest (the driver interface lands in V2-4; until then
- * the Nomba key shape is `{account_id, subaccount_id?, client_id,
- * client_secret, webhook_secret}`).
+ * Credentials are one encrypted JSON blob per mode, keyed entirely by the
+ * driver's `configSchema()` manifest. This model deliberately does not know
+ * what any of those keys mean: reading a gateway's own shape out of the blob
+ * is that driver's job, which is what lets a new gateway ship without
+ * touching this class.
  *
  * @property int $id
  * @property int $team_id
@@ -97,56 +98,6 @@ class TeamProcessorConnection extends Model
         };
 
         return $blob ?? [];
-    }
-
-    /**
-     * Get the Nomba credentials for the given mode, or null if not connected.
-     *
-     * `accountId` is the parent business account and always authenticates
-     * (the `accountId` header on the token-issue call). `requestAccountId`
-     * is what individual business-operation calls should be scoped to —
-     * the subaccount if one is set, otherwise the same parent account.
-     *
-     * @return array{accountId: string, subaccountId: string|null, requestAccountId: string, clientId: string, clientSecret: string}|null
-     */
-    public function credentialsFor(ApiKeyMode $mode): ?array
-    {
-        $blob = $this->credentialBlobFor($mode);
-
-        $accountId = $blob['account_id'] ?? null;
-        $subaccountId = $blob['subaccount_id'] ?? null;
-        $clientId = $blob['client_id'] ?? null;
-        $clientSecret = $blob['client_secret'] ?? null;
-
-        if (! $accountId || ! $clientId || ! $clientSecret) {
-            return null;
-        }
-
-        return [
-            'accountId' => $accountId,
-            'subaccountId' => $subaccountId ?: null,
-            'requestAccountId' => $subaccountId ?: $accountId,
-            'clientId' => $clientId,
-            'clientSecret' => $clientSecret,
-        ];
-    }
-
-    /**
-     * Determine if a signing secret has been saved for the given mode.
-     */
-    public function hasWebhookSecret(ApiKeyMode $mode): bool
-    {
-        return $this->webhookSecretFor($mode) !== null;
-    }
-
-    /**
-     * Get the inbound webhook signing secret for the given mode.
-     */
-    public function webhookSecretFor(ApiKeyMode $mode): ?string
-    {
-        $secret = $this->credentialBlobFor($mode)['webhook_secret'] ?? null;
-
-        return $secret !== null && $secret !== '' ? $secret : null;
     }
 
     /**

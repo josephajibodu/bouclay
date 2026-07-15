@@ -67,6 +67,37 @@ test('no gateway-specific namespace is imported outside the driver boundary', fu
         .json_encode($offenders, JSON_PRETTY_PRINT));
 });
 
+test('no gateway credential shape is known outside the driver boundary', function () {
+    // Class names were never the whole boundary: a shared model with a
+    // `credentialsFor()` returning Nomba's `{accountId, clientId, …}` leaks
+    // just as badly while passing every grep above. The credential blob is
+    // opaque outside app/Services/Gateways/ — only a driver knows its keys.
+    $credentialKeys = [
+        // Nomba
+        'account_id', 'subaccount_id', 'client_id', 'client_secret', 'webhook_secret',
+        // Paystack / Flutterwave (V2-4b) — declared here before they ship, so
+        // the boundary is enforced from the first line of those drivers.
+        'secret_key', 'public_key', 'encryption_key', 'webhook_secret_hash',
+    ];
+
+    $pattern = '/[\'"]('.implode('|', $credentialKeys).')[\'"]/';
+
+    $offenders = [];
+
+    foreach (appSourceFiles() as $path => $contents) {
+        if (str_starts_with($path, 'app/Services/Gateways/')) {
+            continue;
+        }
+
+        if (preg_match_all($pattern, $contents, $matches)) {
+            $offenders[$path] = array_values(array_unique($matches[1]));
+        }
+    }
+
+    expect($offenders)->toBe([], 'Gateway credential keys are the driver\'s business. Read them through the '
+        .'driver\'s configSchema() manifest instead. Found: '.json_encode($offenders, JSON_PRETTY_PRINT));
+});
+
 test('every money path resolves its driver through the manager', function () {
     // The driver boundary only holds if callers go through GatewayManager;
     // a `new NombaGateway` anywhere would satisfy the greps above while
