@@ -55,8 +55,14 @@ it('routes a stored card to the gateway that minted its token', function () {
 });
 
 it('rejects an unregistered processor', function () {
-    expect(fn () => app(GatewayManager::class)->driver('paystack'))
+    expect(fn () => app(GatewayManager::class)->driver('stripe'))
         ->toThrow(InvalidArgumentException::class);
+});
+
+it('registers every shipped driver', function () {
+    // The registry is the one place a gateway is wired — if a driver is here,
+    // its connect page, checkout, charge, refund and webhooks all light up.
+    expect(array_keys(app(GatewayManager::class)->all()))->toBe(['nomba', 'paystack']);
 });
 
 it('runs the full charge → verify → refund contract against a registered driver', function () {

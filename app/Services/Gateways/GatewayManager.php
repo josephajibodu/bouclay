@@ -6,6 +6,7 @@ use App\Enums\PaymentProcessor;
 use App\Models\PaymentMethod;
 use App\Models\TeamProcessorConnection;
 use App\Services\Gateways\Nomba\NombaGateway;
+use App\Services\Gateways\Paystack\PaystackGateway;
 use Illuminate\Contracts\Container\Container;
 use InvalidArgumentException;
 
@@ -25,6 +26,7 @@ class GatewayManager
      */
     private array $drivers = [
         'nomba' => NombaGateway::class,
+        'paystack' => PaystackGateway::class,
     ];
 
     public function __construct(private readonly Container $container) {}

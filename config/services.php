@@ -35,6 +35,11 @@ return [
         ],
     ],
 
+    'paystack' => [
+        // One host for both environments — the key prefix decides test vs live.
+        'url' => env('PAYSTACK_URL', 'https://api.paystack.co'),
+    ],
+
     'nomba' => [
         'sandbox_url' => env('NOMBA_SANDBOX_URL', 'https://sandbox.nomba.com'),
         'production_url' => env('NOMBA_PRODUCTION_URL', 'https://api.nomba.com'),
