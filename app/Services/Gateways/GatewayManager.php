@@ -5,6 +5,7 @@ namespace App\Services\Gateways;
 use App\Enums\PaymentProcessor;
 use App\Models\PaymentMethod;
 use App\Models\TeamProcessorConnection;
+use App\Services\Gateways\Flutterwave\FlutterwaveGateway;
 use App\Services\Gateways\Nomba\NombaGateway;
 use App\Services\Gateways\Paystack\PaystackGateway;
 use Illuminate\Contracts\Container\Container;
@@ -27,6 +28,7 @@ class GatewayManager
     private array $drivers = [
         'nomba' => NombaGateway::class,
         'paystack' => PaystackGateway::class,
+        'flutterwave' => FlutterwaveGateway::class,
     ];
 
     public function __construct(private readonly Container $container) {}

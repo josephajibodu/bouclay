@@ -62,7 +62,7 @@ it('rejects an unregistered processor', function () {
 it('registers every shipped driver', function () {
     // The registry is the one place a gateway is wired — if a driver is here,
     // its connect page, checkout, charge, refund and webhooks all light up.
-    expect(array_keys(app(GatewayManager::class)->all()))->toBe(['nomba', 'paystack']);
+    expect(array_keys(app(GatewayManager::class)->all()))->toBe(['nomba', 'paystack', 'flutterwave']);
 });
 
 it('runs the full charge → verify → refund contract against a registered driver', function () {

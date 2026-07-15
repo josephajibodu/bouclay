@@ -35,6 +35,12 @@ return [
         ],
     ],
 
+    'flutterwave' => [
+        // One host for both environments — the FLWSECK_TEST- prefix marks a
+        // test key.
+        'url' => env('FLUTTERWAVE_URL', 'https://api.flutterwave.com'),
+    ],
+
     'paystack' => [
         // One host for both environments — the key prefix decides test vs live.
         'url' => env('PAYSTACK_URL', 'https://api.paystack.co'),
