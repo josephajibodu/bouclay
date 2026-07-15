@@ -5,11 +5,11 @@ namespace App\Actions\Invoicing;
 use App\Enums\ApiKeyMode;
 use App\Enums\PaymentStatus;
 use App\Enums\RefundStatus;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Models\Payment;
 use App\Models\Refund;
+use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
-use App\Services\Nomba\NombaModeResolver;
+use App\Services\Gateways\GatewayModeResolver;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -27,7 +27,7 @@ class RefundPayment
 {
     public function __construct(
         private readonly GatewayManager $gateways,
-        private readonly NombaModeResolver $modeResolver,
+        private readonly GatewayModeResolver $modeResolver,
     ) {
         //
     }
@@ -80,7 +80,7 @@ class RefundPayment
 
         try {
             $result = $gateway->refund($connection, $mode, $payment->processor_reference ?? '', $amountMinor, $payment->currency);
-        } catch (NombaConnectionException) {
+        } catch (GatewayException) {
             throw new InvalidArgumentException('The refund could not be reached — try again shortly.');
         }
 

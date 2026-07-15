@@ -135,7 +135,7 @@ class DashboardController extends Controller
             'webhookVerified' => $connection?->webhook_verified_at !== null,
             'firstProductCreated' => $team->products()->exists(),
             'links' => [
-                'nomba' => route('developers.nomba.show'),
+                'nomba' => route('developers.gateways.show', ['processor' => 'nomba']),
                 'apiKeys' => route('developers.api-keys.index'),
                 'webhooks' => route('developers.webhooks.show'),
                 'products' => route('catalog.products.index'),

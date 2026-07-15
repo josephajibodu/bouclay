@@ -25,7 +25,7 @@ test('the api keys page can be rendered', function () {
             ->has('keys', 1)
             ->where('keys.0.name', 'Backend server')
             ->where('canManage', true)
-            ->where('liveNombaConnected', false),
+            ->where('liveGatewayConnected', false),
         );
 });
 

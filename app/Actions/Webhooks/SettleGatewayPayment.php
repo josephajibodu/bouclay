@@ -13,20 +13,27 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\TeamProcessorConnection;
+use App\Services\Gateways\CheckoutIntents;
+use App\Services\Gateways\GatewayModeResolver;
+use App\Services\Gateways\GatewayWebhookEvent;
 use App\Services\Invoicing\ClassifyPaymentFailure;
-use App\Services\Nomba\NombaModeResolver;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Map signed Nomba inbound events to invoice payments and subscription state.
+ * Apply one normalized inbound gateway event to invoice, payment, and
+ * subscription state (IMPLEMENTATION_V2 §V2-4).
+ *
+ * This is the shared settlement path: written once, and reached by every
+ * driver, because a {@see GatewayWebhookEvent} has already erased the
+ * processor's wire vocabulary. A new gateway teaches Bouclay its payload
+ * shape in `parseWebhookEvent()` and settles here for free.
  */
-class ProcessNombaInboundWebhook
+class SettleGatewayPayment
 {
     public function __construct(
         private readonly SettleSubscriptionOnInvoicePayment $settleSubscription,
         private readonly StoreTokenizedPaymentMethod $storePaymentMethod,
-        private readonly NombaModeResolver $modeResolver,
+        private readonly GatewayModeResolver $modeResolver,
         private readonly ClassifyPaymentFailure $classifyFailure,
         private readonly EmitInvoicePaymentFailed $emitInvoicePaymentFailed,
         private readonly CreateSubscriptionFromPaymentLinkInvoice $createPaymentLinkSubscription,
@@ -34,40 +41,32 @@ class ProcessNombaInboundWebhook
         //
     }
 
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    public function handle(TeamProcessorConnection $connection, array $payload): void
+    public function handle(TeamProcessorConnection $connection, GatewayWebhookEvent $event): void
     {
-        $eventType = (string) ($payload['event_type'] ?? '');
+        if ($event->isSuccess()) {
+            $this->handlePaymentSuccess($connection, $event);
 
-        match ($eventType) {
-            'payment_success' => $this->handlePaymentSuccess($connection, $payload),
-            'payment_failed' => $this->handlePaymentFailed($connection, $payload),
-            default => null,
-        };
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function handlePaymentSuccess(TeamProcessorConnection $connection, array $payload): void
-    {
-        $this->stashTokenizedCard($payload);
-
-        $orderReference = $this->orderReference($payload);
-
-        if ($orderReference === null) {
             return;
         }
 
-        $context = $this->resolveCheckoutContext($connection, $orderReference, $payload);
+        $this->handlePaymentFailed($connection, $event);
+    }
+
+    private function handlePaymentSuccess(TeamProcessorConnection $connection, GatewayWebhookEvent $event): void
+    {
+        // Stash the token before anything can bail out: the customer's return
+        // leg may be racing this webhook and will look here for the card.
+        if ($event->token !== null) {
+            CheckoutIntents::putToken($event->orderReference, $event->token);
+        }
+
+        $context = $this->resolveCheckoutContext($connection, $event->orderReference);
 
         if ($context === null) {
             return;
         }
 
-        DB::transaction(function () use ($connection, $payload, $orderReference, $context): void {
+        DB::transaction(function () use ($connection, $event, $context): void {
             $invoice = Invoice::query()
                 ->lockForUpdate()
                 ->with(['customer', 'subscription', 'team'])
@@ -95,7 +94,7 @@ class ProcessNombaInboundWebhook
             }
 
             $existingPayment = Payment::query()
-                ->where('processor_reference', $orderReference)
+                ->where('processor_reference', $event->orderReference)
                 ->lockForUpdate()
                 ->first();
 
@@ -111,10 +110,9 @@ class ProcessNombaInboundWebhook
 
             $mode = ApiKeyMode::from($context['mode']);
             $paymentMethod = $this->resolvePaymentMethod(
-                $connection,
                 $invoice,
-                $payload,
-                $orderReference,
+                $event,
+                $this->processor($connection),
                 $mode,
                 (bool) $context['tokenize_card'],
                 (bool) $context['set_default'],
@@ -126,7 +124,7 @@ class ProcessNombaInboundWebhook
                     'failure_code' => null,
                     'failure_reason' => null,
                     'payment_method_id' => $paymentMethod?->id ?? $existingPayment->payment_method_id,
-                    'raw_response' => $payload,
+                    'raw_response' => $event->raw,
                     'processed_at' => now(),
                 ])->save();
 
@@ -136,14 +134,14 @@ class ProcessNombaInboundWebhook
                     'team_id' => $invoice->team_id,
                     'customer_id' => $invoice->customer_id,
                     'payment_method_id' => $paymentMethod?->id,
-                    'processor' => PaymentProcessor::Nomba,
-                    'processor_reference' => $orderReference,
+                    'processor' => $this->processor($connection),
+                    'processor_reference' => $event->orderReference,
                     'amount' => $invoice->total,
                     'currency' => $invoice->currency,
                     'status' => PaymentStatus::Succeeded,
                     'attempt_number' => $invoice->payments()->count() + 1,
-                    'idempotency_key' => hash('sha256', "invoice:{$invoice->id}:webhook:{$orderReference}"),
-                    'raw_response' => $payload,
+                    'idempotency_key' => hash('sha256', "invoice:{$invoice->id}:webhook:{$event->orderReference}"),
+                    'raw_response' => $event->raw,
                     'processed_at' => now(),
                 ]);
             }
@@ -153,28 +151,19 @@ class ProcessNombaInboundWebhook
             $this->attachPaymentMethodToSubscription($invoice, $paymentMethod);
             $invoice->markPaid($payment);
             $this->settleSubscription->onPaymentSucceeded($invoice);
-            $this->clearCheckoutCaches($orderReference);
+            CheckoutIntents::clear($event->orderReference);
         });
     }
 
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function handlePaymentFailed(TeamProcessorConnection $connection, array $payload): void
+    private function handlePaymentFailed(TeamProcessorConnection $connection, GatewayWebhookEvent $event): void
     {
-        $orderReference = $this->orderReference($payload);
-
-        if ($orderReference === null) {
-            return;
-        }
-
-        $context = $this->resolveCheckoutContext($connection, $orderReference, $payload);
+        $context = $this->resolveCheckoutContext($connection, $event->orderReference);
 
         if ($context === null) {
             return;
         }
 
-        DB::transaction(function () use ($payload, $orderReference, $context): void {
+        DB::transaction(function () use ($connection, $event, $context): void {
             $invoice = Invoice::query()
                 ->lockForUpdate()
                 ->with(['subscription'])
@@ -184,8 +173,10 @@ class ProcessNombaInboundWebhook
                 return;
             }
 
+            $reason = $event->failureReason ?? 'Payment failed.';
+
             $existingPayment = Payment::query()
-                ->where('processor_reference', $orderReference)
+                ->where('processor_reference', $event->orderReference)
                 ->lockForUpdate()
                 ->first();
 
@@ -195,86 +186,52 @@ class ProcessNombaInboundWebhook
 
             if ($existingPayment instanceof Payment) {
                 if ($existingPayment->status !== PaymentStatus::Failed) {
-                    $classification = $this->classifyFailure->classify($this->failureReason($payload));
-
                     $existingPayment->forceFill([
                         'status' => PaymentStatus::Failed,
-                        'failure_code' => $classification['code'],
-                        'failure_reason' => $this->failureReason($payload),
-                        'raw_response' => $payload,
+                        'failure_code' => $this->classifyFailure->classify($reason)['code'],
+                        'failure_reason' => $reason,
+                        'raw_response' => $event->raw,
                     ])->save();
                 }
 
                 $payment = $existingPayment;
             } else {
-                $classification = $this->classifyFailure->classify($this->failureReason($payload));
-
                 $payment = $invoice->payments()->create([
                     'team_id' => $invoice->team_id,
                     'customer_id' => $invoice->customer_id,
-                    'processor' => PaymentProcessor::Nomba,
-                    'processor_reference' => $orderReference,
+                    'processor' => $this->processor($connection),
+                    'processor_reference' => $event->orderReference,
                     'amount' => $invoice->total,
                     'currency' => $invoice->currency,
                     'status' => PaymentStatus::Failed,
-                    'failure_code' => $classification['code'],
-                    'failure_reason' => $this->failureReason($payload),
+                    'failure_code' => $this->classifyFailure->classify($reason)['code'],
+                    'failure_reason' => $reason,
                     'attempt_number' => $invoice->payments()->count() + 1,
-                    'idempotency_key' => hash('sha256', "invoice:{$invoice->id}:webhook-failed:{$orderReference}"),
-                    'raw_response' => $payload,
+                    'idempotency_key' => hash('sha256', "invoice:{$invoice->id}:webhook-failed:{$event->orderReference}"),
+                    'raw_response' => $event->raw,
                 ]);
             }
 
             $invoice->recordFailedAttempt();
             $this->emitInvoicePaymentFailed->handle($invoice, $payment);
             $this->settleSubscription->onAutomaticChargeFailed($invoice);
-            $this->clearCheckoutCaches($orderReference);
+            CheckoutIntents::clear($event->orderReference);
         });
     }
 
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function stashTokenizedCard(array $payload): void
+    private function processor(TeamProcessorConnection $connection): PaymentProcessor
     {
-        $tokenized = $payload['data']['tokenizedCardData'] ?? null;
-        $order = $payload['data']['order'] ?? null;
-        $orderReference = is_array($order) ? ($order['orderReference'] ?? null) : null;
-
-        if (! is_array($tokenized) || empty($tokenized['tokenKey']) || ! is_string($orderReference) || $orderReference === '') {
-            return;
-        }
-
-        Cache::put("nomba_token:{$orderReference}", [
-            'tokenKey' => $tokenized['tokenKey'],
-            'brand' => $tokenized['cardType'] ?? ($order['cardType'] ?? null),
-            'last4' => $order['cardLast4Digits'] ?? null,
-            'tokenExpiryMonth' => $tokenized['tokenExpiryMonth'] ?? null,
-            'tokenExpiryYear' => $tokenized['tokenExpiryYear'] ?? null,
-        ], now()->addHour());
+        return PaymentProcessor::from($connection->processor);
     }
 
     /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function orderReference(array $payload): ?string
-    {
-        $order = $payload['data']['order'] ?? null;
-
-        if (! is_array($order)) {
-            return null;
-        }
-
-        $orderReference = $order['orderReference'] ?? null;
-
-        return is_string($orderReference) && $orderReference !== '' ? $orderReference : null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
+     * What this order was for. A payment row already carrying the reference is
+     * the most authoritative answer; then Bouclay's own checkout intent; then
+     * the invoice the checkout link was stamped on.
+     *
      * @return array{invoice_id: int, mode: string, tokenize_card: bool, set_default: bool}|null
      */
-    private function resolveCheckoutContext(TeamProcessorConnection $connection, string $orderReference, array $payload): ?array
+    private function resolveCheckoutContext(TeamProcessorConnection $connection, string $orderReference): ?array
     {
         $payment = Payment::query()
             ->where('processor_reference', $orderReference)
@@ -290,10 +247,9 @@ class ProcessNombaInboundWebhook
             ];
         }
 
-        /** @var array<string, mixed>|null $intent */
-        $intent = Cache::get("nomba_checkout:{$orderReference}");
+        $intent = CheckoutIntents::get($orderReference);
 
-        if (is_array($intent) && ! empty($intent['invoice_id'])) {
+        if ($intent !== null && ! empty($intent['invoice_id'])) {
             return [
                 'invoice_id' => (int) $intent['invoice_id'],
                 'mode' => $this->modeResolver->configuredMode()->value,
@@ -319,14 +275,10 @@ class ProcessNombaInboundWebhook
         ];
     }
 
-    /**
-     * @param  array<string, mixed>  $payload
-     */
     private function resolvePaymentMethod(
-        TeamProcessorConnection $connection,
         Invoice $invoice,
-        array $payload,
-        string $orderReference,
+        GatewayWebhookEvent $event,
+        PaymentProcessor $processor,
         ApiKeyMode $mode,
         bool $tokenizeCard,
         bool $setDefault,
@@ -335,45 +287,21 @@ class ProcessNombaInboundWebhook
             return null;
         }
 
-        $tokenized = $payload['data']['tokenizedCardData'] ?? null;
-        $order = $payload['data']['order'] ?? null;
+        // The event's own token wins; otherwise an earlier webhook for this
+        // order may already have stashed one.
+        $token = $event->token ?? CheckoutIntents::token($event->orderReference);
 
-        if (! is_array($tokenized) || empty($tokenized['tokenKey'])) {
-            $cached = Cache::get("nomba_token:{$orderReference}");
-
-            if (! is_array($cached) || empty($cached['tokenKey'])) {
-                return null;
-            }
-
-            $tokenized = $cached;
+        if ($token === null) {
+            return null;
         }
 
         return $this->storePaymentMethod->handle(
             $invoice->customer,
-            [
-                'tokenKey' => $tokenized['tokenKey'],
-                'brand' => $tokenized['cardType'] ?? (is_array($order) ? ($order['cardType'] ?? null) : null),
-                'last4' => is_array($order) ? ($order['cardLast4Digits'] ?? null) : null,
-                'tokenExpiryMonth' => $tokenized['tokenExpiryMonth'] ?? null,
-                'tokenExpiryYear' => $tokenized['tokenExpiryYear'] ?? null,
-            ],
+            $processor,
+            $token,
             $mode,
             $setDefault,
         );
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function failureReason(array $payload): string
-    {
-        $transaction = $payload['data']['transaction'] ?? null;
-
-        if (is_array($transaction) && ! empty($transaction['responseMessage'])) {
-            return (string) $transaction['responseMessage'];
-        }
-
-        return 'Payment failed.';
     }
 
     private function attachPaymentMethodToSubscription(Invoice $invoice, ?PaymentMethod $paymentMethod): void
@@ -385,11 +313,5 @@ class ProcessNombaInboundWebhook
         }
 
         $subscription->update(['payment_method_id' => $paymentMethod->id]);
-    }
-
-    private function clearCheckoutCaches(string $orderReference): void
-    {
-        Cache::forget("nomba_checkout:{$orderReference}");
-        Cache::forget("nomba_token:{$orderReference}");
     }
 }

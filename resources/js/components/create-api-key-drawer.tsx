@@ -21,14 +21,14 @@ import { store } from '@/routes/developers/api-keys';
 import type { ApiKeyKind, ApiKeyMode } from '@/types';
 
 type Props = PropsWithChildren<{
-    liveNombaConnected: boolean;
+    liveGatewayConnected: boolean;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }>;
 
 export default function CreateApiKeyDrawer({
     children,
-    liveNombaConnected,
+    liveGatewayConnected,
     open,
     onOpenChange,
 }: Props) {
@@ -141,13 +141,13 @@ export default function CreateApiKeyDrawer({
                                         <ToggleGroupItem
                                             value="live"
                                             className="flex-1"
-                                            disabled={!liveNombaConnected}
+                                            disabled={!liveGatewayConnected}
                                             data-test="api-key-mode-live"
                                         >
                                             Live
                                         </ToggleGroupItem>
                                     </ToggleGroup>
-                                    {!liveNombaConnected && (
+                                    {!liveGatewayConnected && (
                                         <p className="text-sm text-muted-foreground">
                                             Connect a live Nomba account
                                             before creating a live key.

@@ -284,7 +284,7 @@ test('the onboarding checklist reflects completed setup steps', function () {
         ->where('onboarding.nombaConnected', true)
         ->where('onboarding.apiKeyGenerated', true)
         ->where('onboarding.webhookVerified', true)
-        ->where('onboarding.links.nomba', route('developers.nomba.show'))
+        ->where('onboarding.links.nomba', route('developers.gateways.show', ['processor' => 'nomba']))
         ->where('onboarding.links.apiKeys', route('developers.api-keys.index'))
         ->where('onboarding.links.webhooks', route('developers.webhooks.show')),
     );

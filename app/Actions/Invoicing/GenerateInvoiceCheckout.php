@@ -3,23 +3,26 @@
 namespace App\Actions\Invoicing;
 
 use App\Enums\ApiKeyMode;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Models\Invoice;
 use App\Models\Team;
-use App\Services\Nomba\NombaCheckout;
-use App\Services\Nomba\NombaModeResolver;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Gateways\CheckoutIntents;
+use App\Services\Gateways\GatewayException;
+use App\Services\Gateways\GatewayManager;
+use App\Services\Gateways\GatewayModeResolver;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 /**
- * Create a Nomba hosted checkout order tied to an open invoice.
+ * Create a hosted checkout order tied to an open invoice, through the team's
+ * gateway driver. New checkouts route through the team's default connection
+ * (schema.md routing rule — `is_default` governs new checkouts; a stored card
+ * is a different question, answered by the token's own processor).
  */
 class GenerateInvoiceCheckout
 {
     public function __construct(
-        private readonly NombaCheckout $checkout,
-        private readonly NombaModeResolver $modeResolver,
+        private readonly GatewayManager $gateways,
+        private readonly GatewayModeResolver $modeResolver,
     ) {
         //
     }
@@ -29,7 +32,7 @@ class GenerateInvoiceCheckout
      * @return array{checkoutLink: string, orderReference: string}
      *
      * @throws InvalidArgumentException
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function handle(
         Team $team,
@@ -49,8 +52,10 @@ class GenerateInvoiceCheckout
         $mode ??= $this->modeResolver->forConnection($connection);
 
         if ($connection === null || $mode === null) {
-            throw new InvalidArgumentException('Connect Nomba before collecting payment for this invoice.');
+            throw new InvalidArgumentException('Connect a payment gateway before collecting payment for this invoice.');
         }
+
+        $gateway = $this->gateways->forConnection($connection);
 
         $orderReference = (string) Str::uuid();
 
@@ -67,16 +72,16 @@ class GenerateInvoiceCheckout
             $order['allowedPaymentMethods'] = $allowedPaymentMethods;
         }
 
-        $result = $this->checkout->createOrder($connection, $mode, $order, $tokenizeCard);
+        $result = $gateway->createCheckout($connection, $mode, $order, $tokenizeCard);
 
-        Cache::put("nomba_checkout:{$orderReference}", [
+        CheckoutIntents::put($orderReference, [
             'invoice_id' => $invoice->id,
             'customer_id' => $invoice->customer_id,
             'team_id' => $team->id,
             'mode' => $mode->value,
             'tokenize_card' => $tokenizeCard,
             'set_default' => $setDefaultPaymentMethod,
-        ], now()->addDays(7));
+        ]);
 
         $invoice->forceFill([
             'custom_data' => array_merge($invoice->custom_data ?? [], [

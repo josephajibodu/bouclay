@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\Developers\ApiKeyController;
-use App\Http\Controllers\Developers\NombaConnectionController;
+use App\Http\Controllers\Developers\GatewayConnectionController;
 use App\Http\Controllers\Developers\OutboundWebhookEndpointController;
 use App\Http\Controllers\Developers\WebhookController;
 use App\Http\Middleware\EnsureCurrentTeam;
@@ -11,10 +11,12 @@ Route::prefix('developers')
     ->middleware(['auth', 'verified', EnsureCurrentTeam::class])
     ->name('developers.')
     ->group(function () {
-        Route::get('nomba', [NombaConnectionController::class, 'show'])->name('nomba.show');
-        Route::post('nomba/connect', [NombaConnectionController::class, 'connect'])->name('nomba.connect');
-        Route::post('nomba/test', [NombaConnectionController::class, 'test'])->name('nomba.test');
-        Route::delete('nomba/disconnect', [NombaConnectionController::class, 'disconnect'])->name('nomba.disconnect');
+        // One connect page per driver, rendered from its configSchema()
+        // manifest — a new gateway needs no route of its own.
+        Route::get('gateways/{processor}', [GatewayConnectionController::class, 'show'])->name('gateways.show');
+        Route::post('gateways/{processor}/connect', [GatewayConnectionController::class, 'connect'])->name('gateways.connect');
+        Route::post('gateways/{processor}/test', [GatewayConnectionController::class, 'test'])->name('gateways.test');
+        Route::delete('gateways/{processor}/disconnect', [GatewayConnectionController::class, 'disconnect'])->name('gateways.disconnect');
 
         Route::get('api-keys', [ApiKeyController::class, 'index'])->name('api-keys.index');
         Route::post('api-keys', [ApiKeyController::class, 'store'])->name('api-keys.store');

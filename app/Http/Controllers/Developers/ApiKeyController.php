@@ -44,7 +44,7 @@ class ApiKeyController extends Controller
         return Inertia::render('developers/api-keys', [
             'keys' => $keys,
             'canManage' => $request->user()->toTeamPermissions($team)->canManageApiKeys,
-            'liveNombaConnected' => $team->processorConnection?->isConnected(ApiKeyMode::Live) ?? false,
+            'liveGatewayConnected' => $team->processorConnection?->isConnected(ApiKeyMode::Live) ?? false,
         ]);
     }
 
@@ -61,7 +61,7 @@ class ApiKeyController extends Controller
 
         if ($mode === ApiKeyMode::Live && ! ($team->processorConnection?->isConnected(ApiKeyMode::Live) ?? false)) {
             throw ValidationException::withMessages([
-                'mode' => __('Connect a live Nomba account before creating a live key.'),
+                'mode' => __('Connect a live payment gateway before creating a live key.'),
             ]);
         }
 

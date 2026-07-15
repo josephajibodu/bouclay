@@ -6,7 +6,7 @@ use App\Models\PaymentMethod;
 use App\Models\TeamProcessorConnection;
 use App\Services\Gateways\FakeGateway;
 use App\Services\Gateways\GatewayManager;
-use App\Services\Gateways\NombaGateway;
+use App\Services\Gateways\Nomba\NombaGateway;
 
 /*
 |--------------------------------------------------------------------------

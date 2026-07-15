@@ -13,10 +13,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { disconnect } from '@/routes/developers/nomba';
+import { disconnect } from '@/routes/developers/gateways';
 import type { ApiKeyMode } from '@/types';
 
 type Props = {
+    processor: string;
+    label: string;
     mode: ApiKeyMode | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -24,7 +26,9 @@ type Props = {
 
 const CONFIRMATION_PHRASE = 'DISCONNECT';
 
-export default function DisconnectNombaModal({
+export default function DisconnectGatewayModal({
+    processor,
+    label,
     mode,
     open,
     onOpenChange,
@@ -50,7 +54,7 @@ export default function DisconnectNombaModal({
             <DialogContent>
                 <Form
                     key={mode}
-                    {...disconnect.form()}
+                    {...disconnect.form({ processor })}
                     className="space-y-6"
                     onSuccess={() => handleOpenChange(false)}
                 >
@@ -60,14 +64,14 @@ export default function DisconnectNombaModal({
 
                             <DialogHeader>
                                 <DialogTitle>
-                                    Disconnect {mode} Nomba account?
+                                    Disconnect {mode} {label} account?
                                 </DialogTitle>
                                 <DialogDescription>
                                     {mode === 'live' ? (
                                         <>
                                             Any active subscriptions will fail
-                                            to renew until you reconnect a live
-                                            Nomba account.
+                                            to renew until you reconnect a live{' '}
+                                            {label} account.
                                         </>
                                     ) : (
                                         <>
@@ -88,7 +92,7 @@ export default function DisconnectNombaModal({
                                     </Label>
                                     <Input
                                         id="disconnect-confirmation"
-                                        data-test="disconnect-nomba-confirmation"
+                                        data-test="disconnect-gateway-confirmation"
                                         value={confirmationText}
                                         onChange={(event) =>
                                             setConfirmationText(
@@ -110,7 +114,7 @@ export default function DisconnectNombaModal({
                                 <Button
                                     variant="destructive"
                                     type="submit"
-                                    data-test="disconnect-nomba-confirm"
+                                    data-test="disconnect-gateway-confirm"
                                     disabled={!canDisconnect || processing}
                                 >
                                     Disconnect

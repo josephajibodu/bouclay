@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Developers;
 
 use App\Enums\ApiKeyMode;
 use App\Http\Controllers\Controller;
+use App\Models\TeamProcessorConnection;
 use App\Models\WebhookDelivery;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -52,7 +53,7 @@ class WebhookController extends Controller
             'endpoints' => $endpoints,
             'deliveries' => $deliveries,
             'connection' => $connection ? [
-                'inboundUrl' => $this->inboundUrlFor($connection->inbound_webhook_token),
+                'inboundUrl' => $this->inboundUrlFor($connection),
                 'reachable' => $connection->webhook_verified_at !== null,
                 'verifiedAt' => $connection->webhook_verified_at?->toISOString(),
                 'testSecretSet' => $connection->hasWebhookSecret(ApiKeyMode::Test),
@@ -65,9 +66,9 @@ class WebhookController extends Controller
     /**
      * Save (or replace) the signing secret for one mode.
      *
-     * The secret is chosen by the integrator on Nomba's dashboard, not
+     * The secret is chosen by the integrator on the gateway's dashboard, not
      * generated here — Bouclay just needs the same value to recompute the
-     * HMAC signature on inbound events.
+     * signature on inbound events.
      */
     public function saveSecret(Request $request): RedirectResponse
     {
@@ -116,7 +117,7 @@ class WebhookController extends Controller
 
         Inertia::flash('toast', [
             'type' => 'success',
-            'message' => __('Webhook endpoint rotated. Update the URL in Nomba or events will stop arriving.'),
+            'message' => __('Webhook endpoint rotated. Update the URL on your gateway dashboard or events will stop arriving.'),
         ]);
 
         return to_route('developers.webhooks.show');
@@ -124,7 +125,7 @@ class WebhookController extends Controller
 
     /**
      * Post a synthetic event through the team's own inbound URL to prove
-     * it's reachable — not a real Nomba sandbox trigger.
+     * it's reachable — not a real gateway sandbox trigger.
      */
     public function test(Request $request): RedirectResponse
     {
@@ -136,7 +137,7 @@ class WebhookController extends Controller
 
         abort_if(! $connection, 404);
 
-        $url = $this->inboundUrlFor($connection->inbound_webhook_token);
+        $url = $this->inboundUrlFor($connection);
         $startedAt = microtime(true);
 
         try {
@@ -168,8 +169,15 @@ class WebhookController extends Controller
         return back();
     }
 
-    private function inboundUrlFor(string $token): string
+    /**
+     * The URL this team's gateway posts events to. Built from the generalized
+     * route, so it stays correct for whichever driver the connection is for.
+     */
+    private function inboundUrlFor(TeamProcessorConnection $connection): string
     {
-        return URL::to("/webhooks/nomba/{$token}");
+        return URL::to(route('webhooks.gateway.receive', [
+            'processor' => $connection->processor,
+            'token' => $connection->inbound_webhook_token,
+        ], absolute: false));
     }
 }

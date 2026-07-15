@@ -4,11 +4,11 @@ namespace App\Actions\Invoicing;
 
 use App\Enums\CollectionMode;
 use App\Enums\PaymentStatus;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Mail\InvoiceIssued;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\Team;
+use App\Services\Gateways\GatewayException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use InvalidArgumentException;
@@ -62,7 +62,7 @@ class CollectInvoice
                 allowedPaymentMethods: ['Card'],
                 setDefaultPaymentMethod: true,
             );
-        } catch (InvalidArgumentException|NombaConnectionException $exception) {
+        } catch (InvalidArgumentException|GatewayException $exception) {
             Log::warning('Invoice checkout generation failed', [
                 'invoice_id' => $invoice->id,
                 'team_id' => $team->id,

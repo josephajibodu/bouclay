@@ -8,10 +8,11 @@ use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Models\Customer;
 use App\Models\Team;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Gateways\CheckoutIntents;
 
 /**
- * Start a Nomba hosted checkout that verifies a card and tokenises it for API clients.
+ * Start a hosted checkout that verifies a card and tokenises it for API
+ * clients, through whichever gateway the team has connected.
  */
 class CreatePaymentMethodCheckoutSession
 {
@@ -53,15 +54,9 @@ class CreatePaymentMethodCheckoutSession
 
         $orderReference = $checkout['orderReference'];
 
-        /** @var array<string, mixed>|null $intent */
-        $intent = Cache::get("nomba_checkout:{$orderReference}");
-
-        if (is_array($intent)) {
-            Cache::put("nomba_checkout:{$orderReference}", [
-                ...$intent,
-                'api_checkout_session' => true,
-            ], now()->addDays(7));
-        }
+        // Mark it API-initiated so the completion leg leaves a result the
+        // client can still poll for after the intent itself is cleared.
+        CheckoutIntents::merge($orderReference, ['api_checkout_session' => true]);
 
         return [
             'checkoutUrl' => $checkout['checkoutLink'],

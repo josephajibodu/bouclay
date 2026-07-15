@@ -14,10 +14,10 @@ import type { ApiKey, ApiKeyMode, GeneratedApiKey } from '@/types';
 type Props = {
     keys: ApiKey[];
     canManage: boolean;
-    liveNombaConnected: boolean;
+    liveGatewayConnected: boolean;
 };
 
-export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) {
+export default function ApiKeys({ keys, canManage, liveGatewayConnected }: Props) {
     const [activeTab, setActiveTab] = useState<ApiKeyMode>('test');
     const [createOpen, setCreateOpen] = useState(false);
     const [generatedKey, setGeneratedKey] = useState<GeneratedApiKey | null>(
@@ -53,7 +53,7 @@ export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) 
 
                 {canManage && keys.length > 0 && (
                     <CreateApiKeyDrawer
-                        liveNombaConnected={liveNombaConnected}
+                        liveGatewayConnected={liveGatewayConnected}
                         open={createOpen}
                         onOpenChange={setCreateOpen}
                     >
@@ -67,7 +67,7 @@ export default function ApiKeys({ keys, canManage, liveNombaConnected }: Props) 
             {keys.length === 0 ? (
                 <EmptyState
                     canManage={canManage}
-                    liveNombaConnected={liveNombaConnected}
+                    liveGatewayConnected={liveGatewayConnected}
                     open={createOpen}
                     onOpenChange={setCreateOpen}
                 />
@@ -183,12 +183,12 @@ function ApiKeyRow({
 
 function EmptyState({
     canManage,
-    liveNombaConnected,
+    liveGatewayConnected,
     open,
     onOpenChange,
 }: {
     canManage: boolean;
-    liveNombaConnected: boolean;
+    liveGatewayConnected: boolean;
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }) {
@@ -208,7 +208,7 @@ function EmptyState({
 
             {canManage && (
                 <CreateApiKeyDrawer
-                    liveNombaConnected={liveNombaConnected}
+                    liveGatewayConnected={liveGatewayConnected}
                     open={open}
                     onOpenChange={onOpenChange}
                 >

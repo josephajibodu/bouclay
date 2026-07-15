@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Services\Nomba;
+namespace App\Services\Gateways\Nomba;
 
 use App\Enums\ApiKeyMode;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Models\TeamProcessorConnection;
+use App\Services\Gateways\GatewayException;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Http;
  */
 class NombaCheckout
 {
+    private const string GATEWAY = 'Nomba';
+
     public function __construct(private readonly NombaClient $client)
     {
         //
@@ -29,7 +31,7 @@ class NombaCheckout
      * @param  array<string, mixed>  $order
      * @return array{checkoutLink: string, orderReference: string}
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function createOrder(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, bool $tokenizeCard = true): array
     {
@@ -41,7 +43,7 @@ class NombaCheckout
         $data = $body['data'] ?? [];
 
         if (! isset($data['checkoutLink'], $data['orderReference'])) {
-            throw NombaConnectionException::unknown('Nomba did not return a checkout link.');
+            throw GatewayException::unknown(self::GATEWAY, 'Nomba did not return a checkout link.');
         }
 
         return [
@@ -54,7 +56,7 @@ class NombaCheckout
      * Verify a checkout transaction by order reference. Works in both
      * sandbox and production. Returns true only on a SUCCESS status.
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function verifyOrderSucceeded(TeamProcessorConnection $connection, ApiKeyMode $mode, string $orderReference): bool
     {
@@ -78,7 +80,7 @@ class NombaCheckout
      * @param  array<string, mixed>  $order
      * @return array{approved: bool, message: string}
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function chargeTokenizedCard(TeamProcessorConnection $connection, ApiKeyMode $mode, array $order, string $tokenKey): array
     {
@@ -99,7 +101,7 @@ class NombaCheckout
      *
      * @return array{success: bool, reference: string|null, message: string}
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function refund(TeamProcessorConnection $connection, ApiKeyMode $mode, string $orderReference, int $amountMinor, string $currency): array
     {
@@ -124,7 +126,7 @@ class NombaCheckout
      *
      * @return list<array<string, mixed>>
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function listTokenizedCards(TeamProcessorConnection $connection, ApiKeyMode $mode, string $customerEmail): array
     {
@@ -139,7 +141,7 @@ class NombaCheckout
      * Delete a tokenised card on Nomba, so removing a payment method in
      * Bouclay also revokes the token on the processor.
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function deleteTokenizedCard(TeamProcessorConnection $connection, ApiKeyMode $mode, string $tokenKey): void
     {
@@ -170,7 +172,7 @@ class NombaCheckout
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     private function post(TeamProcessorConnection $connection, ApiKeyMode $mode, string $path, array $payload): array
     {
@@ -181,7 +183,7 @@ class NombaCheckout
      * @param  array<string, mixed>  $query
      * @return array<string, mixed>
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     private function get(TeamProcessorConnection $connection, ApiKeyMode $mode, string $path, array $query): array
     {
@@ -194,14 +196,14 @@ class NombaCheckout
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     private function request(TeamProcessorConnection $connection, ApiKeyMode $mode, string $method, string $path, array $data): array
     {
         $credentials = $connection->credentialsFor($mode);
 
         if ($credentials === null) {
-            throw NombaConnectionException::invalidCredentials('Nomba is not connected for this mode.');
+            throw GatewayException::invalidCredentials(self::GATEWAY, 'Nomba is not connected for this mode.');
         }
 
         $token = $this->client->accessToken(
@@ -224,14 +226,14 @@ class NombaCheckout
                 ? $request->get($path, $data)
                 : $request->{$method}($path, $data);
         } catch (\Throwable) {
-            throw NombaConnectionException::unreachable();
+            throw GatewayException::unreachable(self::GATEWAY);
         }
 
         $body = $response->json() ?? [];
 
         // Nomba signals success with a "00" code; anything else is an error.
         if (($body['code'] ?? null) !== '00') {
-            throw NombaConnectionException::unknown($body['description'] ?? 'Nomba request failed.');
+            throw GatewayException::unknown(self::GATEWAY, $body['description'] ?? 'Nomba request failed.');
         }
 
         return $body;

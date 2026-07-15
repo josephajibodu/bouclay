@@ -3,9 +3,9 @@
 use App\Http\Controllers\Auth\JoinInvitationController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Docs\ApiDocsController;
-use App\Http\Controllers\Hackathon\NombaIngressController;
+use App\Http\Controllers\Hackathon\FixedGatewayIngressController;
 use App\Http\Controllers\Teams\TeamInvitationController;
-use App\Http\Controllers\Webhooks\NombaInboundController;
+use App\Http\Controllers\Webhooks\GatewayWebhookController;
 use App\Http\Middleware\EnsureCurrentTeam;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\File;
@@ -39,12 +39,17 @@ Route::middleware('guest')->group(function () {
     Route::post('join/{invitation}/register', [JoinInvitationController::class, 'register'])->name('join.register.store');
 });
 
-Route::post('webhooks/nomba/{token}', NombaInboundController::class)->name('webhooks.nomba.receive');
+// One inbound endpoint per gateway, resolved by driver (IMPLEMENTATION_V2
+// §V2-4). This subsumes the old `/webhooks/nomba/{token}` — that URL still
+// resolves here with `processor=nomba`, so tokens already pasted into Nomba's
+// dashboard keep working without a second code path to maintain.
+Route::post('webhooks/{processor}/{token}', GatewayWebhookController::class)
+    ->name('webhooks.gateway.receive');
 
-// Hackathon-only fixed Nomba URL — delete this route and app/Hackathon/ after the demo.
+// Hackathon-only fixed ingress URL — delete this route and app/Hackathon/ after the demo.
 Route::post(
     config('services.nomba.hackathon_ingress.path', 'ingres/qydaD5iz2W0V2bRPTaqlTJYVaiR2zLAd'),
-    NombaIngressController::class,
+    FixedGatewayIngressController::class,
 )->name('hackathon.nomba.ingress');
 
 require __DIR__.'/settings.php';

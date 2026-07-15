@@ -5,6 +5,7 @@ namespace App\Services\Gateways;
 use App\Enums\PaymentProcessor;
 use App\Models\PaymentMethod;
 use App\Models\TeamProcessorConnection;
+use App\Services\Gateways\Nomba\NombaGateway;
 use Illuminate\Contracts\Container\Container;
 use InvalidArgumentException;
 
@@ -76,5 +77,22 @@ class GatewayManager
     public function has(string $processor): bool
     {
         return isset($this->drivers[$processor]);
+    }
+
+    /**
+     * Every registered driver, keyed by processor — what the connect UI
+     * enumerates so a newly registered gateway appears with no UI change.
+     *
+     * @return array<string, PaymentGateway>
+     */
+    public function all(): array
+    {
+        $drivers = [];
+
+        foreach (array_keys($this->drivers) as $processor) {
+            $drivers[$processor] = $this->driver($processor);
+        }
+
+        return $drivers;
     }
 }

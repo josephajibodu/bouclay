@@ -18,12 +18,12 @@ test('the nomba integration page can be rendered', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->get(route('developers.nomba.show'));
+        ->get(route('developers.gateways.show', ['processor' => 'nomba']));
 
     $response
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
-            ->component('developers/nomba')
+            ->component('developers/gateway')
             ->where('connection.test.connected', false)
             ->where('connection.live.connected', false)
             ->where('canManage', true),
@@ -41,7 +41,7 @@ test('members without integrations permission cannot view the nomba page', funct
 
     $response = $this
         ->actingAs($member)
-        ->get(route('developers.nomba.show'));
+        ->get(route('developers.gateways.show', ['processor' => 'nomba']));
 
     $response->assertForbidden();
 });
@@ -63,7 +63,7 @@ test('test credentials can be connected with a valid response from nomba', funct
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.nomba.connect'), [
+        ->post(route('developers.gateways.connect', ['processor' => 'nomba']), [
             'mode' => 'test',
             'account_id' => 'account-123',
             'client_id' => 'client-123',
@@ -71,7 +71,7 @@ test('test credentials can be connected with a valid response from nomba', funct
             'webhook_secret' => 'whsec_1234567890',
         ]);
 
-    $response->assertRedirect(route('developers.nomba.show'));
+    $response->assertRedirect(route('developers.gateways.show', ['processor' => 'nomba']));
 
     $connection = TeamProcessorConnection::where('team_id', $team->id)->firstOrFail();
 
@@ -99,7 +99,7 @@ test('a connection with no subaccount resolves the request account to the main a
 
     $this
         ->actingAs($owner)
-        ->post(route('developers.nomba.connect'), [
+        ->post(route('developers.gateways.connect', ['processor' => 'nomba']), [
             'mode' => 'test',
             'account_id' => 'account-123',
             'client_id' => 'client-123',
@@ -133,7 +133,7 @@ test('a subaccount id can be connected and requests are scoped to it, while auth
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.nomba.connect'), [
+        ->post(route('developers.gateways.connect', ['processor' => 'nomba']), [
             'mode' => 'test',
             'account_id' => 'account-123',
             'subaccount_id' => 'subaccount-456',
@@ -142,7 +142,7 @@ test('a subaccount id can be connected and requests are scoped to it, while auth
             'webhook_secret' => 'whsec_1234567890',
         ]);
 
-    $response->assertRedirect(route('developers.nomba.show'));
+    $response->assertRedirect(route('developers.gateways.show', ['processor' => 'nomba']));
 
     $connection = TeamProcessorConnection::where('team_id', $team->id)->firstOrFail();
     $credentials = $connection->credentialsFor(ApiKeyMode::Test);
@@ -169,7 +169,7 @@ test('disconnecting clears the subaccount id along with the rest of the credenti
 
     $this
         ->actingAs($owner)
-        ->delete(route('developers.nomba.disconnect'), ['mode' => 'test']);
+        ->delete(route('developers.gateways.disconnect', ['processor' => 'nomba']), ['mode' => 'test']);
 
     $connection->refresh();
 
@@ -193,7 +193,7 @@ test('connecting fails when nomba rejects the credentials', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.nomba.connect'), [
+        ->post(route('developers.gateways.connect', ['processor' => 'nomba']), [
             'mode' => 'test',
             'account_id' => 'account-123',
             'client_id' => 'client-123',
@@ -219,7 +219,7 @@ test('connecting fails gracefully when nomba is unreachable', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.nomba.connect'), [
+        ->post(route('developers.gateways.connect', ['processor' => 'nomba']), [
             'mode' => 'test',
             'account_id' => 'account-123',
             'client_id' => 'client-123',
@@ -250,7 +250,7 @@ test('live credentials connect independently of test credentials', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.nomba.connect'), [
+        ->post(route('developers.gateways.connect', ['processor' => 'nomba']), [
             'mode' => 'live',
             'account_id' => 'live-account-123',
             'client_id' => 'live-client-123',
@@ -258,7 +258,7 @@ test('live credentials connect independently of test credentials', function () {
             'webhook_secret' => 'whsec_live_1234567890',
         ]);
 
-    $response->assertRedirect(route('developers.nomba.show'));
+    $response->assertRedirect(route('developers.gateways.show', ['processor' => 'nomba']));
 
     $connection->refresh();
 
@@ -285,7 +285,7 @@ test('an already-connected mode can be re-verified', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.nomba.test'), ['mode' => 'test']);
+        ->post(route('developers.gateways.test', ['processor' => 'nomba']), ['mode' => 'test']);
 
     $response->assertRedirect();
     $response->assertInertiaFlash('toast', ['type' => 'success', 'message' => 'Connection verified.']);
@@ -304,9 +304,9 @@ test('a mode can be disconnected without affecting the other mode', function () 
 
     $response = $this
         ->actingAs($owner)
-        ->delete(route('developers.nomba.disconnect'), ['mode' => 'test']);
+        ->delete(route('developers.gateways.disconnect', ['processor' => 'nomba']), ['mode' => 'test']);
 
-    $response->assertRedirect(route('developers.nomba.show'));
+    $response->assertRedirect(route('developers.gateways.show', ['processor' => 'nomba']));
 
     $connection->refresh();
 
@@ -332,7 +332,7 @@ test('connecting requires a webhook secret', function () {
 
     $response = $this
         ->actingAs($owner)
-        ->post(route('developers.nomba.connect'), [
+        ->post(route('developers.gateways.connect', ['processor' => 'nomba']), [
             'mode' => 'test',
             'account_id' => 'account-123',
             'client_id' => 'client-123',
@@ -353,7 +353,7 @@ test('members without integrations.manage permission cannot connect nomba', func
 
     $response = $this
         ->actingAs($member)
-        ->post(route('developers.nomba.connect'), [
+        ->post(route('developers.gateways.connect', ['processor' => 'nomba']), [
             'mode' => 'test',
             'account_id' => 'account-123',
             'client_id' => 'client-123',

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\Nomba;
+namespace App\Services\Gateways\Nomba;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;

@@ -9,10 +9,10 @@ use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\PriceType;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Models\Customer;
 use App\Models\PaymentLink;
-use App\Services\Nomba\NombaModeResolver;
+use App\Services\Gateways\GatewayException;
+use App\Services\Gateways\GatewayModeResolver;
 use InvalidArgumentException;
 
 /**
@@ -25,7 +25,7 @@ class StartPaymentLinkCheckout
     public function __construct(
         private readonly CreateInvoice $createInvoice,
         private readonly GenerateInvoiceCheckout $generateCheckout,
-        private readonly NombaModeResolver $modeResolver,
+        private readonly GatewayModeResolver $modeResolver,
     ) {
         //
     }
@@ -34,7 +34,7 @@ class StartPaymentLinkCheckout
      * @param  array{name?: string|null, email: string}  $buyer
      *
      * @throws InvalidArgumentException
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function handle(PaymentLink $paymentLink, array $buyer): string
     {
@@ -159,7 +159,7 @@ class StartPaymentLinkCheckout
     }
 
     /**
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     private function startOneTimeCheckout(PaymentLink $paymentLink, Customer $customer): string
     {

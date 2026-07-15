@@ -13,8 +13,12 @@ use App\Models\PaymentMethod;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Persist a Nomba token as a customer payment method — shared by the merchant
- * charge-customer flow and invoice hosted checkout completion.
+ * Persist a gateway's card token as a customer payment method — shared by the
+ * merchant charge-customer flow, the portal, and hosted checkout completion.
+ *
+ * The processor is stored alongside the token because it decides where the
+ * card can ever be charged again (schema.md routing rule: tokens are
+ * gateway-bound).
  */
 class StoreTokenizedPaymentMethod
 {
@@ -27,17 +31,18 @@ class StoreTokenizedPaymentMethod
     /**
      * @param  array<string, mixed>  $card
      */
-    public function handle(Customer $customer, array $card, ApiKeyMode $mode, bool $makeDefault = false): PaymentMethod
+    public function handle(Customer $customer, PaymentProcessor $processor, array $card, ApiKeyMode $mode, bool $makeDefault = false): PaymentMethod
     {
-        $paymentMethod = DB::transaction(function () use ($customer, $card, $mode, $makeDefault): PaymentMethod {
+        $paymentMethod = DB::transaction(function () use ($customer, $processor, $card, $mode, $makeDefault): PaymentMethod {
             $isFirstCard = ! $customer->paymentMethods()->exists();
             $shouldDefault = $makeDefault || $isFirstCard;
 
+            // Keyed by processor as well as token: a token is only unique
+            // within the gateway that minted it.
             $paymentMethod = $customer->paymentMethods()->updateOrCreate(
-                ['processor_token' => $card['tokenKey']],
+                ['processor' => $processor, 'processor_token' => $card['tokenKey']],
                 [
                     'team_id' => $customer->team_id,
-                    'processor' => PaymentProcessor::Nomba,
                     'type' => PaymentMethodType::Card,
                     'brand' => $card['brand'] ?? null,
                     'last4' => $card['last4'] ?? null,

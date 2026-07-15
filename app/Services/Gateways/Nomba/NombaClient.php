@@ -1,21 +1,23 @@
 <?php
 
-namespace App\Services\Nomba;
+namespace App\Services\Gateways\Nomba;
 
 use App\Enums\ApiKeyMode;
-use App\Exceptions\Nomba\NombaConnectionException;
+use App\Services\Gateways\GatewayException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class NombaClient
 {
+    private const string GATEWAY = 'Nomba';
+
     /**
      * Exchange accountId/clientId/clientSecret for an access token.
      *
      * Nomba access tokens live for 30 minutes; we cache ours for slightly
      * less than that so callers never have to think about expiry.
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function accessToken(ApiKeyMode $mode, string $accountId, string $clientId, string $clientSecret): string
     {
@@ -30,7 +32,7 @@ class NombaClient
      * Verify a set of credentials are accepted by Nomba, without caching
      * the result — used when a user is connecting or re-validating.
      *
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     public function verifyCredentials(ApiKeyMode $mode, string $accountId, string $clientId, string $clientSecret): void
     {
@@ -38,7 +40,7 @@ class NombaClient
     }
 
     /**
-     * @throws NombaConnectionException
+     * @throws GatewayException
      */
     private function issueAccessToken(ApiKeyMode $mode, string $accountId, string $clientId, string $clientSecret): string
     {
@@ -52,7 +54,7 @@ class NombaClient
                     'client_secret' => $clientSecret,
                 ]);
         } catch (\Throwable) {
-            throw NombaConnectionException::unreachable();
+            throw GatewayException::unreachable(self::GATEWAY);
         }
 
         $body = $response->json();
@@ -62,14 +64,14 @@ class NombaClient
             $description = $body['description'] ?? 'Unknown error';
 
             throw in_array($code, ['01', '401'], true)
-                ? NombaConnectionException::invalidCredentials($description)
-                : NombaConnectionException::unknown($description);
+                ? GatewayException::invalidCredentials(self::GATEWAY, $description)
+                : GatewayException::unknown(self::GATEWAY, $description);
         }
 
         $accessToken = $body['data']['access_token'] ?? null;
 
         if (! is_string($accessToken)) {
-            throw NombaConnectionException::unknown('Malformed response from Nomba');
+            throw GatewayException::unknown(self::GATEWAY, 'Malformed response from Nomba');
         }
 
         return $accessToken;

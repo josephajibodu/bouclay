@@ -1,20 +1,24 @@
 <?php
 
-namespace App\Services\Nomba;
+namespace App\Services\Gateways;
 
 use App\Enums\ApiKeyMode;
 use App\Models\Team;
 use App\Models\TeamProcessorConnection;
 
 /**
- * Resolves which Nomba environment Bouclay runs in. The active mode comes
- * from {@see config('services.nomba.mode')} (default: live) — not from
- * per-request payload inspection or "whichever mode is connected".
+ * Resolves which processor environment Bouclay runs in. The active mode is a
+ * property of the deployment, not of the gateway: it comes from
+ * {@see config('services.nomba.mode')} (default: live) — not from per-request
+ * payload inspection or "whichever mode happens to be connected".
+ *
+ * The config key stays `services.nomba.mode` for continuity with deployments
+ * already setting `NOMBA_MODE`; it governs every driver.
  */
-class NombaModeResolver
+class GatewayModeResolver
 {
     /**
-     * The Nomba environment this deployment uses.
+     * The processor environment this deployment uses.
      */
     public function configuredMode(): ApiKeyMode
     {

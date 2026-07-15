@@ -2,48 +2,51 @@
 
 namespace App\Http\Controllers\Portal;
 
+use App\Actions\PaymentMethods\ResolveCheckoutToken;
 use App\Actions\PaymentMethods\StoreTokenizedPaymentMethod;
 use App\Enums\ApiKeyMode;
 use App\Enums\CollectionMode;
+use App\Enums\PaymentProcessor;
 use App\Enums\SubscriptionStatus;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Portal\Concerns\ResolvesPortalCustomer;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
-use App\Services\Nomba\NombaCheckout;
-use App\Services\Nomba\NombaModeResolver;
-use App\Services\Nomba\ResolveNombaTokenizedCard;
+use App\Services\Gateways\CheckoutIntents;
+use App\Services\Gateways\GatewayException;
+use App\Services\Gateways\GatewayManager;
+use App\Services\Gateways\GatewayModeResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response as HttpFoundationResponse;
 
 /**
- * Customer portal card update via Nomba hosted checkout + tokenisation.
+ * Customer portal card update via the team's gateway hosted checkout +
+ * tokenisation.
  */
 class PortalPaymentMethodController extends Controller
 {
     use ResolvesPortalCustomer;
 
     /**
-     * Nomba requires a charge to tokenise — a small verification amount.
+     * Tokenisation is a byproduct of a real payment — so a card update is a
+     * small verification charge.
      */
     private const string VERIFICATION_AMOUNT = '100.00';
 
     public function __construct(
-        private readonly NombaCheckout $checkout,
-        private readonly NombaModeResolver $modeResolver,
-        private readonly ResolveNombaTokenizedCard $resolveTokenizedCard,
+        private readonly GatewayManager $gateways,
+        private readonly GatewayModeResolver $modeResolver,
+        private readonly ResolveCheckoutToken $resolveCheckoutToken,
         private readonly StoreTokenizedPaymentMethod $storePaymentMethod,
     ) {
         //
     }
 
     /**
-     * Start Nomba hosted checkout to collect and tokenise a new card.
+     * Start hosted checkout to collect and tokenise a new card.
      */
     public function store(string $token): RedirectResponse|HttpFoundationResponse
     {
@@ -52,7 +55,7 @@ class PortalPaymentMethodController extends Controller
         $connection = $team->processorConnection;
         $mode = $this->modeResolver->forConnection($connection);
 
-        if ($mode === null) {
+        if ($connection === null || $mode === null) {
             return redirect()
                 ->route('portal.show', $customer->portal_token)
                 ->with('toast', [
@@ -64,17 +67,17 @@ class PortalPaymentMethodController extends Controller
         $currency = $customer->currency ?: $team->default_currency;
         $orderReference = (string) Str::uuid();
 
-        Cache::put("nomba_checkout:{$orderReference}", [
+        CheckoutIntents::put($orderReference, [
             'customer_id' => $customer->id,
             'team_id' => $team->id,
             'mode' => $mode->value,
             'set_default' => true,
             'attach_subscriptions' => true,
             'portal_token' => $customer->portal_token,
-        ], now()->addHour());
+        ]);
 
         try {
-            $result = $this->checkout->createOrder($connection, $mode, [
+            $result = $this->gateways->forConnection($connection)->createCheckout($connection, $mode, [
                 'amount' => self::VERIFICATION_AMOUNT,
                 'currency' => $currency,
                 'orderReference' => $orderReference,
@@ -83,8 +86,8 @@ class PortalPaymentMethodController extends Controller
                 'callbackUrl' => route('portal.payment-method.callback', $customer->portal_token),
                 'allowedPaymentMethods' => ['Card'],
             ], tokenizeCard: true);
-        } catch (NombaConnectionException $e) {
-            Cache::forget("nomba_checkout:{$orderReference}");
+        } catch (GatewayException $e) {
+            CheckoutIntents::clear($orderReference);
 
             return redirect()
                 ->route('portal.show', $customer->portal_token)
@@ -98,16 +101,17 @@ class PortalPaymentMethodController extends Controller
     }
 
     /**
-     * Nomba redirects here after payment — verify, tokenise, attach to subscriptions.
+     * The gateway redirects here after payment — verify, tokenise, attach to
+     * subscriptions.
      */
     public function callback(Request $request, string $token): RedirectResponse
     {
         $customer = $this->resolvePortalCustomer($token);
         $team = $customer->team;
         $orderReference = (string) $request->query('orderReference', '');
-        $intent = Cache::get("nomba_checkout:{$orderReference}");
+        $intent = CheckoutIntents::get($orderReference);
 
-        if ($orderReference === '' || ! is_array($intent) || ($intent['customer_id'] ?? null) !== $customer->id) {
+        if ($orderReference === '' || $intent === null || ($intent['customer_id'] ?? null) !== $customer->id) {
             return redirect()
                 ->route('portal.show', $customer->portal_token)
                 ->with('toast', [
@@ -121,13 +125,14 @@ class PortalPaymentMethodController extends Controller
 
         try {
             $succeeded = $connection !== null
-                && $this->checkout->verifyOrderSucceeded($connection, $mode, $orderReference);
-        } catch (NombaConnectionException) {
+                && $this->gateways->forConnection($connection)
+                    ->verifyCharge($connection, $mode, $orderReference);
+        } catch (GatewayException) {
             $succeeded = false;
         }
 
         if (! $succeeded) {
-            Cache::forget("nomba_checkout:{$orderReference}");
+            CheckoutIntents::clear($orderReference);
 
             return redirect()
                 ->route('portal.show', $customer->portal_token)
@@ -137,7 +142,7 @@ class PortalPaymentMethodController extends Controller
                 ]);
         }
 
-        $card = $this->resolveTokenizedCard->handle($connection, $mode, $customer, $orderReference);
+        $card = $this->resolveCheckoutToken->handle($connection, $mode, $customer, $orderReference);
 
         if ($card === null) {
             return redirect()
@@ -150,6 +155,7 @@ class PortalPaymentMethodController extends Controller
 
         $paymentMethod = $this->storePaymentMethod->handle(
             $customer,
+            PaymentProcessor::from($connection->processor),
             $card,
             $mode,
             (bool) ($intent['set_default'] ?? true),
@@ -159,8 +165,7 @@ class PortalPaymentMethodController extends Controller
             $this->attachToAutomaticSubscriptions($customer, $paymentMethod);
         }
 
-        Cache::forget("nomba_checkout:{$orderReference}");
-        Cache::forget("nomba_token:{$orderReference}");
+        CheckoutIntents::clear($orderReference);
 
         $label = trim(($card['brand'] ?? 'Card').' ···· '.($card['last4'] ?? ''));
 
@@ -189,10 +194,10 @@ class PortalPaymentMethodController extends Controller
             ->update(['payment_method_id' => $paymentMethod->id]);
     }
 
-    private function friendlyError(NombaConnectionException $e): string
+    private function friendlyError(GatewayException $e): string
     {
         return match ($e->reason) {
-            'unreachable' => 'Nomba isn’t responding right now. Please try again in a moment.',
+            'unreachable' => "{$e->gateway} isn’t responding right now. Please try again in a moment.",
             'invalid_credentials' => 'Card updates are temporarily unavailable. Please contact support.',
             default => 'We couldn’t start the checkout. Please try again.',
         };

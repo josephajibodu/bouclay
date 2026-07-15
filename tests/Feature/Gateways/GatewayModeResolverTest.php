@@ -3,10 +3,10 @@
 use App\Enums\ApiKeyMode;
 use App\Models\Team;
 use App\Models\TeamProcessorConnection;
-use App\Services\Nomba\NombaModeResolver;
+use App\Services\Gateways\GatewayModeResolver;
 
 beforeEach(function () {
-    $this->resolver = app(NombaModeResolver::class);
+    $this->resolver = app(GatewayModeResolver::class);
 });
 
 test('it returns null when no connection exists', function () {

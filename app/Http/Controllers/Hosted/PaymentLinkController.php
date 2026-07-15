@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Hosted;
 
 use App\Actions\PaymentLinks\StartPaymentLinkCheckout;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentLink;
+use App\Services\Gateways\GatewayException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -44,7 +44,7 @@ class PaymentLinkController extends Controller
 
         try {
             $checkoutLink = $startCheckout->handle($paymentLink, $validated);
-        } catch (InvalidArgumentException|NombaConnectionException $exception) {
+        } catch (InvalidArgumentException|GatewayException $exception) {
             return back()->with('checkoutError', $this->friendlyError($exception));
         }
 
@@ -59,9 +59,9 @@ class PaymentLinkController extends Controller
             ->firstOrFail();
     }
 
-    private function friendlyError(InvalidArgumentException|NombaConnectionException $exception): string
+    private function friendlyError(InvalidArgumentException|GatewayException $exception): string
     {
-        if ($exception instanceof NombaConnectionException) {
+        if ($exception instanceof GatewayException) {
             return match ($exception->reason) {
                 'unreachable' => 'Payments are temporarily unavailable. Please try again in a moment.',
                 'invalid_credentials' => 'This business needs to reconnect its payment account before checkout can start.',

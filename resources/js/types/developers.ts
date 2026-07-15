@@ -1,18 +1,42 @@
 export type ApiKeyMode = 'test' | 'live';
 export type ApiKeyKind = 'publishable' | 'secret';
 
-export type NombaModeStatus = {
-    connected: boolean;
-    connectedAt: string | null;
-    accountIdPreview: string | null;
-    subaccountIdPreview: string | null;
-    clientIdPreview: string | null;
-    webhookSecretSet: boolean;
+/** One credential field, as declared by a driver's configSchema() manifest. */
+export type GatewayConfigField = {
+    key: string;
+    label: string;
+    secret: boolean;
+    required: boolean;
+    help: string | null;
+    placeholder: string | null;
 };
 
-export type NombaConnection = {
-    test: NombaModeStatus;
-    live: NombaModeStatus;
+export type GatewayManifest = {
+    label: string;
+    docsUrl: string | null;
+    fields: GatewayConfigField[];
+};
+
+export type GatewayCapabilities = {
+    currencies: string[];
+    refunds: boolean;
+};
+
+/** What's saved for one mode. Secrets report `set` only — never a value. */
+export type GatewayFieldStatus = {
+    set: boolean;
+    preview: string | null;
+};
+
+export type GatewayModeStatus = {
+    connected: boolean;
+    connectedAt: string | null;
+    fields: Record<string, GatewayFieldStatus>;
+};
+
+export type GatewayConnection = {
+    test: GatewayModeStatus;
+    live: GatewayModeStatus;
 };
 
 export type ApiKey = {

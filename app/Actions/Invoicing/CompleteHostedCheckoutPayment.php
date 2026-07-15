@@ -2,30 +2,32 @@
 
 namespace App\Actions\Invoicing;
 
+use App\Actions\PaymentMethods\ResolveCheckoutToken;
 use App\Actions\PaymentMethods\StoreTokenizedPaymentMethod;
 use App\Actions\Subscriptions\CreateSubscriptionFromPaymentLinkInvoice;
 use App\Enums\ApiKeyMode;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Team;
-use App\Services\Nomba\NombaCheckout;
-use App\Services\Nomba\ResolveNombaTokenizedCard;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Gateways\CheckoutIntents;
+use App\Services\Gateways\GatewayException;
+use App\Services\Gateways\GatewayManager;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Finish an invoice payment after the customer returns from Nomba hosted checkout.
+ * Finish an invoice payment after the customer returns from a gateway's hosted
+ * checkout — the return leg, racing the same gateway's webhook. Either may
+ * arrive first; both settle idempotently through the invoice's payment rows.
  */
 class CompleteHostedCheckoutPayment
 {
     public function __construct(
-        private readonly NombaCheckout $checkout,
-        private readonly ResolveNombaTokenizedCard $resolveTokenizedCard,
+        private readonly GatewayManager $gateways,
+        private readonly ResolveCheckoutToken $resolveCheckoutToken,
         private readonly StoreTokenizedPaymentMethod $storePaymentMethod,
         private readonly SettleSubscriptionOnInvoicePayment $settleSubscription,
         private readonly CreateSubscriptionFromPaymentLinkInvoice $createPaymentLinkSubscription,
@@ -68,10 +70,9 @@ class CompleteHostedCheckoutPayment
             }
         }
 
-        /** @var array<string, mixed>|null $intent */
-        $intent = Cache::get("nomba_checkout:{$orderReference}");
+        $intent = CheckoutIntents::get($orderReference);
 
-        if (! is_array($intent) || empty($intent['invoice_id'])) {
+        if ($intent === null || empty($intent['invoice_id'])) {
             return [
                 'success' => false,
                 'invoice' => null,
@@ -135,8 +136,9 @@ class CompleteHostedCheckoutPayment
 
             try {
                 $succeeded = $connection !== null
-                    && $this->checkout->verifyOrderSucceeded($connection, $mode, $orderReference);
-            } catch (NombaConnectionException) {
+                    && $this->gateways->forConnection($connection)
+                        ->verifyCharge($connection, $mode, $orderReference);
+            } catch (GatewayException) {
                 $succeeded = false;
             }
 
@@ -153,7 +155,7 @@ class CompleteHostedCheckoutPayment
             $paymentMethod = null;
 
             if (! empty($intent['tokenize_card'])) {
-                $card = $this->resolveTokenizedCard->handle(
+                $card = $this->resolveCheckoutToken->handle(
                     $connection,
                     $mode,
                     $invoice->customer,
@@ -163,15 +165,24 @@ class CompleteHostedCheckoutPayment
                 if ($card !== null) {
                     $paymentMethod = $this->storePaymentMethod->handle(
                         $invoice->customer,
+                        PaymentProcessor::from($connection->processor),
                         $card,
                         $mode,
                         (bool) ($intent['set_default'] ?? false),
                     );
-
                 }
             }
 
-            $payment = $this->recordPayment($team, $invoice, $orderReference, $paymentMethod, $idempotencyKey);
+            // The charge settled on the connection we just verified it
+            // against — that's the processor this payment belongs to.
+            $payment = $this->recordPayment(
+                $team,
+                $invoice,
+                $orderReference,
+                $paymentMethod,
+                $idempotencyKey,
+                PaymentProcessor::from($connection->processor),
+            );
             $this->createPaymentLinkSubscription->handle($invoice, $paymentMethod);
             $invoice->refresh();
             $this->attachPaymentMethodToSubscription($invoice, $paymentMethod);
@@ -193,12 +204,13 @@ class CompleteHostedCheckoutPayment
         string $orderReference,
         ?PaymentMethod $paymentMethod,
         string $idempotencyKey,
+        PaymentProcessor $processor,
     ): Payment {
         return $invoice->payments()->create([
             'team_id' => $team->id,
             'customer_id' => $invoice->customer_id,
             'payment_method_id' => $paymentMethod?->id,
-            'processor' => PaymentProcessor::Nomba,
+            'processor' => $processor,
             'processor_reference' => $orderReference,
             'amount' => $invoice->total,
             'currency' => $invoice->currency,
@@ -222,18 +234,18 @@ class CompleteHostedCheckoutPayment
 
     private function clearCheckoutCaches(string $orderReference): void
     {
-        /** @var array<string, mixed>|null $intent */
-        $intent = Cache::get("nomba_checkout:{$orderReference}");
+        $intent = CheckoutIntents::get($orderReference);
 
-        if (is_array($intent) && ! empty($intent['api_checkout_session'])) {
-            Cache::put("nomba_checkout_completed:{$orderReference}", [
+        // An API-initiated session leaves a result behind: the client polls
+        // for the outcome, and the intent itself is about to go.
+        if ($intent !== null && ! empty($intent['api_checkout_session'])) {
+            CheckoutIntents::markCompleted($orderReference, [
                 'team_id' => $intent['team_id'],
                 'customer_id' => $intent['customer_id'],
                 'mode' => $intent['mode'],
-            ], now()->addDays(7));
+            ]);
         }
 
-        Cache::forget("nomba_checkout:{$orderReference}");
-        Cache::forget("nomba_token:{$orderReference}");
+        CheckoutIntents::clear($orderReference);
     }
 }

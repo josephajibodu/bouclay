@@ -2,23 +2,24 @@
 
 namespace App\Http\Controllers\Customers;
 
+use App\Actions\PaymentMethods\ResolveCheckoutToken;
 use App\Actions\PaymentMethods\StoreTokenizedPaymentMethod;
 use App\Enums\ApiKeyMode;
-use App\Exceptions\Nomba\NombaConnectionException;
+use App\Enums\PaymentProcessor;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
-use App\Services\Nomba\NombaCheckout;
-use App\Services\Nomba\NombaModeResolver;
-use App\Services\Nomba\ResolveNombaTokenizedCard;
+use App\Services\Gateways\CheckoutIntents;
+use App\Services\Gateways\GatewayException;
+use App\Services\Gateways\GatewayManager;
+use App\Services\Gateways\GatewayModeResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 /**
- * Charge a customer via a Nomba hosted checkout. The point is
+ * Charge a customer via the team's gateway hosted checkout. The point is
  * tokenisation-as-a-byproduct: a card is saved when the customer pays
  * (CUSTOMERS_DESIGN §10.3, §10.8). The charge runs in whichever mode the
  * team has connected — live if a live account is connected, otherwise test.
@@ -26,9 +27,9 @@ use Inertia\Inertia;
 class ChargeController extends Controller
 {
     public function __construct(
-        private readonly NombaCheckout $checkout,
-        private readonly NombaModeResolver $modeResolver,
-        private readonly ResolveNombaTokenizedCard $resolveTokenizedCard,
+        private readonly GatewayManager $gateways,
+        private readonly GatewayModeResolver $modeResolver,
+        private readonly ResolveCheckoutToken $resolveCheckoutToken,
         private readonly StoreTokenizedPaymentMethod $storePaymentMethod,
     ) {
         //
@@ -50,10 +51,10 @@ class ChargeController extends Controller
         $connection = $team->processorConnection;
         $mode = $this->modeResolver->forConnection($connection);
 
-        if ($mode === null) {
+        if ($connection === null || $mode === null) {
             Inertia::flash('toast', [
                 'type' => 'error',
-                'message' => 'Connect your Nomba account to collect a card.',
+                'message' => 'Connect a payment gateway to collect a card.',
             ]);
 
             return back();
@@ -68,16 +69,16 @@ class ChargeController extends Controller
         $orderReference = (string) Str::uuid();
 
         // Remember what this checkout is for — including the mode — so the
-        // callback finishes it against the same Nomba environment.
-        Cache::put("nomba_checkout:{$orderReference}", [
+        // callback finishes it against the same environment.
+        CheckoutIntents::put($orderReference, [
             'customer_id' => $customer->id,
             'team_id' => $team->id,
             'mode' => $mode->value,
             'set_default' => (bool) ($validated['set_default'] ?? false),
-        ], now()->addHour());
+        ]);
 
         try {
-            $result = $this->checkout->createOrder($connection, $mode, [
+            $result = $this->gateways->forConnection($connection)->createCheckout($connection, $mode, [
                 'amount' => number_format((float) $validated['amount'], 2, '.', ''),
                 'currency' => $currency,
                 'orderReference' => $orderReference,
@@ -85,11 +86,11 @@ class ChargeController extends Controller
                 'customerEmail' => $customer->email,
                 'callbackUrl' => route('customers.charge.callback', $customer),
                 // Tokenisation only works with cards, so restrict the hosted
-                // page to card payments (Nomba won't tokenise a transfer/USSD).
+                // page to card payments (a transfer/USSD mints no token).
                 'allowedPaymentMethods' => ['Card'],
             ]);
-        } catch (NombaConnectionException $e) {
-            Cache::forget("nomba_checkout:{$orderReference}");
+        } catch (GatewayException $e) {
+            CheckoutIntents::clear($orderReference);
 
             Inertia::flash('toast', ['type' => 'error', 'message' => $this->friendlyError($e)]);
 
@@ -105,8 +106,8 @@ class ChargeController extends Controller
     }
 
     /**
-     * Nomba redirects the customer here after payment. Verify the charge,
-     * capture the token, and persist the payment method.
+     * The gateway redirects the customer here after payment. Verify the
+     * charge, capture the token, and persist the payment method.
      */
     public function callback(Request $request, Customer $customer): RedirectResponse
     {
@@ -117,7 +118,7 @@ class ChargeController extends Controller
         Gate::authorize('manageCustomers', $team);
 
         $orderReference = (string) $request->query('orderReference', '');
-        $intent = Cache::get("nomba_checkout:{$orderReference}");
+        $intent = CheckoutIntents::get($orderReference);
 
         if (! $orderReference || ! $intent || $intent['customer_id'] !== $customer->id) {
             Inertia::flash('toast', ['type' => 'error', 'message' => 'We couldn’t match that checkout. Please try again.']);
@@ -130,13 +131,14 @@ class ChargeController extends Controller
 
         try {
             $succeeded = $connection !== null
-                && $this->checkout->verifyOrderSucceeded($connection, $mode, $orderReference);
-        } catch (NombaConnectionException) {
+                && $this->gateways->forConnection($connection)
+                    ->verifyCharge($connection, $mode, $orderReference);
+        } catch (GatewayException) {
             $succeeded = false;
         }
 
         if (! $succeeded) {
-            Cache::forget("nomba_checkout:{$orderReference}");
+            CheckoutIntents::clear($orderReference);
 
             Inertia::flash('toast', [
                 'type' => 'error',
@@ -146,21 +148,26 @@ class ChargeController extends Controller
             return to_route('customers.show', $customer);
         }
 
-        $card = $this->resolveTokenizedCard->handle($connection, $mode, $customer, $orderReference);
+        $card = $this->resolveCheckoutToken->handle($connection, $mode, $customer, $orderReference);
 
         if ($card === null) {
             Inertia::flash('toast', [
                 'type' => 'error',
-                'message' => 'Payment succeeded, but we couldn’t read the card token from Nomba. Please retry.',
+                'message' => 'Payment succeeded, but we couldn’t read the card token. Please retry.',
             ]);
 
             return to_route('customers.show', $customer);
         }
 
-        $this->storePaymentMethod->handle($customer, $card, $mode, (bool) $intent['set_default']);
+        $this->storePaymentMethod->handle(
+            $customer,
+            PaymentProcessor::from($connection->processor),
+            $card,
+            $mode,
+            (bool) $intent['set_default'],
+        );
 
-        Cache::forget("nomba_checkout:{$orderReference}");
-        Cache::forget("nomba_token:{$orderReference}");
+        CheckoutIntents::clear($orderReference);
 
         $label = trim(($card['brand'] ?? 'Card').' ···· '.($card['last4'] ?? ''));
         Inertia::flash('toast', ['type' => 'success', 'message' => "Card added — {$label}"]);
@@ -168,11 +175,11 @@ class ChargeController extends Controller
         return to_route('customers.show', $customer);
     }
 
-    private function friendlyError(NombaConnectionException $e): string
+    private function friendlyError(GatewayException $e): string
     {
         return match ($e->reason) {
-            'unreachable' => 'Nomba isn’t responding right now. Please try again in a moment.',
-            'invalid_credentials' => 'Your Nomba test credentials were rejected. Reconnect Nomba and try again.',
+            'unreachable' => "{$e->gateway} isn’t responding right now. Please try again in a moment.",
+            'invalid_credentials' => "Your {$e->gateway} credentials were rejected. Reconnect and try again.",
             default => 'We couldn’t start the checkout. Please try again.',
         };
     }

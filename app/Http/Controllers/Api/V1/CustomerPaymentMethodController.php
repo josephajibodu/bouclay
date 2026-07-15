@@ -2,21 +2,18 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\PaymentMethods\RevokePaymentMethodToken;
 use App\Enums\PaymentMethodStatus;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Http\Controllers\Api\V1Controller;
 use App\Models\Customer;
 use App\Models\PaymentMethod;
-use App\Models\Team;
-use App\Services\Nomba\NombaCheckout;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class CustomerPaymentMethodController extends V1Controller
 {
-    public function __construct(private readonly NombaCheckout $checkout)
+    public function __construct(private readonly RevokePaymentMethodToken $revokeToken)
     {
         //
     }
@@ -60,7 +57,7 @@ class CustomerPaymentMethodController extends V1Controller
 
         $method = $this->findPaymentMethodForApi($customerModel, $paymentMethod, $context);
 
-        $this->revokeTokenOnNomba($context->team, $method);
+        $this->revokeToken->handle($context->team, $method);
 
         DB::transaction(function () use ($customerModel, $method, $context) {
             if ($customerModel->default_payment_method_id === $method->id) {
@@ -83,25 +80,5 @@ class CustomerPaymentMethodController extends V1Controller
         });
 
         return response()->json(null, 204);
-    }
-
-    private function revokeTokenOnNomba(Team $team, PaymentMethod $paymentMethod): void
-    {
-        $connection = $team->processorConnection;
-
-        if ($connection === null) {
-            return;
-        }
-
-        $mode = $this->resolvePaymentMethodMode($paymentMethod);
-
-        try {
-            $this->checkout->deleteTokenizedCard($connection, $mode, $paymentMethod->processor_token);
-        } catch (NombaConnectionException $e) {
-            Log::warning('Failed to revoke Nomba token on payment method removal', [
-                'payment_method_id' => $paymentMethod->id,
-                'reason' => $e->reason,
-            ]);
-        }
     }
 }

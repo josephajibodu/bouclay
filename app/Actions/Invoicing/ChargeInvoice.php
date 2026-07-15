@@ -5,14 +5,14 @@ namespace App\Actions\Invoicing;
 use App\Actions\Webhooks\EmitInvoicePaymentFailed;
 use App\Enums\ApiKeyMode;
 use App\Enums\PaymentStatus;
-use App\Exceptions\Nomba\NombaConnectionException;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Team;
+use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
+use App\Services\Gateways\GatewayModeResolver;
 use App\Services\Invoicing\ClassifyPaymentFailure;
-use App\Services\Nomba\NombaModeResolver;
 use Illuminate\Support\Str;
 
 /**
@@ -28,7 +28,7 @@ class ChargeInvoice
 {
     public function __construct(
         private readonly GatewayManager $gateways,
-        private readonly NombaModeResolver $modeResolver,
+        private readonly GatewayModeResolver $modeResolver,
         private readonly ClassifyPaymentFailure $classifyFailure,
         private readonly EmitInvoicePaymentFailed $emitInvoicePaymentFailed,
     ) {
@@ -68,15 +68,18 @@ class ChargeInvoice
                 'customerEmail' => $invoice->customer->email,
                 'amount' => number_format($invoice->total / 100, 2, '.', ''),
                 'currency' => $invoice->currency,
-                'callbackUrl' => route('webhooks.nomba.receive', $connection->inbound_webhook_token),
+                'callbackUrl' => route('webhooks.gateway.receive', [
+                    'processor' => $paymentMethod->processor->value,
+                    'token' => $connection->inbound_webhook_token,
+                ]),
             ], $paymentMethod->processor_token);
 
             // Never trust the synchronous response alone — confirm via the
             // driver's verify call before granting value.
             $approved = $result['approved']
                 && $gateway->verifyCharge($connection, $mode, $orderReference);
-        } catch (NombaConnectionException $e) {
-            return $this->recordFailure($invoice, $paymentMethod, $orderReference, $idempotencyKey, $attemptNumber, $this->friendlyError($e));
+        } catch (GatewayException $e) {
+            return $this->recordFailure($invoice, $paymentMethod, $orderReference, $idempotencyKey, $attemptNumber, $e->friendlyMessage());
         }
 
         if (! $approved) {
@@ -132,14 +135,5 @@ class ChargeInvoice
         $this->emitInvoicePaymentFailed->handle($invoice, $payment);
 
         return $payment;
-    }
-
-    private function friendlyError(NombaConnectionException $e): string
-    {
-        return match ($e->reason) {
-            'unreachable' => 'Nomba isn’t responding right now.',
-            'invalid_credentials' => 'Nomba credentials were rejected.',
-            default => 'The charge could not be completed.',
-        };
     }
 }

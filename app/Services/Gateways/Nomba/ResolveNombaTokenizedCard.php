@@ -1,16 +1,21 @@
 <?php
 
-namespace App\Services\Nomba;
+namespace App\Services\Gateways\Nomba;
 
+use App\Actions\PaymentMethods\ResolveCheckoutToken;
 use App\Enums\ApiKeyMode;
-use App\Exceptions\Nomba\NombaConnectionException;
-use App\Models\Customer;
 use App\Models\TeamProcessorConnection;
-use Illuminate\Support\Facades\Cache;
+use App\Services\Gateways\GatewayException;
 
 /**
- * Resolve tokenised card data for a checkout order — webhook stash first,
- * email-keyed list as fallback (CUSTOMERS_DESIGN §10.3).
+ * Ask Nomba for the card token minted by a checkout — the synchronous
+ * fallback for when the webhook carrying it hasn't arrived yet
+ * (CUSTOMERS_DESIGN §10.3). Nomba only exposes tokens keyed by customer
+ * email, so the latest card for that email is the best available answer.
+ *
+ * The webhook stash is checked before this, by the shared
+ * {@see ResolveCheckoutToken} — that cache is
+ * Bouclay's own plumbing and stays out of the driver.
  */
 class ResolveNombaTokenizedCard
 {
@@ -20,27 +25,16 @@ class ResolveNombaTokenizedCard
     }
 
     /**
-     * @return array<string, mixed>|null
+     * @return array{tokenKey: string, brand: string|null, last4: string|null, expiry: string|null}|null
      */
     public function handle(
-        ?TeamProcessorConnection $connection,
+        TeamProcessorConnection $connection,
         ApiKeyMode $mode,
-        Customer $customer,
-        string $orderReference,
+        string $customerEmail,
     ): ?array {
-        $fromWebhook = Cache::get("nomba_token:{$orderReference}");
-
-        if (is_array($fromWebhook) && ! empty($fromWebhook['tokenKey'])) {
-            return $fromWebhook;
-        }
-
-        if ($connection === null) {
-            return null;
-        }
-
         try {
-            $cards = $this->checkout->listTokenizedCards($connection, $mode, $customer->email);
-        } catch (NombaConnectionException) {
+            $cards = $this->checkout->listTokenizedCards($connection, $mode, $customerEmail);
+        } catch (GatewayException) {
             return null;
         }
 
@@ -51,7 +45,7 @@ class ResolveNombaTokenizedCard
         }
 
         return [
-            'tokenKey' => $latest['tokenKey'],
+            'tokenKey' => (string) $latest['tokenKey'],
             'brand' => $latest['cardType'] ?? null,
             'last4' => $this->last4($latest['cardPan'] ?? null),
             'expiry' => $latest['tokenExpirationDate'] ?? null,
