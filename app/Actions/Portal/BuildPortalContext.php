@@ -215,10 +215,13 @@ class BuildPortalContext
      */
     public function paymentListItem(Payment $payment): array
     {
-        $payment->loadMissing(['invoice.lines', 'paymentMethod']);
+        $payment->loadMissing(['invoice.lines', 'paymentMethod', 'refunds']);
 
         return [
             'publicId' => $payment->public_id,
+            // A customer looking at their own history should see money that
+            // came back, not just what went out.
+            'refundedAmount' => $payment->refundedAmount(),
             'amount' => $payment->amount,
             'currency' => $payment->currency,
             'status' => $payment->status->value,

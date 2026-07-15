@@ -106,6 +106,17 @@ export default function PortalPaymentsIndex({
                                             {payment.paymentMethodLabel && (
                                                 <> · {payment.paymentMethodLabel}</>
                                             )}
+                                            {payment.refundedAmount > 0 && (
+                                                <>
+                                                    {' '}
+                                                    ·{' '}
+                                                    {formatPortalMoney(
+                                                        payment.refundedAmount,
+                                                        payment.currency,
+                                                    )}{' '}
+                                                    refunded
+                                                </>
+                                            )}
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-3">

@@ -3,6 +3,7 @@
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\RefundStatus;
 use App\Enums\ScheduledChangeAction;
 use App\Enums\SubscriptionStatus;
 use App\Models\Customer;
@@ -10,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\Product;
+use App\Models\Refund;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
 use App\Models\Team;
@@ -330,3 +332,44 @@ function fakePortalNomba(?string &$capturedOrderReference): void
         };
     });
 }
+
+test('the portal payments page shows how much of a charge was refunded', function () {
+    $team = Team::factory()->create(['default_currency' => 'NGN']);
+    $customer = Customer::factory()->for($team)->create(['currency' => 'NGN']);
+    $invoice = Invoice::factory()->for($team)->for($customer)->paid()->create([
+        'currency' => 'NGN',
+        'total' => 500000,
+        'amount_due' => 0,
+        'amount_paid' => 500000,
+    ]);
+
+    $payment = Payment::factory()->for($team)->for($customer)->for($invoice)->create([
+        'status' => PaymentStatus::Succeeded,
+        'amount' => 500000,
+        'currency' => 'NGN',
+        'processed_at' => now(),
+    ]);
+
+    Refund::factory()->for($payment)->create([
+        'team_id' => $team->id,
+        'invoice_id' => $invoice->id,
+        'amount' => 150000,
+        'currency' => 'NGN',
+        'status' => RefundStatus::Succeeded,
+    ]);
+
+    // A failed refund moved no money, so it must not show as returned.
+    Refund::factory()->for($payment)->create([
+        'team_id' => $team->id,
+        'invoice_id' => $invoice->id,
+        'amount' => 90000,
+        'currency' => 'NGN',
+        'status' => RefundStatus::Failed,
+    ]);
+
+    $this->get(route('portal.payments.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('portal/payments/index')
+            ->where('payments.0.refundedAmount', 150000));
+});

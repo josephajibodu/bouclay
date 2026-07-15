@@ -102,6 +102,8 @@ export type PortalPayment = {
     invoiceNumber: string | null;
     invoicePayUrl: string;
     paymentMethodLabel: string | null;
+    /** How much of this charge has been refunded, in minor units. */
+    refundedAmount: number;
 };
 
 export type PortalOpenInvoice = {
