@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Developers;
 
+use App\Actions\Gateways\SetDefaultGateway;
 use App\Enums\ApiKeyMode;
 use App\Http\Controllers\Controller;
 use App\Models\TeamProcessorConnection;
 use App\Services\Gateways\GatewayConfigSchema;
 use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayManager;
+use App\Services\Gateways\PaymentGateway;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -25,14 +27,82 @@ use Inertia\Response;
  */
 class GatewayConnectionController extends Controller
 {
-    public function __construct(private readonly GatewayManager $gateways)
-    {
+    public function __construct(
+        private readonly GatewayManager $gateways,
+        private readonly SetDefaultGateway $setDefaultGateway,
+    ) {
         //
     }
 
     /**
      * Show the connection page for one gateway.
      */
+    /**
+     * Every gateway Bouclay can talk to, with this team's status for each.
+     *
+     * Enumerated from the driver registry, so registering a driver is the
+     * whole of shipping a gateway — this page needs no edit to show it.
+     */
+    public function index(Request $request): Response
+    {
+        $team = $request->user()->currentTeam;
+
+        Gate::authorize('viewIntegrations', $team);
+
+        $connections = $team->processorConnections()->get()->keyBy('processor');
+
+        $gateways = collect($this->gateways->all())
+            ->map(function (PaymentGateway $driver, string $processor) use ($connections) {
+                $connection = $connections->get($processor);
+                $schema = $driver->configSchema();
+
+                return [
+                    'processor' => $processor,
+                    'label' => $schema->label,
+                    'docsUrl' => $schema->docsUrl,
+                    'currencies' => $driver->capabilities()->currencies,
+                    'testConnected' => $connection?->isConnected(ApiKeyMode::Test) ?? false,
+                    'liveConnected' => $connection?->isConnected(ApiKeyMode::Live) ?? false,
+                    'isDefault' => $connection !== null && $connection->is_default,
+                    'url' => route('developers.gateways.show', ['processor' => $processor]),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return Inertia::render('developers/gateways', [
+            'gateways' => $gateways,
+            'canManage' => $request->user()->toTeamPermissions($team)->canManageIntegrations,
+        ]);
+    }
+
+    /**
+     * Choose which gateway new checkouts route through.
+     */
+    public function setDefault(Request $request, string $processor): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        Gate::authorize('manageIntegrations', $team);
+
+        $connection = $this->connectionFor($processor, $request);
+
+        // Defaulting to a gateway with no credentials would fail every new
+        // checkout, so refuse rather than accept a setting that can't work.
+        abort_if(! $connection || ! $connection->hasAnyConnection(), 404);
+
+        $this->setDefaultGateway->handle($team, $connection);
+
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => __('New checkouts will now go through :gateway.', [
+                'gateway' => $this->schemaFor($processor)->label,
+            ]),
+        ]);
+
+        return to_route('developers.gateways.index');
+    }
+
     public function show(Request $request, string $processor): Response
     {
         $team = $request->user()->currentTeam;
@@ -174,6 +244,9 @@ class GatewayConnectionController extends Controller
                 'live_connected_at' => null,
             ],
         });
+
+        // Don't strand the team defaulted to a gateway they just disconnected.
+        $this->setDefaultGateway->ensureConnectedDefault($team);
 
         Inertia::flash('toast', [
             'type' => 'success',

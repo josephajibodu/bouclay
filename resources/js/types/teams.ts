@@ -79,12 +79,12 @@ export type DashboardSummary = {
 
 export type OnboardingState = {
     businessConfirmed: boolean;
-    nombaConnected: boolean;
+    gatewayConnected: boolean;
     apiKeyGenerated: boolean;
     webhookVerified: boolean;
     firstProductCreated: boolean;
     links: {
-        nomba: string;
+        gateways: string;
         apiKeys: string;
         webhooks: string;
         products: string;

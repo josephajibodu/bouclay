@@ -90,13 +90,13 @@ export default function Dashboard({
                 done: onboarding.businessConfirmed,
             },
             {
-                key: 'nomba',
-                title: 'Connect your Nomba account',
+                key: 'gateway',
+                title: 'Connect a payment gateway',
                 description:
-                    'Bouclay never touches your money — Nomba does. Start with test keys, no risk.',
-                href: onboarding.links.nomba,
+                    'Bouclay never touches your money — your gateway does. Start with test keys, no risk.',
+                href: onboarding.links.gateways,
                 cta: 'Connect',
-                done: onboarding.nombaConnected,
+                done: onboarding.gatewayConnected,
             },
             {
                 key: 'apiKey',

@@ -57,6 +57,19 @@ export type GeneratedApiKey = {
     key: string;
 };
 
+/** One registered gateway, as the gateway list page sees it. */
+export type GatewaySummary = {
+    processor: string;
+    label: string;
+    docsUrl: string | null;
+    currencies: string[];
+    testConnected: boolean;
+    liveConnected: boolean;
+    /** Governs new checkouts only; saved cards charge through their issuer. */
+    isDefault: boolean;
+    url: string;
+};
+
 export type WebhookConnection = {
     inboundUrl: string;
     reachable: boolean;

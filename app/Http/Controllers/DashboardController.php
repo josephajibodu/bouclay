@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\ApiKeyMode;
 use App\Enums\CatalogStatus;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
@@ -15,6 +14,7 @@ use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\Team;
 use App\Models\TeamInvitation;
+use App\Models\TeamProcessorConnection;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -121,7 +121,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * @return array{businessConfirmed: bool, nombaConnected: bool, apiKeyGenerated: bool, webhookVerified: bool, firstProductCreated: bool, links: array{nomba: string, apiKeys: string, webhooks: string, products: string}}
+     * @return array{businessConfirmed: bool, gatewayConnected: bool, apiKeyGenerated: bool, webhookVerified: bool, firstProductCreated: bool, links: array{gateways: string, apiKeys: string, webhooks: string, products: string}}
      */
     private function onboardingState(Team $team): array
     {
@@ -129,13 +129,15 @@ class DashboardController extends Controller
 
         return [
             'businessConfirmed' => $team->line1 !== null && $team->city !== null && $team->country !== null,
-            'nombaConnected' => $connection !== null
-                && ($connection->isConnected(ApiKeyMode::Test) || $connection->isConnected(ApiKeyMode::Live)),
+            // Any gateway counts — the step is "take payments", not "use Nomba".
+            'gatewayConnected' => $team->processorConnections()
+                ->get()
+                ->contains(fn (TeamProcessorConnection $candidate): bool => $candidate->hasAnyConnection()),
             'apiKeyGenerated' => $team->apiKeys()->whereNull('revoked_at')->exists(),
             'webhookVerified' => $connection?->webhook_verified_at !== null,
             'firstProductCreated' => $team->products()->exists(),
             'links' => [
-                'nomba' => route('developers.gateways.show', ['processor' => 'nomba']),
+                'gateways' => route('developers.gateways.index'),
                 'apiKeys' => route('developers.api-keys.index'),
                 'webhooks' => route('developers.webhooks.show'),
                 'products' => route('catalog.products.index'),

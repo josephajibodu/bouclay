@@ -13,7 +13,9 @@ Route::prefix('developers')
     ->group(function () {
         // One connect page per driver, rendered from its configSchema()
         // manifest — a new gateway needs no route of its own.
+        Route::get('gateways', [GatewayConnectionController::class, 'index'])->name('gateways.index');
         Route::get('gateways/{processor}', [GatewayConnectionController::class, 'show'])->name('gateways.show');
+        Route::post('gateways/{processor}/default', [GatewayConnectionController::class, 'setDefault'])->name('gateways.set-default');
         Route::post('gateways/{processor}/connect', [GatewayConnectionController::class, 'connect'])->name('gateways.connect');
         Route::post('gateways/{processor}/test', [GatewayConnectionController::class, 'test'])->name('gateways.test');
         Route::delete('gateways/{processor}/disconnect', [GatewayConnectionController::class, 'disconnect'])->name('gateways.disconnect');

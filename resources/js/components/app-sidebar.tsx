@@ -26,7 +26,7 @@ import { show as billingSettings } from '@/routes/billing-settings';
 import { index as products } from '@/routes/catalog/products';
 import { index as customers } from '@/routes/customers';
 import { index as apiKeys } from '@/routes/developers/api-keys';
-import { show as gatewayIntegration } from '@/routes/developers/gateways';
+import { index as gatewaysIndex } from '@/routes/developers/gateways';
 import { show as webhooks } from '@/routes/developers/webhooks';
 import { index as discounts } from '@/routes/discounts';
 import { index as invoices } from '@/routes/invoices';
@@ -53,8 +53,8 @@ export function AppSidebar() {
               ...(teamPermissions?.canViewIntegrations
                   ? [
                         {
-                            title: 'Nomba Integration',
-                            href: gatewayIntegration({ processor: 'nomba' }),
+                            title: 'Payment gateways',
+                            href: gatewaysIndex(),
                         },
                     ]
                   : []),

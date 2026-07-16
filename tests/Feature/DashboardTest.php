@@ -258,7 +258,7 @@ test('a fresh team starts with an incomplete onboarding checklist', function () 
     $response->assertInertia(fn (Assert $page) => $page
         ->component('dashboard')
         ->where('onboarding.businessConfirmed', false)
-        ->where('onboarding.nombaConnected', false)
+        ->where('onboarding.gatewayConnected', false)
         ->where('onboarding.apiKeyGenerated', false)
         ->where('onboarding.webhookVerified', false),
     );
@@ -281,10 +281,10 @@ test('the onboarding checklist reflects completed setup steps', function () {
     $response->assertInertia(fn (Assert $page) => $page
         ->component('dashboard')
         ->where('onboarding.businessConfirmed', true)
-        ->where('onboarding.nombaConnected', true)
+        ->where('onboarding.gatewayConnected', true)
         ->where('onboarding.apiKeyGenerated', true)
         ->where('onboarding.webhookVerified', true)
-        ->where('onboarding.links.nomba', route('developers.gateways.show', ['processor' => 'nomba']))
+        ->where('onboarding.links.gateways', route('developers.gateways.index'))
         ->where('onboarding.links.apiKeys', route('developers.api-keys.index'))
         ->where('onboarding.links.webhooks', route('developers.webhooks.show')),
     );

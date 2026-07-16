@@ -86,6 +86,14 @@ class TeamProcessorConnection extends Model
     }
 
     /**
+     * Whether this gateway is usable at all — connected in either mode.
+     */
+    public function hasAnyConnection(): bool
+    {
+        return $this->isConnected(ApiKeyMode::Test) || $this->isConnected(ApiKeyMode::Live);
+    }
+
+    /**
      * Get the raw credential blob for the given mode.
      *
      * @return array<string, string|null>
