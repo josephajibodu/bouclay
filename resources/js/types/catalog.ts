@@ -59,6 +59,8 @@ export type Plan = {
     code: string | null;
     name: string;
     status: PlanStatus;
+    /** Entitlements this plan grants its subscribers. */
+    entitlementIds: number[];
 };
 
 export type OtherProduct = {
@@ -87,4 +89,38 @@ export type ProductDetail = {
     status: CatalogStatus;
     customData: Record<string, string> | null;
     createdAt: string | null;
+    /** Entitlements this product grants across all its plans. */
+    entitlementIds: number[];
+};
+
+/** An entitlement as the grants editor on a plan/product page sees it. */
+export type GrantableEntitlement = {
+    id: number;
+    code: string;
+    name: string;
+};
+
+/** One plan/product that grants an entitlement (IMPLEMENTATION_V2 §V2-5). */
+export type CatalogEntitlementGrant = {
+    id: number;
+    /** The enforced morph alias — `plan` or `product`, never a class name. */
+    grantorType: string;
+    grantorId: number;
+    grantorName: string;
+};
+
+export type CatalogEntitlement = {
+    id: number;
+    publicId: string;
+    /** What application code gates on. Immutable once created. */
+    code: string;
+    name: string;
+    description: string | null;
+    grants: CatalogEntitlementGrant[];
+};
+
+/** The plans and products a team can grant entitlements from. */
+export type EntitlementGrantors = {
+    plans: { id: number; name: string }[];
+    products: { id: number; name: string }[];
 };

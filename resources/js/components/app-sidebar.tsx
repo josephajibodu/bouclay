@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
 import { show as billingSettings } from '@/routes/billing-settings';
+import { index as entitlements } from '@/routes/catalog/entitlements';
 import { index as products } from '@/routes/catalog/products';
 import { index as customers } from '@/routes/customers';
 import { index as apiKeys } from '@/routes/developers/api-keys';
@@ -41,6 +42,9 @@ export function AppSidebar() {
         ? [
               ...(teamPermissions?.canViewProducts
                   ? [{ title: 'Products', href: products() }]
+                  : []),
+              ...(teamPermissions?.canViewEntitlements
+                  ? [{ title: 'Entitlements', href: entitlements() }]
                   : []),
               ...(teamPermissions?.canViewDiscounts
                   ? [{ title: 'Discounts', href: discounts() }]

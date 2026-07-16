@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\CheckoutSessionController;
 use App\Http\Controllers\Api\V1\CustomerAddressController;
 use App\Http\Controllers\Api\V1\CustomerController;
+use App\Http\Controllers\Api\V1\CustomerEntitlementController;
 use App\Http\Controllers\Api\V1\CustomerPaymentMethodController;
 use App\Http\Controllers\Api\V1\DiscountController;
 use App\Http\Controllers\Api\V1\EventController;
@@ -20,6 +21,9 @@ Route::get('customers/{customer}', [CustomerController::class, 'show']);
 Route::patch('customers/{customer}', [CustomerController::class, 'update']);
 Route::post('customers/{customer}/archive', [CustomerController::class, 'archive']);
 Route::post('customers/{customer}/restore', [CustomerController::class, 'restore']);
+
+Route::get('customers/{customer}/entitlements', [CustomerEntitlementController::class, 'index']);
+Route::get('customers/{customer}/entitlements/{code}', [CustomerEntitlementController::class, 'show']);
 
 Route::get('customers/{customer}/addresses', [CustomerAddressController::class, 'index']);
 Route::post('customers/{customer}/addresses', [CustomerAddressController::class, 'store']);

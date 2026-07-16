@@ -255,6 +255,18 @@ class Subscription extends Model
     /**
      * Serialise for integrator webhook payloads.
      *
+     * Carries the customer's entitlement codes so an integrator can gate on
+     * webhooks alone (IMPLEMENTATION_V2 §V2-5), without calling back for the
+     * access list on every event.
+     *
+     * They hang off `customer` because that is whose access it is: the union
+     * across *all* their subscriptions, not just this one. That distinction is
+     * what makes the payload usable — on a cancel event, a customer who still
+     * holds `hd_streaming` through another subscription must not be locked
+     * out, and this subscription's own grants could not tell you that.
+     * Resolved after the state change is persisted, so it reflects access as
+     * of this event.
+     *
      * @return array<string, mixed>
      */
     public function toWebhookObject(): array
@@ -273,6 +285,7 @@ class Subscription extends Model
                 'publicId' => $this->customer->public_id,
                 'email' => $this->customer->email,
                 'name' => $this->customer->name,
+                'entitlements' => $this->customer->entitlementCodes(),
             ],
             'createdAt' => $this->created_at?->toISOString(),
         ];

@@ -17,6 +17,10 @@ import CreatePriceDrawer from '@/components/catalog/create-price-drawer';
 import EditMetadataDrawer from '@/components/catalog/edit-metadata-drawer';
 import EditPriceDrawer from '@/components/catalog/edit-price-drawer';
 import EditProductDrawer from '@/components/catalog/edit-product-drawer';
+import {
+    GrantedBadges,
+    GrantsEditor,
+} from '@/components/catalog/grants-editor';
 import PaymentLinkModal from '@/components/catalog/payment-link-modal';
 import PlanDrawer from '@/components/catalog/plan-drawer';
 import PriceDetailDrawer from '@/components/catalog/price-detail-drawer';
@@ -37,8 +41,17 @@ import {
     formatMoney,
     toMonthlyEquivalent,
 } from '@/lib/utils';
-import { index as productsIndex } from '@/routes/catalog/products';
-import type { Plan, Price, ProductDetail } from '@/types';
+import { entitlements as planEntitlements } from '@/routes/catalog/plans';
+import {
+    entitlements as productEntitlements,
+    index as productsIndex,
+} from '@/routes/catalog/products';
+import type {
+    GrantableEntitlement,
+    Plan,
+    Price,
+    ProductDetail,
+} from '@/types';
 
 async function copyToClipboard(value: string, label: string) {
     await navigator.clipboard.writeText(value);
@@ -49,10 +62,12 @@ type Props = {
     product: ProductDetail;
     plans: Plan[];
     prices: Price[];
+    entitlements: GrantableEntitlement[];
     permissions: {
         canManageProducts: boolean;
         canManagePlans: boolean;
         canManagePrices: boolean;
+        canManageEntitlements: boolean;
     };
 };
 
@@ -90,8 +105,14 @@ export default function ProductShow({
     product,
     plans,
     prices,
+    entitlements,
     permissions,
 }: Props) {
+    const [grantsTarget, setGrantsTarget] = useState<
+        | { kind: 'product' }
+        | { kind: 'plan'; plan: Plan }
+        | null
+    >(null);
     const [copied, setCopied] = useState(false);
     const [editProductOpen, setEditProductOpen] = useState(false);
     const [archiveProductOpen, setArchiveProductOpen] = useState(false);
@@ -314,14 +335,27 @@ export default function ProductShow({
                             subscribed to.
                         </p>
                     </div>
-                    {permissions.canManagePlans && (
-                        <Button
-                            data-test="add-plan-trigger"
-                            onClick={() => setCreatePlanOpen(true)}
-                        >
-                            <Plus /> Add plan
-                        </Button>
-                    )}
+                    <div className="flex shrink-0 items-center gap-2">
+                        {permissions.canManageEntitlements && (
+                            <Button
+                                variant="outline"
+                                data-test="edit-product-entitlements-trigger"
+                                onClick={() =>
+                                    setGrantsTarget({ kind: 'product' })
+                                }
+                            >
+                                Product entitlements
+                            </Button>
+                        )}
+                        {permissions.canManagePlans && (
+                            <Button
+                                data-test="add-plan-trigger"
+                                onClick={() => setCreatePlanOpen(true)}
+                            >
+                                <Plus /> Add plan
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {plans.length === 0 ? (
@@ -359,6 +393,10 @@ export default function ProductShow({
                                             {plan.code}
                                         </span>
                                     )}
+                                    <GrantedBadges
+                                        entitlements={entitlements}
+                                        granted={plan.entitlementIds}
+                                    />
                                 </div>
                                 {permissions.canManagePlans && (
                                     <DropdownMenu>
@@ -381,6 +419,19 @@ export default function ProductShow({
                                             >
                                                 Edit plan
                                             </DropdownMenuItem>
+                                            {permissions.canManageEntitlements && (
+                                                <DropdownMenuItem
+                                                    onSelect={() =>
+                                                        setGrantsTarget({
+                                                            kind: 'plan',
+                                                            plan,
+                                                        })
+                                                    }
+                                                    data-test="edit-plan-entitlements-trigger"
+                                                >
+                                                    Edit entitlements
+                                                </DropdownMenuItem>
+                                            )}
                                             {permissions.canManagePrices &&
                                                 plan.status !== 'archived' && (
                                                     <DropdownMenuItem
@@ -524,6 +575,37 @@ export default function ProductShow({
                 open={archiveProductOpen}
                 onOpenChange={setArchiveProductOpen}
             />
+            {/* Keyed so the checkboxes rebuild for whichever grantor is opened. */}
+            {grantsTarget && (
+                <GrantsEditor
+                    key={
+                        grantsTarget.kind === 'product'
+                            ? 'product'
+                            : `plan-${grantsTarget.plan.id}`
+                    }
+                    open
+                    onOpenChange={(open) => !open && setGrantsTarget(null)}
+                    title={
+                        grantsTarget.kind === 'product'
+                            ? `Entitlements granted by ${product.name}`
+                            : `Entitlements granted by ${grantsTarget.plan.name}`
+                    }
+                    url={
+                        grantsTarget.kind === 'product'
+                            ? productEntitlements.url(product.id)
+                            : planEntitlements.url({
+                                  product: product.id,
+                                  plan: grantsTarget.plan.id,
+                              })
+                    }
+                    entitlements={entitlements}
+                    granted={
+                        grantsTarget.kind === 'product'
+                            ? product.entitlementIds
+                            : grantsTarget.plan.entitlementIds
+                    }
+                />
+            )}
             {detailPriceTarget && (
                 <PriceDetailDrawer
                     price={detailPriceTarget}

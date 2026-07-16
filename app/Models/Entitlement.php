@@ -53,6 +53,24 @@ class Entitlement extends Model
     }
 
     /**
+     * The public API shape (IMPLEMENTATION_V2 §V2-5).
+     *
+     * `code` leads because it's the contract: it's what application code
+     * gates on, and what rides along in `subscription.*` event payloads.
+     *
+     * @return array{id: string, code: string, name: string, description: string|null}
+     */
+    public function toApiObject(): array
+    {
+        return [
+            'id' => $this->public_id,
+            'code' => $this->code,
+            'name' => $this->name,
+            'description' => $this->description,
+        ];
+    }
+
+    /**
      * Get the plans/products that grant this entitlement.
      *
      * @return HasMany<EntitlementGrant, $this>

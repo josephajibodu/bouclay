@@ -7,6 +7,8 @@ use App\Enums\PlanStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Catalog\StoreProductRequest;
 use App\Http\Requests\Catalog\UpdateProductRequest;
+use App\Models\Entitlement;
+use App\Models\EntitlementGrant;
 use App\Models\Product;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -128,6 +130,14 @@ class ProductController extends Controller
             'prices' => fn ($query) => $query->with(['tiers', 'paymentLink', 'phases.chargePrice'])->orderBy('created_at'),
         ]);
 
+        // Which entitlements each grantor on this page already grants, so the
+        // editor can render without a round trip per plan.
+        $grantsByGrantor = EntitlementGrant::query()
+            ->where('team_id', $team->id)
+            ->get()
+            ->groupBy(fn (EntitlementGrant $grant) => $grant->grantor_type.':'.$grant->grantor_id)
+            ->map(fn ($grants) => $grants->pluck('entitlement_id')->values()->all());
+
         $permissions = $request->user()->toTeamPermissions($team);
 
         return Inertia::render('catalog/show', [
@@ -141,6 +151,7 @@ class ProductController extends Controller
                 'status' => $product->status,
                 'customData' => $product->custom_data,
                 'createdAt' => $product->created_at?->toISOString(),
+                'entitlementIds' => $grantsByGrantor->get('product:'.$product->id, []),
             ],
             'plans' => $product->plans->map(fn ($plan) => [
                 'id' => $plan->id,
@@ -148,12 +159,23 @@ class ProductController extends Controller
                 'code' => $plan->code,
                 'name' => $plan->name,
                 'status' => $plan->status,
+                'entitlementIds' => $grantsByGrantor->get('plan:'.$plan->id, []),
             ])->all(),
             'prices' => $product->prices->map(fn ($price) => $price->toCatalogArray())->all(),
+            'entitlements' => $team->entitlements()
+                ->orderBy('code')
+                ->get()
+                ->map(fn (Entitlement $entitlement) => [
+                    'id' => $entitlement->id,
+                    'code' => $entitlement->code,
+                    'name' => $entitlement->name,
+                ])
+                ->all(),
             'permissions' => [
                 'canManageProducts' => $permissions->canManageProducts,
                 'canManagePlans' => $permissions->canManagePlans,
                 'canManagePrices' => $permissions->canManagePrices,
+                'canManageEntitlements' => $permissions->canManageEntitlements,
             ],
         ]);
     }

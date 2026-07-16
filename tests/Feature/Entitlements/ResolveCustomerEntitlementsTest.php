@@ -198,3 +198,60 @@ it('exposes the entitlements one subscription grants, for event payloads', funct
 
     expect($codes)->toBe(['hd_streaming', 'sports_channels']);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Entitlement codes ride along in subscription.* payloads
+|--------------------------------------------------------------------------
+|
+| So an integrator can gate on webhooks alone, without calling back for the
+| access list on every event (IMPLEMENTATION_V2 §V2-5).
+*/
+
+it('carries the customer’s entitlement codes in the webhook payload', function () {
+    ['subscription' => $subscription] = entitledSubscription();
+
+    $payload = $subscription->toWebhookObject();
+
+    expect($payload['customer']['entitlements'])->toBe(['hd_streaming', 'sports_channels']);
+});
+
+it('reports access as of the event, not before it', function () {
+    ['subscription' => $subscription] = entitledSubscription();
+
+    $subscription->apply('cancel');
+    $subscription->save();
+
+    // The emit happens after the status change is persisted, so a cancel
+    // event says "this customer now holds nothing" rather than describing the
+    // access they had a moment ago.
+    expect($subscription->fresh()->toWebhookObject()['customer']['entitlements'])->toBe([]);
+});
+
+it('reports what the customer still holds elsewhere on a cancel', function () {
+    ['fx' => $fx, 'subscription' => $subscription] = entitledSubscription();
+
+    // A second subscription grants hd_streaming independently.
+    $second = Subscription::factory()->for($fx['team'])->for($fx['amina'])->create([
+        'status' => SubscriptionStatus::Active,
+        'currency' => 'NGN',
+        'current_period_start' => now(),
+        'current_period_end' => now()->addMonth(),
+    ]);
+    $second->items()->create([
+        'price_id' => $fx['price_prem_m']->id,
+        'plan_id' => $fx['premium']->id,
+        'product_id' => $fx['naijastream']->id,
+        'kind' => SubscriptionItemKind::Plan,
+        'quantity' => 1,
+        'status' => SubscriptionItemStatus::Active,
+    ]);
+
+    $subscription->apply('cancel');
+    $subscription->save();
+
+    // This is why the codes are the customer's union rather than the
+    // subscription's own grants: cancelling one subscription must not lock
+    // her out of what another still pays for.
+    expect($subscription->fresh()->toWebhookObject()['customer']['entitlements'])->toBe(['hd_streaming']);
+});
