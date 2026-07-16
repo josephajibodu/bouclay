@@ -18,7 +18,7 @@
 
 The heart of the platform. Everything before this phase — Nomba BYOK, catalog, customers, tokenized cards — existed to make this one object possible: a **subscription** that bills a real customer, on a real schedule, into the merchant's own Nomba account.
 
-This document is the product/UX source of truth for Phase 5. It does **not** redesign the schema (`schema.md` §4–5 is authoritative) and it honours every decision locked in `IMPLEMENTATION.md` and the Phase 4→5 handoff. Where a decision touches money movement or invoice records, Phase 5 **staged** it; Phase 6 **built** invoicing, charges, and the invoice detail page — see [`IMPLEMENTATION.md`](IMPLEMENTATION.md) Phase 6 and `schema.md` § Dashboard vocabulary.
+This document is the product/UX source of truth for Phase 5. It does **not** redesign the schema (`schema.md` §4–5 is authoritative) and it honours every decision locked in `IMPLEMENTATION.md`. Where a decision touches money movement or invoice records, Phase 5 **staged** it; Phase 6 **built** invoicing, charges, and the invoice detail page — see [`IMPLEMENTATION.md`](IMPLEMENTATION.md) Phase 6 and `schema.md` § Dashboard vocabulary.
 
 **Implemented (2026-07-06):** subscription hub **Upcoming invoices** and **Payments** sections are live; top-level **Invoices** nav + list/detail pages; create flows use drawers (not `/subscriptions/new`). Dashboard vocabulary: **Invoice** + **Payment** only — no "Transaction" entity.
 

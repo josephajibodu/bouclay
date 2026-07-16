@@ -360,7 +360,7 @@ The end-customers being billed.
 | currency | char(3) | yes | defaults to team currency |
 | locale | string | yes | e.g. `en`, `fr` |
 | country | char(2) | yes | ISO-3166 |
-| default_payment_method_id | ulid | yes | FK → payment_methods (see migration order — added after payment_methods exists) |
+| default_payment_method_id | ulid | yes | FK → payment_methods (see migration order — added after payment_methods exists). **Canonical** for "which card is default"; `payment_methods.is_default` mirrors it. Both are written together in one transaction — read this one, and never let them disagree. |
 | parent_customer_id | ulid | yes | FK → customers (self); reserved for future parent/child billing (Recurly Account Hierarchy) — unused in MVP logic, cheap to reserve now vs. expensive to retrofit onto historical invoice rows later |
 | custom_data | json | yes | |
 | created_at / updated_at / deleted_at | timestamp | yes | SoftDeletes |
