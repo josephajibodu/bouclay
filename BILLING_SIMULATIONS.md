@@ -4,6 +4,15 @@ End-to-end scenario traces against the data model in [`schema.md`](schema.md). T
 
 When a simulation exposes a gap or an undecided rule, it's captured in [§ Open decisions & gaps](#open-decisions--gaps) rather than silently resolved — those are the things to settle at implementation time.
 
+> **Status (2026-07-16):** these are no longer hypothetical — they're executable as
+> `tests/Feature/Simulations/`, and SIM-01…04 + ADV-01…08 are green. ADV-09
+> (backdated) and ADV-10 (multi-currency) remain `->todo()`.
+>
+> Read "Nomba" throughout as "the team's payment gateway": Paystack and
+> Flutterwave ship too, and a Paystack-tokenized subscription is proven to renew,
+> dun, recover, and refund identically (V2-4b). Event names below follow the
+> V2-6 catalog — `*.created`/`*.updated` pairs, outcome read off `status`.
+
 ---
 
 ## Conventions used in these traces
@@ -49,7 +58,7 @@ The baseline lifecycle. Every checkmarked step already has a home in the schema.
 ### Act 1 — Customer + card
 
 - `customers{Amina}` → **event `customer.created`**
-- Hosted checkout; Nomba tokenizes card → `payment_methods{customer=Amina, processor_token=…, brand=Verve, last4, is_default=true, status=active}` → **event `payment_method.added`**
+- Hosted checkout; Nomba tokenizes card → `payment_methods{customer=Amina, processor_token=…, brand=Verve, last4, is_default=true, status=active}` → **event `payment_method.created`**
 - `trial_requires_payment_info=true` ⇒ card stored, **not charged**.
 
 ### Act 2 — Subscribe (free trial + add-on + discount)
@@ -75,23 +84,23 @@ The baseline lifecycle. Every checkmarked step already has a home in the schema.
   - `{kind=addon, price=price_sports_m, quantity=1, unit_amount=150000, subtotal=150000, discount_amount=30000, total=120000}`
 - Invoice totals: `subtotal=650000, discount_total=130000, tax_total=0, total=520000, amount_due=520000`
 - `ChargeInvoice` → Nomba tokenized charge → `payments{invoice, status=succeeded, amount=520000, attempt_number=1, processor_reference}`
-- `invoices{status→paid, amount_paid=520000, paid_at}` → **event `invoice.paid`**
+- `invoices{status→paid, amount_paid=520000, paid_at}` → **event `invoice.updated`** (`status=paid`)
 
 **Assertions:** `discount_total == SUM(invoice_lines.discount_amount) == 130000`; no `kind=discount` line exists; `subscription.status == active`; `price_trial_redemptions` row present.
 
 ### Act 4 — Month-2 renewal
 
 - Worker `subscriptions:bill-renewals`
-- `invoices{billing_reason=subscription_cycle}`, same two lines, `total=520000` (WELCOME20 interval 2 of 3), payment succeeds → **event `invoice.paid`**
+- `invoices{billing_reason=subscription_cycle}`, same two lines, `total=520000` (WELCOME20 interval 2 of 3), payment succeeds → **event `invoice.updated`** (`status=paid`)
 
 **⚠ Must-fix (GAP-1).** Nothing durably records that this was interval "2 of 3." The renewal worker cannot currently know when WELCOME20 is exhausted.
 
 ### Act 5 — Month-4 renewal fails → dunning → recover
 
 - Card now declines. `payments{status=failed, failure_code, attempt_number=1}`
-- `subscriptions{active→past_due}` (`markPastDue`); invoice stays `open` → **events `invoice.payment_failed`, `subscription.updated`**
+- `subscriptions{active→past_due}` (`markPastDue`); invoice stays `open` → **events `invoice.updated`** (still `status=open`, with the failed `payment` on the payload) **, `subscription.updated`**
 - Retry worker: `payments{attempt_number=2, status=failed}`, then `payments{attempt_number=3, status=succeeded}` — **three `payments` rows, one `invoice_id`**
-- `subscriptions{past_due→active}` (`recover`); `invoices{status→paid}` → **event `invoice.paid`**
+- `subscriptions{past_due→active}` (`recover`); `invoices{status→paid}` → **event `invoice.updated`** (`status=paid`)
 
 **Assertions:** exactly 3 `payments` rows for the invoice; final `subscription.status == active`; invoice `amount_paid == total`.
 

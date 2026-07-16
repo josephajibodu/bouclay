@@ -1,5 +1,22 @@
 # Bouclay — Catalog Design Proposal (Phase 3)
 
+> ## ⚠ Historical — two generations out of date (noted 2026-07-16)
+>
+> This was written as a **proposal** before the catalog was built. It was then
+> built (V1 Phase 3) and **reshaped again by V2-1**, so the model below is not
+> what the code does:
+>
+> | This doc says | Reality now |
+> |---|---|
+> | `products → prices` (flat) | `products → plans → prices` — a **plan** is the tier ("Premium"), a price its billable variant |
+> | `trial_offers` as a catalog object | **Deleted.** Simple trials live on `prices.trial_length`/`trial_unit`; ramps use `price_phases`; anti-abuse via `price_trial_redemptions` |
+> | prices are mutable, with a `version` counter | **Immutable once used.** An edit creates a new row (`replaces_price_id`) and archives the old one — a subscriber's price never changes under them |
+> | — | `entitlements` grant capabilities from plans/products (V2-5) |
+>
+> **`schema.md` is the authority.** Read this only for the UX reasoning and the
+> "why", which mostly still holds — not for the data model.
+
+
 **Status:** Proposal, not yet built. Standalone companion to [`IMPLEMENTATION.md`](IMPLEMENTATION.md) (Phase 3 section) and [`schema.md`](schema.md) (§3 Catalog & Pricing, §5 Trial offers). Does not change either document — open questions are called out in [§13](#13-schema-adjacent-notes--open-questions) for you to decide, not applied.
 
 **Stack this proposal is grounded in:** Inertia + React 19 + TypeScript, shadcn/ui-on-Radix (`resources/js/components/ui/*`), Tailwind v4 (`@theme` tokens, no `tailwind.config.js`), `lucide-react` icons, `sonner` toasts, Laravel Wayfinder route helpers. Page shell, nav, and interaction patterns below reuse what Phase 2 already established in `resources/js/pages/developers/*` and `resources/js/components/app-sidebar.tsx` — new users should not be able to tell Catalog was designed by a different team than Developers.

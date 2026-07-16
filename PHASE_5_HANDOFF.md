@@ -1,5 +1,12 @@
 # Bouclay — Phase 4 → Phase 5 handoff
 
+> **⚠ Historical — spent (noted 2026-07-16).** This was a working handoff note for
+> a V1 phase that shipped long ago; the branch and PR it references are gone, and
+> the V2 rework replaced most of what it describes. Kept only as a record of the
+> seams Phase 4 left. Nothing here is actionable — live status is
+> [`IMPLEMENTATION_V2.md`](IMPLEMENTATION_V2.md); the data model is
+> [`schema.md`](schema.md).
+
 ## Where things stand
 - **Phase 4 (Customers & payment methods) is done**, committed on branch `feat/phase-4-customers-payment-methods` (`8dbe512`), pushed to `origin`. **PR not yet opened** — no `gh` CLI/token in the local environment; open it via the compare link.
 - Migrations already run on the dev DB. 31 customer/Nomba feature tests pass; typecheck, ESLint, PHPStan, Pint, and production build all clean.

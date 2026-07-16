@@ -183,7 +183,28 @@ Bring-your-own-key (BYOK) link between a team and **one payment gateway** — No
 
 The route resolves the connection (and team) from processor + token, calls the driver's `verifyWebhookSignature()` (each gateway signs differently — Nomba HMAC with a pasted secret, Paystack HMAC-SHA512 with the secret key, Flutterwave `verif-hash` header), then the driver's `parseWebhookEvent()` **normalizes the payload to Bouclay's internal event shape** (payment succeeded/failed + processor reference) before the shared settlement action runs. Gateway-specific parsing stays in the driver; settlement logic is written once.
 
-**Gateway driver contract** (`app/Services/Gateways/`): a `PaymentGateway` interface — `configSchema()`, `capabilities()`, `verifyCredentials()`, `createCheckout()`, `chargeToken()`, `verifyCharge()`, `refund()`, `verifyWebhookSignature()`, `parseWebhookEvent()` — resolved by a `GatewayManager` keyed on `processor` (Laravel Manager pattern). `NombaGateway` wraps the existing `NombaClient`/`NombaCheckout`. `capabilities()` declares what the gateway supports (card tokenization, refunds, partial refunds, currencies) so validators can refuse an action the driver can't perform instead of failing mid-charge.
+**Gateway driver contract** (`app/Services/Gateways/`) — ✅ shipped V2-4/V2-4b. A `PaymentGateway` interface, resolved by a `GatewayManager` keyed on `processor` (Laravel Manager pattern), implemented today by `NombaGateway`, `PaystackGateway`, `FlutterwaveGateway` (+ `FakeGateway` for tests):
+
+| Method | Answers |
+|---|---|
+| `processor()` | which registry key this driver serves |
+| `capabilities()` | currencies, refunds, partial refunds, tokenization — so validators refuse an unsupported action instead of failing mid-charge |
+| `configSchema()` | the credential manifest the connect form renders from |
+| `verifyCredentials()` | are these keys accepted? (no persistence) |
+| `createCheckout()` / `chargeToken()` / `verifyCharge()` / `refund()` | the money paths |
+| `resolveToken()` / `revokeToken()` | card token lifecycle |
+| `verifyWebhookSignature()` / `parseWebhookEvent()` | inbound trust + normalization |
+| `classifyDecline()` | map this gateway's decline wording onto `PaymentFailureCode`, so dunning's hard/soft split behaves the same everywhere |
+| `identifiesConnection()` | "is this tokenless payload from your account?" — only for a gateway that can't be pointed at `/webhooks/{processor}/{token}` |
+
+Failures surface as `GatewayException`; **a call site never learns a driver's own exception type.**
+
+**Two leaks the class-name grep could not see** (both found by adding the second and third drivers, both now fixed and guarded):
+
+1. **The order shape.** The "processor-agnostic" order array was Nomba's wire format in disguise — `amount` was a major-unit *string* because Nomba wants `"5000.00"`, so every call site formatted for a gateway it shouldn't know about. Replaced by `GatewayOrder` (minor units, `cardOnly` intent, never vocabulary). Three gateways, three money formats on the wire — major-unit string, minor-unit int, major-unit number — and the shared order carries none of them.
+2. **Decline classification.** A shared English-substring matcher assumed every gateway phrases declines like Nomba. Now `classifyDecline()` per driver, delegating to a shared `CardNetworkDeclines` for the card networks' own language (those words are Visa's, not any gateway's).
+
+The boundary grep therefore checks **three** things, not one: gateway class names, gateway namespace imports, and **credential-key literals** (`secret_key`, `account_id`, …) outside `app/Services/Gateways/`.
 
 **Routing rule (the invariant that makes multi-gateway safe):** **tokens are gateway-bound** — a Nomba `tokenKey` cannot be charged through Paystack. Every charge on a stored `payment_method` routes through the processor that minted the token (`payment_methods.processor` → that team's connection for it), forever. `is_default` affects **new** checkouts only. Consequently a customer may hold cards from different gateways side by side, and switching a team's default gateway never breaks existing subscriptions — their renewals keep charging through the original token's gateway.
 
@@ -544,6 +565,51 @@ Polymorphic join — one entitlement can be granted by multiple Plans/Products; 
 | created_at | timestamp | no | |
 
 Grants are **catalog-only by design** — a customer's access is resolved purely from the plans/products on their active subscriptions. Per-customer / manual / promo grants are deliberately not modelled for MVP; because `grantor` is already a polymorphic relation, adding a `customer` alias to the morph map later is a resolver change with **no migration**. Bouclay is a billing engine, not an IAM platform.
+
+### Resolution (✅ shipped V2-5)
+
+`Customer::entitlements()` / `entitlementCodes()` / `hasEntitlement($code)` —
+backed by `App\Actions\Entitlements\ResolveCustomerEntitlements`. The union of
+grants across the plans/products on the customer's access-granting subscriptions,
+deduped, keyed by code.
+
+**Deliberately not an Eloquent relation.** Access is a *computed* answer that
+depends on subscription status and the `ends_at` grace window — not a join an
+integrator could get subtly wrong.
+
+The rule lives on `SubscriptionStatus::grantsAccess()`, next to the statuses it's
+about:
+
+| Status | Grants access? | Why |
+|---|---|---|
+| `trialing`, `active` | yes | the ordinary cases |
+| `past_due` | **yes** | a failed renewal is a payment problem. Locking a paying customer out mid-dunning is how a recoverable card decline becomes a cancellation. The window is bounded by `ends_at`, not by status |
+| `paused` | no | revoking access is what pausing is *for* |
+| `incomplete`, `incomplete_expired` | no | never paid; access hasn't started |
+| `canceled` | no | see the `ends_at` note below |
+
+…and **`ends_at` bounds all of it**: a subscription grants nothing once
+`now() > ends_at`, whatever its status says. A stale `active` row with a past
+`ends_at` must not keep serving access.
+
+> ⚠ **Known tension, not yet resolved.** The `ends_at` column note in §6 reads
+> "grace-period end; `subscribed` stays true until now() passes this", which
+> implies `canceled` + a *future* `ends_at` still grants. IMPLEMENTATION_V2 §V2-5
+> lists only `trialing`/`active`/`past_due`, and the code follows the plan.
+> The conflict is **latent, not active**: `ApplyScheduledChange` sets
+> `ends_at = effective_at`, which is always `<= now()` at the boundary, so
+> "canceled with a future `ends_at`" never actually arises today. Settle it if a
+> flow ever produces one — SIM-01 Act 7 does not.
+
+Access never consults invoice or payment state. An unpaid invoice does **not**
+revoke access on its own; dunning revokes it by moving the subscription's status,
+which is a decision the billing engine makes explicitly. That decoupling is the
+entire point of the layer.
+
+Entitlement codes also ride in `subscription.*` webhook payloads under
+`data.object.customer.entitlements` — the customer's union across *all* their
+subscriptions, not just the one the event is about, so cancelling one
+subscription doesn't lock a customer out of what another still pays for.
 
 ---
 

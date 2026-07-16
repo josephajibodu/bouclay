@@ -1,6 +1,6 @@
 # Bouclay — Phase 6 invoice UI handoff ✅ (completed)
 
-> **Status:** Done as of 2026-07-06. This doc is kept for context; live status is in [`IMPLEMENTATION.md`](IMPLEMENTATION.md) Phase 6 and [`schema.md`](schema.md) § Dashboard vocabulary.
+> **⚠ Historical (noted 2026-07-16).** Done 2026-07-06 and kept for context. Invoicing has since gained discounts and proration (V2-3) and refunds (V2-4). Live status is [`IMPLEMENTATION_V2.md`](IMPLEMENTATION_V2.md); the data model is [`schema.md`](schema.md).
 
 ## What was built
 

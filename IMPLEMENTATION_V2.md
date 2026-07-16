@@ -6,11 +6,49 @@ Gets the codebase from its current state (Phases 0–11 of [`IMPLEMENTATION.md`]
 
 ---
 
+## Status — updated 2026-07-16
+
+| Phase | State |
+|---|---|
+| V2-0 Baseline reset | ✅ shipped |
+| V2-1 Catalog: plans, immutable prices, phases | ✅ shipped |
+| V2-2 Subscriptions on the new catalog | ✅ shipped |
+| V2-3 Billing correctness: discounts, proration | ✅ shipped |
+| V2-4 Gateway abstraction, refunds, dunning ops | ✅ shipped |
+| V2-4b Paystack & Flutterwave drivers | ✅ shipped |
+| V2-5 Entitlements | ✅ shipped |
+| V2-6 Outbound event rename | ✅ shipped |
+| **V2-7 Reference app, docs & demo path** | **next — the last phase** |
+| V2-8 Operational smoothness | not started |
+
+**Suite: 671 passing / 8 skipped. PHPStan floor: 68.**
+
+The 8 remaining skips are all `->todo()` placeholders: ADV-09 (backdated
+subscriptions) ×3, ADV-10 (multi-currency) ×3, and SIM-01 Act 7's
+`scheduled_changes` bookkeeping ×2. Every other SIM/ADV case is green.
+
+Two known-failing tests in `tests/Feature/Customers/ChargeTest.php` need live
+`NOMBA_MODE` credentials and fail locally by design — they predate V2.
+
+**Deferred out of V2 deliberately, with reasons recorded where the code is:**
+
+- `payment.*` outbound events — a payment already rides on `invoice.updated` as
+  `data.object.payment`; see `OutboundEventType`'s docblock.
+- Live test-mode smoke against real gateway test cards — needs real credentials;
+  it's V2-7's checklist.
+
+---
+
 ## 1. Where we are vs. where we're going
+
+> **Historical, as written in July 2026.** The "Before V2" column describes the
+> pre-rework codebase; every "Target" row below has since shipped (V2-0 … V2-6).
+> Kept because it records *why* each change was made — the reasoning outlives the
+> migration. For what the system does now, read `schema.md` and the root README.
 
 Phases 0–11 shipped a working engine on the **pre-rework** schema. The rework changes the catalog's shape and hardens billing correctness. The delta:
 
-| Area | Built today | Target (schema.md) |
+| Area | Before V2 | Target (schema.md) — ✅ all shipped |
 |---|---|---|
 | Catalog hierarchy | `products → prices` (flat) | `products → plans → prices` — plans are the tier ("Pro"), prices its billable variants |
 | Trials | `trial_offers` + `subscription_item_trials` (two-slot: trial price → transition price) | simple trials on `prices.trial_*`; complex/ramp cases via generic `price_phases`; anti-abuse via `price_trial_redemptions` |
@@ -44,7 +82,7 @@ Phases 0–11 shipped a working engine on the **pre-rework** schema. The rework 
 
 Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known pre-existing errors), `php artisan wayfinder:generate` run after route changes. Simulation tests are written **with** the phase that makes them passable, not after.
 
-### V2-0 — Baseline reset & test scaffolding
+### V2-0 — Baseline reset & test scaffolding  ✅
 
 **Goal:** the new schema exists, the app boots on it, and the simulation suite exists as executable (mostly-todo) specs.
 
@@ -57,7 +95,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** app boots, auth/teams/RBAC/BYOK all still pass, `migrate:fresh --seed` produces the NaijaStream catalog, simulation files enumerate every SIM/ADV case.
 
-### V2-1 — Catalog: plans, immutable prices, phases
+### V2-1 — Catalog: plans, immutable prices, phases  ✅
 
 **Goal:** merchants author the new catalog end to end.
 
@@ -70,7 +108,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** SIM-04 (price edit → grandfathering) passes. NaijaStream fixture creatable entirely through the UI. A phase-only price never appears in any picker.
 
-### V2-2 — Subscriptions on the new catalog
+### V2-2 — Subscriptions on the new catalog  ✅
 
 **Goal:** create/manage subscriptions against plans, with the locked trial and cadence rules.
 
@@ -83,7 +121,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** SIM-01 Acts 1–3 pass (signup → trial → conversion invoice with correct totals). ADV-05 passes (mixed cadence rejected). Paid-trial path covered by a phase-0 test (this also unblocks the previously-deferred paid trial links).
 
-### V2-3 — Billing correctness: discounts, snapshots, mid-cycle policy
+### V2-3 — Billing correctness: discounts, snapshots, mid-cycle policy  ✅
 
 **Goal:** money math is invariant-true and every locked policy is executable.
 
@@ -93,7 +131,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** SIM-01 Act 4 (repeating discount stops after interval 3), SIM-02 (increase proration, exact minor-unit assertions), SIM-03 (decrease defers, renewal bills new quantity with no proration lines), ADV-01…04, ADV-08 all pass.
 
-### V2-4 — Gateway abstraction, refunds & dunning operations
+### V2-4 — Gateway abstraction, refunds & dunning operations  ✅
 
 **Goal:** every processor touchpoint goes through one driver boundary, and the "operate real money" surfaces (refunds, dunning) are complete on top of it.
 
@@ -108,7 +146,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** refund round-trips against Nomba test mode **through the driver**; grep test proves no `Nomba*` reference outside `app/Services/Gateways/`; `FakeGateway` exercises the full contract (checkout → token → charge → webhook → refund) in tests; connect form renders from the manifest; dunning schedule editable and respected by `subscriptions:process-dunning`; ADV-06 (card swap mid-dunning) passes.
 
-### V2-4b — Paystack & Flutterwave drivers
+### V2-4b — Paystack & Flutterwave drivers  ✅
 
 **Goal:** two more real gateways ship on the V2-4 contract — which is also the proof the abstraction isn't Nomba-shaped in disguise. Both follow the same tokenize-on-payment model as Nomba (a card token is minted as the byproduct of a real hosted-checkout payment), so no product-flow changes — only drivers.
 
@@ -121,7 +159,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** the full contract suite is green for `nomba`, `paystack`, `flutterwave`, and `fake`; a subscription created on a Paystack-tokenized card renews, fails, dunns, recovers, and refunds identically to the Nomba path; test-mode smoke (Paystack + Flutterwave test cards) completes checkout → token → renewal → refund on both.
 
-### V2-5 — Entitlements
+### V2-5 — Entitlements  ✅
 
 **Goal:** integrators check access without touching billing internals.
 
@@ -131,7 +169,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** SIM-01 access-check assertions pass (grants present while trialing/active, gone after cancel `ends_at`). Reference app (V2-7) gates a feature purely on the entitlements endpoint.
 
-### V2-6 — Outbound event rename
+### V2-6 — Outbound event rename  ✅
 
 **Goal:** the `*.created`/`*.updated` target convention ships as one atomic, documented break.
 
@@ -141,7 +179,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** delivery log shows only new-style names; grep finds no `invoice.paid`/`payment_method.added` emitters; SIM event assertions flipped to new names.
 
-### V2-7 — Reference app, docs & demo path (absorbs old P12/P13)
+### V2-7 — Reference app, docs & demo path (absorbs old P12/P13)  ⏭ NEXT
 
 **Goal:** the integrator story proven on the *new* surface.
 
@@ -152,7 +190,7 @@ Each phase ends green: `composer test` passes, PHPStan clean (ignore the 7 known
 
 **Exit:** end-to-end demo runs on live keys following the checklist, no manual DB touches.
 
-### V2-8 — Operational smoothness (continuous, hardens at the end)
+### V2-8 — Operational smoothness (continuous, hardens at the end)  ⏳
 
 **Goal:** "very smooth to operate" — the engine runs itself and tells you when it doesn't.
 

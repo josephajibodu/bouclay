@@ -1,5 +1,25 @@
 # Bouclay — Customers & Payment Methods Design Proposal (Phase 4)
 
+> ## ⚠ Read with two corrections (noted 2026-07-16)
+>
+> The customer hub, payment-method UX, and trust reasoning below are still what
+> the code does. Two things to hold in mind:
+>
+> - **"Nomba" now means "the team's payment gateway."** Paystack and Flutterwave
+>   ship too (V2-4/V2-4b), behind one driver interface. The trust story is
+>   unchanged and still true: PANs are entered on the *gateway's* surface,
+>   tokenized there, and only a token + safe metadata ever reach Bouclay.
+> - **The activity-timeline event names in §12 are NOT the outbound event
+>   catalog.** They look identical (`payment_method.added`, `customer.archived`)
+>   and they are deliberately different things. The timeline is a granular
+>   human-readable history for the dashboard; the integrator catalog is
+>   `*.created`/`*.updated` pairs only, with the outcome read off `status` —
+>   there is no `invoice.paid` webhook (V2-6). Don't "align" one to the other.
+>
+> Added since: entitlements on the customer (V2-5) — `Customer::entitlements()`
+> and `GET /api/v1/customers/{id}/entitlements`. **`schema.md` is the authority.**
+
+
 **Status:** Phase 4 core is built; Phase 5–6 hub sections are wired. This doc remains the original design proposal — see [`IMPLEMENTATION.md`](IMPLEMENTATION.md) and [`schema.md`](schema.md) § Dashboard vocabulary for live behaviour. Standalone companion to [`IMPLEMENTATION.md`](IMPLEMENTATION.md) (Phase 4 section) and [`schema.md`](schema.md) (§2 Customers & Payment Methods). Does not change either document — schema-adjacent observations are called out in [§14](#14-schema-adjacent-notes--open-questions) for you to decide, not applied.
 
 **Implemented (2026-07-06):** customer hub **Subscriptions** and **Invoices** sections are live (invoice rows from `Invoice::toDashboardArray()`, rows link to `/invoices/{id}`). **Total spend** is in the Overview grid. There is no "Transactions" section — Bouclay uses **Invoice** (billing record) and **Payment** (charge attempt) per `schema.md`.
@@ -1003,7 +1023,7 @@ How this page absorbs Phases 5–13 without a redesign:
 
 - **Subscriptions (P5):** ✅ the staged Subscriptions section (§11) became a real list in the *same slot*; the `+ New subscription` button opens `CreateSubscriptionDrawer`; the `Create subscription` Actions item is live.
 - **Invoices (P6):** ✅ the staged Invoices placeholder was replaced by a real invoice table in the *same slot*; rows link to `/invoices/{id}`. **Total spend** is in the Overview facts grid via `Customer::totalSpend()`. Charge attempts are *not* listed here — they appear on the subscription hub as **Payments**.
-- **Activity (P5–9):** the timeline's per-type renderer (§12) gains cases (`subscription.created`, `invoice.paid`, `payment.failed`) — additive, no structural change.
+- **Activity (P5–9):** the timeline's per-type renderer (§12) gains cases (`subscription.created`, `invoice.paid`, `payment.failed` — timeline names, not webhook names; see the banner) — additive, no structural change.
 - **Segments (later):** if the team eventually wants Stripe-style preset tabs ("Top customers", "High refunds"), they slot in *above* the search as a `Tabs` row — the exact seam Catalog reserved for "All prices." One tab strip, not an IA rework. We intentionally *don't* build these now (no data, and Paddle-simplicity is the current goal).
 - **Customer portal (P11):** ✅ "Copy portal link" is live on the Actions menu (`Customer::portalUrl()`). ⬜ "Send portal invite" (magic-link email) deferred to Phase 11 slice 4. The portal itself is a separate hosted area at `/portal/{token}` — subscriptions, payments, payment methods, account — not a tab on this page.
 - **Multi-currency, bank/wallet methods:** the PM row is already generic over `type`; the facts grid already shows per-customer currency. Both absorb Nomba's non-card instruments and multi-currency customers without new components.

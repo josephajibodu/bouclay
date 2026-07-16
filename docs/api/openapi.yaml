@@ -4,9 +4,16 @@ info:
   version: 1.0.0
   summary: Integrator API for Bouclay subscriptions, invoices, payments, and webhooks.
   description: |
-    Bouclay is a managed recurring-billing layer on top of Nomba. Integrators use
-    the API to manage customers, catalog, subscriptions, invoices, payment-method
-    checkout sessions, payments, and outbound event history.
+    Bouclay is managed recurring-billing infrastructure for African payment
+    gateways. Integrators connect their own gateway account (Nomba, Paystack, or
+    Flutterwave) and use this API to manage customers, catalog, subscriptions,
+    entitlements, invoices, payment-method checkout sessions, payments, and
+    outbound event history.
+
+    Bouclay never holds funds — every charge, refund, and payout happens on your
+    own gateway account, with your own keys. Which gateway settles a given charge
+    is Bouclay's concern, not yours: a stored card always charges through the
+    gateway that issued its token.
 servers:
   - url: https://bouclay.test/api/v1
     description: Local Herd development
@@ -16,8 +23,9 @@ tags:
   - name: Customers
   - name: Customer addresses
   - name: Payment methods
+  - name: Entitlements
   - name: Catalog
-  - name: Trial offers
+  - name: Discounts
   - name: Subscriptions
   - name: Invoices
   - name: Payments
@@ -207,6 +215,48 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "422":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}/entitlements:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+    get:
+      tags: [Entitlements]
+      operationId: listCustomerEntitlements
+      summary: List a customer's entitlements
+      description: |
+        Every capability this customer currently holds, resolved from the plans
+        and products on their access-granting subscriptions.
+
+        This is the endpoint to gate a feature on. It never consults invoice or
+        payment state: an unpaid invoice does not revoke access on its own —
+        dunning revokes it by moving the subscription's status, which is a
+        decision the billing engine makes explicitly.
+
+        Returns an empty list once access ends.
+      responses:
+        "200":
+          $ref: "#/components/responses/EntitlementList"
+        "404":
+          $ref: "#/components/responses/Error"
+  /customers/{customer}/entitlements/{code}:
+    parameters:
+      - $ref: "#/components/parameters/CustomerId"
+      - $ref: "#/components/parameters/EntitlementCode"
+    get:
+      tags: [Entitlements]
+      operationId: checkCustomerEntitlement
+      summary: Check one entitlement by code
+      description: |
+        The cheap question: "can this customer do X right now?"
+
+        A code the customer does not hold is a **200 with `granted: false`**, not
+        a 404 — "no" is a legitimate answer to an access check, and a 404 would be
+        indistinguishable from an unknown customer.
+      responses:
+        "200":
+          $ref: "#/components/responses/EntitlementCheck"
+        "404":
+          description: The customer does not exist.
           $ref: "#/components/responses/Error"
   /customers/{customer}/payment-methods:
     parameters:
@@ -411,11 +461,14 @@ paths:
           $ref: "#/components/responses/Price"
         "400":
           $ref: "#/components/responses/Error"
-  /trial-offers:
+  /plans:
     get:
-      tags: [Trial offers]
-      operationId: listTrialOffers
-      summary: List trial offers
+      tags: [Catalog]
+      operationId: listPlans
+      summary: List plans
+      description: |
+        Plans are the named tiers customers pick ("Premium", "Team"). A plan
+        belongs to a product and holds one or more prices.
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/After"
@@ -426,14 +479,14 @@ paths:
             type: string
       responses:
         "200":
-          $ref: "#/components/responses/TrialOfferList"
-  /products/{product}/trial-offers:
+          $ref: "#/components/responses/PlanList"
+  /products/{product}/plans:
     parameters:
       - $ref: "#/components/parameters/ProductId"
     post:
-      tags: [Trial offers]
-      operationId: createTrialOffer
-      summary: Create a trial offer for a product
+      tags: [Catalog]
+      operationId: createPlan
+      summary: Create a plan on a product
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -441,30 +494,31 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/TrialOfferRequest"
+              $ref: "#/components/schemas/PlanRequest"
       responses:
         "201":
-          $ref: "#/components/responses/TrialOffer"
-        "400":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/Plan"
         "422":
           $ref: "#/components/responses/Error"
-  /trial-offers/{trialOffer}:
+  /plans/{plan}:
     parameters:
-      - $ref: "#/components/parameters/TrialOfferId"
+      - $ref: "#/components/parameters/PlanId"
     get:
-      tags: [Trial offers]
-      operationId: retrieveTrialOffer
-      summary: Retrieve a trial offer
+      tags: [Catalog]
+      operationId: retrievePlan
+      summary: Retrieve a plan
       responses:
         "200":
-          $ref: "#/components/responses/TrialOffer"
+          $ref: "#/components/responses/Plan"
         "404":
           $ref: "#/components/responses/Error"
     patch:
-      tags: [Trial offers]
-      operationId: updateTrialOffer
-      summary: Update a trial offer
+      tags: [Catalog]
+      operationId: updatePlan
+      summary: Update a plan
+      description: |
+        Moving a plan to `draft` or `archived` stops its prices being
+        subscribable immediately. Existing subscriptions are untouched.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -472,13 +526,47 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UpdateTrialOfferRequest"
+              $ref: "#/components/schemas/UpdatePlanRequest"
       responses:
         "200":
-          $ref: "#/components/responses/TrialOffer"
-        "400":
-          $ref: "#/components/responses/Error"
+          $ref: "#/components/responses/Plan"
         "422":
+          $ref: "#/components/responses/Error"
+  /plans/{plan}/archive:
+    parameters:
+      - $ref: "#/components/parameters/PlanId"
+    post:
+      tags: [Catalog]
+      operationId: archivePlan
+      summary: Archive a plan
+      responses:
+        "200":
+          $ref: "#/components/responses/Plan"
+        "404":
+          $ref: "#/components/responses/Error"
+  /discounts:
+    get:
+      tags: [Discounts]
+      operationId: listDiscounts
+      summary: List discounts
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/After"
+        - $ref: "#/components/parameters/Before"
+      responses:
+        "200":
+          $ref: "#/components/responses/DiscountList"
+  /discounts/{discount}:
+    parameters:
+      - $ref: "#/components/parameters/DiscountId"
+    get:
+      tags: [Discounts]
+      operationId: retrieveDiscount
+      summary: Retrieve a discount
+      responses:
+        "200":
+          $ref: "#/components/responses/Discount"
+        "404":
           $ref: "#/components/responses/Error"
   /subscriptions:
     get:
@@ -848,8 +936,13 @@ components:
     SecretKeyAuth:
       type: http
       scheme: bearer
-      bearerFormat: Bouclay secret key
-      description: Use a Bouclay secret key. Publishable keys are rejected by server-side API endpoints.
+      bearerFormat: sk_{mode}_{random}
+      description: |
+        Use a Bouclay secret key — `sk_test_...` or `sk_live_...`.
+
+        Publishable keys (`pk_...`) are rejected by server-side API endpoints. A
+        key's mode scopes what it can see and charge: a test key can never reach
+        a live card.
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -879,13 +972,34 @@ components:
       schema:
         type: string
       description: Return results before this public ID cursor. Cannot be combined with after.
+    PlanId:
+      name: plan
+      in: path
+      required: true
+      schema:
+        type: string
+      example: plan_123
+    DiscountId:
+      name: discount
+      in: path
+      required: true
+      schema:
+        type: string
+      example: disc_123
+    EntitlementCode:
+      name: code
+      in: path
+      required: true
+      schema:
+        type: string
+      example: hd_streaming
     CustomerId:
       name: customer
       in: path
       required: true
       schema:
         type: string
-      example: cus_123
+      example: ctm_123
     AddressId:
       name: address
       in: path
@@ -913,14 +1027,7 @@ components:
       required: true
       schema:
         type: string
-      example: prc_123
-    TrialOfferId:
-      name: trialOffer
-      in: path
-      required: true
-      schema:
-        type: string
-      example: tro_123
+      example: price_123
     SubscriptionId:
       name: subscription
       in: path
@@ -962,7 +1069,7 @@ components:
       required: true
       schema:
         type: string
-      example: chk_123
+      example: 9b1f7c2e-3d4a-4f5b-8c6d-7e8f9a0b1c2d
   responses:
     Error:
       description: Structured API error.
@@ -1029,6 +1136,78 @@ components:
                 properties:
                   data:
                     $ref: "#/components/schemas/PaymentMethod"
+    Plan:
+      description: Plan response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Plan"
+    PlanList:
+      description: Plan list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Plan"
+    Discount:
+      description: Discount response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Discount"
+    DiscountList:
+      description: Discount list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Discount"
+    EntitlementList:
+      description: Entitlement list response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ListEnvelope"
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Entitlement"
+    EntitlementCheck:
+      description: Single entitlement check response.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ResourceEnvelope"
+              - type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/EntitlementCheck"
     PaymentMethodList:
       description: Payment method list response.
       content:
@@ -1090,30 +1269,6 @@ components:
                     type: array
                     items:
                       $ref: "#/components/schemas/Price"
-    TrialOffer:
-      description: Trial offer response.
-      content:
-        application/json:
-          schema:
-            allOf:
-              - $ref: "#/components/schemas/ResourceEnvelope"
-              - type: object
-                properties:
-                  data:
-                    $ref: "#/components/schemas/TrialOffer"
-    TrialOfferList:
-      description: Trial offer list response.
-      content:
-        application/json:
-          schema:
-            allOf:
-              - $ref: "#/components/schemas/ListEnvelope"
-              - type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/TrialOffer"
     Subscription:
       description: Subscription response.
       content:
@@ -1359,7 +1514,7 @@ components:
       properties:
         id:
           type: string
-          example: cus_123
+          example: ctm_123
         email:
           type: string
           format: email
@@ -1524,6 +1679,161 @@ components:
             - "null"
         isDefault:
           type: boolean
+    Plan:
+      type: object
+      properties:
+        id:
+          type: string
+          example: plan_123
+        productId:
+          type: string
+          example: prod_123
+        code:
+          type:
+            - string
+            - "null"
+          example: premium
+        name:
+          type: string
+          example: Premium
+        status:
+          type: string
+          enum: [draft, active, archived]
+        customData:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    PlanRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        code:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum: [draft, active, archived]
+          default: active
+        customData:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+    UpdatePlanRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        code:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+          enum: [draft, active, archived]
+        customData:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+    Discount:
+      type: object
+      properties:
+        id:
+          type: string
+          example: disc_123
+        code:
+          type:
+            - string
+            - "null"
+          example: WELCOME20
+        type:
+          type: string
+          enum: [percentage, flat]
+        amount:
+          type:
+            - number
+            - "null"
+          description: Major units. Set for `flat`, null for `percentage`.
+        percentage:
+          type:
+            - number
+            - "null"
+          description: Set for `percentage`, null for `flat`.
+        currency:
+          type:
+            - string
+            - "null"
+          description: Required for `flat`; a flat discount is only valid in its own currency.
+        duration:
+          type: string
+          enum: [once, repeating, forever]
+        durationInIntervals:
+          type:
+            - integer
+            - "null"
+          description: How many billing intervals a `repeating` discount applies for.
+        maxRedemptions:
+          type:
+            - integer
+            - "null"
+        timesRedeemed:
+          type: integer
+        active:
+          type: boolean
+        startsAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        expiresAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    Entitlement:
+      type: object
+      properties:
+        id:
+          type: string
+          example: ent_123
+        code:
+          type: string
+          description: |
+            The key your application checks against. Immutable once created —
+            renaming it would silently revoke access everywhere you gate on it.
+          example: hd_streaming
+        name:
+          type: string
+          example: HD Streaming
+        description:
+          type:
+            - string
+            - "null"
+    EntitlementCheck:
+      type: object
+      properties:
+        code:
+          type: string
+          example: hd_streaming
+        granted:
+          type: boolean
+          description: Whether the customer currently holds this capability.
+        entitlement:
+          oneOf:
+            - $ref: "#/components/schemas/Entitlement"
+            - type: "null"
+          description: The entitlement itself when granted; null when not.
     PaymentMethod:
       type: object
       properties:
@@ -1531,7 +1841,9 @@ components:
           type: string
         processor:
           type: string
-          example: nomba
+          description: The gateway that minted this card's token. Charges on it always route back through that gateway, never the team's default.
+          enum: [nomba, paystack, flutterwave]
+          example: paystack
         type:
           type: string
         brand:
@@ -1631,10 +1943,6 @@ components:
             - "null"
           format: date-time
         priceIds:
-          type: array
-          items:
-            type: string
-        trialOfferIds:
           type: array
           items:
             type: string
@@ -1739,72 +2047,6 @@ components:
                 $ref: "#/components/schemas/MajorAmount"
               flatAmount:
                 $ref: "#/components/schemas/MajorAmount"
-    TrialOfferRequest:
-      type: object
-      required: [name, trialPriceId, transitionPriceId, durationIterations]
-      properties:
-        name:
-          type: string
-        trialPriceId:
-          type: string
-        transitionPriceId:
-          type: string
-        transitionToDifferentProduct:
-          type: boolean
-          default: false
-        transitionProductId:
-          type: string
-        durationIterations:
-          type: integer
-          minimum: 1
-    UpdateTrialOfferRequest:
-      type: object
-      properties:
-        name:
-          type: string
-        trialPriceId:
-          type: string
-        transitionPriceId:
-          type: string
-        transitionToDifferentProduct:
-          type: boolean
-        transitionProductId:
-          type: string
-        durationIterations:
-          type: integer
-          minimum: 1
-        active:
-          type: boolean
-    TrialOffer:
-      type: object
-      properties:
-        id:
-          type: string
-        productId:
-          type: string
-        name:
-          type: string
-        trialPriceId:
-          type: string
-        transitionPriceId:
-          type: string
-        transitionToDifferentProduct:
-          type: boolean
-        transitionProductId:
-          type:
-            - string
-            - "null"
-        durationIterations:
-          type: integer
-        active:
-          type: boolean
-        customData:
-          $ref: "#/components/schemas/CustomData"
-        createdAt:
-          type:
-            - string
-            - "null"
-          format: date-time
     CreateSubscriptionRequest:
       type: object
       required: [customer, collectionMode, items]
@@ -1830,8 +2072,6 @@ components:
               price:
                 type: string
                 description: Backward-compatible alias accepted by the API.
-              trialOffer:
-                type: string
               quantity:
                 type: integer
                 minimum: 1

@@ -1,5 +1,21 @@
 # Bouclay — Subscriptions & State Machine Design Proposal (Phase 5)
 
+> ## ⚠ Historical — accurate on the state machine, stale on gateways (noted 2026-07-16)
+>
+> The seven-state machine, its transitions, and the UX reasoning below are still
+> exactly what the code does. Two things have moved on:
+>
+> - **Nomba is no longer the only gateway.** Read "Nomba" below as "the team's
+>   payment gateway" — Paystack and Flutterwave ship too, behind one driver
+>   interface (V2-4/V2-4b). A stored card always charges through the gateway that
+>   minted its token.
+> - **The catalog underneath changed** (V2-1): `products → plans → prices`, and
+>   `trial_offers` is gone — trials live on the price.
+>
+> Also added since: discounts and mid-cycle proration (V2-3), refunds (V2-4),
+> entitlements (V2-5). **`schema.md` is the authority.**
+
+
 The heart of the platform. Everything before this phase — Nomba BYOK, catalog, customers, tokenized cards — existed to make this one object possible: a **subscription** that bills a real customer, on a real schedule, into the merchant's own Nomba account.
 
 This document is the product/UX source of truth for Phase 5. It does **not** redesign the schema (`schema.md` §4–5 is authoritative) and it honours every decision locked in `IMPLEMENTATION.md` and the Phase 4→5 handoff. Where a decision touches money movement or invoice records, Phase 5 **staged** it; Phase 6 **built** invoicing, charges, and the invoice detail page — see [`IMPLEMENTATION.md`](IMPLEMENTATION.md) Phase 6 and `schema.md` § Dashboard vocabulary.
@@ -594,7 +610,7 @@ Metadata            key/value (custom_data), same component as customer hub
 
 Developer
   Subscription ID  sub_3xK9d2  ⧉
-  Customer ID      cus_…       ⧉
+  Customer ID      ctm_…       ⧉
   Created          5 Jul 2026, 10:02
 ```
 
