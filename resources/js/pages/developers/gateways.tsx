@@ -2,15 +2,8 @@ import { Form, Head, Link } from '@inertiajs/react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import AppLayout from '@/layouts/app-layout';
-import { setDefault } from '@/routes/developers/gateways';
-import type { BreadcrumbItem } from '@/types';
+import { index as gatewaysIndex, setDefault } from '@/routes/developers/gateways';
 import type { GatewaySummary } from '@/types/developers';
-
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Developers', href: '#' },
-    { title: 'Payment gateways', href: '#' },
-];
 
 export default function Gateways({
     gateways,
@@ -24,41 +17,39 @@ export default function Gateways({
     ).length;
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
-            <div className="flex max-w-3xl flex-col gap-6 p-4">
-                <Head title="Payment gateways" />
+        <div className="flex max-w-3xl flex-col gap-6 p-4">
+            <Head title="Payment gateways" />
 
-                <div className="space-y-1">
-                    <h1 className="text-2xl font-semibold">Payment gateways</h1>
-                    <p className="text-sm text-muted-foreground">
-                        Connect your own account with any gateway below. Your
-                        keys stay yours — Bouclay charges through them and never
-                        holds your funds.
-                    </p>
-                </div>
-
-                <div className="space-y-3">
-                    {gateways.map((gateway) => (
-                        <GatewayRow
-                            key={gateway.processor}
-                            gateway={gateway}
-                            canManage={canManage}
-                            canChooseDefault={connectedCount > 1}
-                        />
-                    ))}
-                </div>
-
-                {connectedCount > 1 && (
-                    <p className="text-sm text-muted-foreground">
-                        The default gateway applies to{' '}
-                        <span className="font-medium">new checkouts only</span>.
-                        Saved cards always charge through the gateway that
-                        issued them, so changing this never moves an existing
-                        subscription.
-                    </p>
-                )}
+            <div className="space-y-1">
+                <h1 className="text-2xl font-semibold">Payment gateways</h1>
+                <p className="text-sm text-muted-foreground">
+                    Connect your own account with any gateway below. Your keys
+                    stay yours — Bouclay charges through them and never holds
+                    your funds.
+                </p>
             </div>
-        </AppLayout>
+
+            <div className="space-y-3">
+                {gateways.map((gateway) => (
+                    <GatewayRow
+                        key={gateway.processor}
+                        gateway={gateway}
+                        canManage={canManage}
+                        canChooseDefault={connectedCount > 1}
+                    />
+                ))}
+            </div>
+
+            {connectedCount > 1 && (
+                <p className="text-sm text-muted-foreground">
+                    The default gateway applies to{' '}
+                    <span className="font-medium">new checkouts only</span>.
+                    Saved cards always charge through the gateway that issued
+                    them, so changing this never moves an existing
+                    subscription.
+                </p>
+            )}
+        </div>
     );
 }
 
@@ -149,3 +140,7 @@ function ModeBadge({ label, connected }: { label: string; connected: boolean }) 
         </span>
     );
 }
+
+Gateways.layout = () => ({
+    breadcrumbs: [{ title: 'Payment gateways', href: gatewaysIndex() }],
+});

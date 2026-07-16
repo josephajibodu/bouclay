@@ -126,8 +126,9 @@ function OutboundEndpointsTab({
                 <Label>What Bouclay sends you</Label>
                 <p className="text-sm text-muted-foreground">
                     Register a URL on your server. Bouclay POSTs signed billing
-                    events like <code>invoice.paid</code> and{' '}
-                    <code>subscription.updated</code> when things change.
+                    events like <code>invoice.updated</code> and{' '}
+                    <code>subscription.updated</code> when things change — read{' '}
+                    <code>status</code> off the object to see what changed.
                 </p>
             </div>
 
