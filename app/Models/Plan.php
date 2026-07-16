@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Concerns\HasPublicId;
+use App\Enums\OutboundEventType;
 use App\Enums\PlanStatus;
 use Database\Factories\PlanFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -46,6 +48,61 @@ class Plan extends Model
     public function publicIdPrefix(): string
     {
         return 'plan';
+    }
+
+    /**
+     * Mirror the column default in memory, so a freshly created model knows
+     * its own status before the DB round-trips it back. Without this a
+     * `created` hook sees `status = null` on any row that relied on the
+     * default.
+     *
+     * @var array<string, string>
+     */
+    protected $attributes = [
+        'status' => PlanStatus::Active->value,
+    ];
+
+    /**
+     * Announce catalog changes to integrators (schema.md §9). See
+     * {@see Product::booted()} for why this is a model hook.
+     */
+    protected static function booted(): void
+    {
+        static::created(fn (Plan $plan) => $plan->emitWebhookEvent(OutboundEventType::PlanCreated));
+        static::updated(fn (Plan $plan) => $plan->emitWebhookEvent(OutboundEventType::PlanUpdated));
+    }
+
+    /**
+     * Serialise for integrator webhook payloads.
+     *
+     * @return array<string, mixed>
+     */
+    public function toWebhookObject(): array
+    {
+        $this->loadMissing('product');
+
+        return [
+            'id' => $this->public_id,
+            'code' => $this->code,
+            'name' => $this->name,
+            'status' => $this->status->value,
+            'product' => [
+                'id' => $this->product->public_id,
+                'name' => $this->product->name,
+            ],
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
+    }
+
+    private function emitWebhookEvent(OutboundEventType $type): void
+    {
+        $this->loadMissing('team');
+
+        app(EmitOutboundEvent::class)->handle(
+            $this->team,
+            $type,
+            ['object' => $this->toWebhookObject()],
+        );
     }
 
     /**

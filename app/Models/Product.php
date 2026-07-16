@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Concerns\HasPublicId;
 use App\Enums\CatalogStatus;
+use App\Enums\OutboundEventType;
 use Database\Factories\ProductFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Collection;
@@ -46,6 +48,71 @@ class Product extends Model
     public function publicIdPrefix(): string
     {
         return 'prod';
+    }
+
+    /**
+     * Mirror the column default in memory, so a freshly created model knows
+     * its own status before the DB round-trips it back. Without this a
+     * `created` hook sees `status = null` on any row that relied on the
+     * default.
+     *
+     * @var array<string, string>
+     */
+    protected $attributes = [
+        'status' => CatalogStatus::Active->value,
+    ];
+
+    /**
+     * Announce catalog changes to integrators (schema.md §9).
+     *
+     * A model hook rather than an emission per controller: products are
+     * written from the dashboard and the API, and the catalog is only honest
+     * if every one of those paths is covered. There is no such thing as an
+     * "internal" product write.
+     */
+    protected static function booted(): void
+    {
+        static::created(fn (Product $product) => $product->emitWebhookEvent(OutboundEventType::ProductCreated));
+        static::updated(fn (Product $product) => $product->emitWebhookEvent(OutboundEventType::ProductUpdated));
+    }
+
+    /**
+     * Serialise for integrator webhook payloads.
+     *
+     * @return array<string, mixed>
+     */
+    public function toWebhookObject(): array
+    {
+        return [
+            'id' => $this->public_id,
+            'name' => $this->name,
+            'description' => $this->description,
+            'category' => $this->category,
+            'status' => $this->publicStatus(),
+            'websiteUrl' => $this->website_url,
+            'createdAt' => $this->created_at?->toISOString(),
+        ];
+    }
+
+    /**
+     * The status integrators see. Archiving a product is a soft delete, so
+     * it's derived rather than stored — and the webhook and API payloads must
+     * never disagree about it.
+     */
+    private function publicStatus(): string
+    {
+        return $this->trashed() ? CatalogStatus::Archived->value : $this->status->value;
+    }
+
+    private function emitWebhookEvent(OutboundEventType $type): void
+    {
+        $this->loadMissing('team');
+
+        app(EmitOutboundEvent::class)->handle(
+            $this->team,
+            $type,
+            ['object' => $this->toWebhookObject()],
+        );
     }
 
     /**
@@ -124,9 +191,7 @@ class Product extends Model
             'name' => $this->name,
             'description' => $this->description,
             'category' => $this->category,
-            'status' => $this->trashed()
-                ? CatalogStatus::Archived->value
-                : ($this->status?->value ?? CatalogStatus::Active->value),
+            'status' => $this->publicStatus(),
             'customData' => $this->custom_data,
             'createdAt' => $this->created_at?->toISOString(),
             'archivedAt' => $this->deleted_at?->toISOString(),

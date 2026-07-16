@@ -174,9 +174,11 @@ class Invoice extends Model
         if (! $wasPaid) {
             $this->loadMissing(['customer', 'subscription', 'team']);
 
+            // One `invoice.updated` for every change, paid included —
+            // consumers read `status` off the object (schema.md §9).
             app(EmitOutboundEvent::class)->handle(
                 $this->team,
-                OutboundEventType::InvoicePaid,
+                OutboundEventType::InvoiceUpdated,
                 ['object' => $this->toWebhookObject($payment)],
             );
         }

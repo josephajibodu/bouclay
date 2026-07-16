@@ -2,6 +2,7 @@
 
 namespace App\Actions\Invoicing;
 
+use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Enums\AddressType;
 use App\Enums\CollectionMode;
 use App\Enums\DiscountType;
@@ -9,6 +10,7 @@ use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\InvoiceStatus;
 use App\Enums\InvoiceType;
+use App\Enums\OutboundEventType;
 use App\Models\Address;
 use App\Models\Customer;
 use App\Models\Discount;
@@ -32,6 +34,11 @@ use RuntimeException;
  */
 class CreateInvoice
 {
+    public function __construct(private readonly EmitOutboundEvent $emitOutboundEvent)
+    {
+        //
+    }
+
     /**
      * @param  array<int, array{price?: Price|null, product?: Product|null, subscriptionItem?: SubscriptionItem|null, kind: InvoiceLineKind, description: string, unitAmount: int, quantity: int, periodStart?: CarbonInterface|null, periodEnd?: CarbonInterface|null, proration?: bool}>  $lines
      */
@@ -114,6 +121,14 @@ class CreateInvoice
             }
 
             $this->assertDiscountInvariant($invoice);
+
+            $invoice->loadMissing(['customer', 'subscription', 'team']);
+
+            $this->emitOutboundEvent->handle(
+                $team,
+                OutboundEventType::InvoiceCreated,
+                ['object' => $invoice->toWebhookObject()],
+            );
 
             return $invoice;
         });

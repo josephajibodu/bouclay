@@ -3,8 +3,10 @@
 namespace App\Models;
 
 use App\Actions\Entitlements\ResolveCustomerEntitlements;
+use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Concerns\HasPortalToken;
 use App\Concerns\HasPublicId;
+use App\Enums\OutboundEventType;
 use App\Enums\PaymentStatus;
 use Database\Factories\CustomerFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -56,6 +58,35 @@ class Customer extends Model
     public function publicIdPrefix(): string
     {
         return 'ctm';
+    }
+
+    /**
+     * Announce customer changes to integrators (schema.md §9).
+     *
+     * A hook rather than an emission inside CreateCustomer, because that
+     * action is not the only way a customer comes into existence — a payment
+     * link creates one inline for a first-time buyer, and that customer is
+     * every bit as real to an integrator. Archiving is a soft delete, and
+     * restoring is neither a create nor a plain update, so all three land on
+     * `customer.updated` with the status on the object.
+     */
+    protected static function booted(): void
+    {
+        static::created(fn (Customer $customer) => $customer->emit(OutboundEventType::CustomerCreated));
+        static::updated(fn (Customer $customer) => $customer->emit(OutboundEventType::CustomerUpdated));
+        static::deleted(fn (Customer $customer) => $customer->emit(OutboundEventType::CustomerUpdated));
+        static::restored(fn (Customer $customer) => $customer->emit(OutboundEventType::CustomerUpdated));
+    }
+
+    private function emit(OutboundEventType $type): void
+    {
+        $this->loadMissing('team');
+
+        app(EmitOutboundEvent::class)->handle(
+            $this->team,
+            $type,
+            ['object' => $this->toWebhookObject()],
+        );
     }
 
     /**
@@ -237,6 +268,9 @@ class Customer extends Model
             'name' => $this->name,
             'currency' => $this->currency,
             'externalRef' => $this->external_ref,
+            // Archiving is a soft delete, so status is derived rather than
+            // stored — consumers still read it off every payload (§V2-6).
+            'status' => $this->trashed() ? 'archived' : 'active',
             'createdAt' => $this->created_at?->toISOString(),
         ];
     }

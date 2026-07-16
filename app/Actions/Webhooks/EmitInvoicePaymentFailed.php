@@ -7,7 +7,9 @@ use App\Models\Invoice;
 use App\Models\Payment;
 
 /**
- * Emit an invoice.payment_failed outbound event.
+ * Announce a failed charge attempt as an `invoice.updated` — the invoice's
+ * own status is unchanged (it stays open for a retry), so the payload carries
+ * the failed `payment` alongside it and consumers read the outcome there.
  */
 class EmitInvoicePaymentFailed
 {
@@ -24,7 +26,7 @@ class EmitInvoicePaymentFailed
 
         $this->emit->handle(
             $invoice->team,
-            OutboundEventType::InvoicePaymentFailed,
+            OutboundEventType::InvoiceUpdated,
             ['object' => array_merge(
                 $invoice->toWebhookObject(),
                 ['payment' => $payment->toWebhookObject()],

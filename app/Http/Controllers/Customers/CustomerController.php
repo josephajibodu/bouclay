@@ -253,6 +253,12 @@ class CustomerController extends Controller
      */
     private function buildActivity(Customer $customer): array
     {
+        // ⚠ These `type` strings are NOT the outbound event catalog
+        // (App\Enums\OutboundEventType). This is a human-readable history for
+        // the dashboard, so it stays deliberately more granular than the
+        // integrator contract — "Customer archived" reads better here than the
+        // `customer.updated` an integrator receives. The UI renders `label`;
+        // `type` is only a React key.
         $events = [];
 
         $events[] = [

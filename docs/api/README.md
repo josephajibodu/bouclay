@@ -152,6 +152,46 @@ Listen for outbound events from the Events API and registered webhooks. Event pa
   "id": "evt_...",
   "type": "subscription.created",
   "created": "2026-07-07T16:43:00+00:00",
-  "data": {}
+  "data": {
+    "object": {}
+  }
 }
 ```
+
+`data.object` is the full object the event is about, in the same shape the REST
+API returns it.
+
+### Event catalog
+
+Every object emits exactly two events: one `*.created` when it first exists,
+and one `*.updated` for **every** subsequent change.
+
+| Event | Fires when |
+|---|---|
+| `customer.created` | a customer is created |
+| `customer.updated` | a customer is edited, archived, or restored |
+| `payment_method.created` | a card is tokenized and stored |
+| `payment_method.updated` | a card is made default, expires, or is removed |
+| `product.created` | a product is added to the catalog |
+| `product.updated` | a product is edited or archived |
+| `plan.created` | a plan is added to a product |
+| `plan.updated` | a plan is edited or archived |
+| `subscription.created` | a subscription starts |
+| `subscription.updated` | trial converts, renews, goes past due, pauses, cancels — any status change |
+| `invoice.created` | an invoice is issued |
+| `invoice.updated` | an invoice is paid, a payment fails, or it is voided |
+
+**Read `status` off the object, not the event name.** There is deliberately no
+`invoice.paid` or `invoice.payment_failed`: whether an invoice was paid is a
+property of the invoice, so it arrives as `invoice.updated` with
+`data.object.status`. The same applies to every subscription transition. This
+keeps the catalog small and means a new status never breaks your handler — it
+arrives on an event name you already subscribe to.
+
+When a charge fails, `invoice.updated` carries the failed attempt alongside the
+invoice as `data.object.payment`; the invoice's own `status` stays `open`
+because it's still collectable.
+
+`subscription.*` payloads also carry `data.object.customer.entitlements` — the
+codes that customer currently holds — so a paywall can be gated from webhooks
+alone without calling back.

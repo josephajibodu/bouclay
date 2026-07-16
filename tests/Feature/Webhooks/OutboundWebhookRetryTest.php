@@ -20,7 +20,7 @@ test('a failed delivery stays pending with a future retry time and succeeds on r
     ]);
 
     $event = Event::factory()->for($team)->create([
-        'type' => OutboundEventType::InvoicePaid,
+        'type' => OutboundEventType::InvoiceUpdated,
     ]);
 
     $delivery = WebhookDelivery::factory()->create([

@@ -21,10 +21,13 @@ class EventFactory extends Factory
     {
         return [
             'team_id' => Team::factory(),
-            'type' => OutboundEventType::InvoicePaid,
+            'type' => OutboundEventType::InvoiceUpdated,
             'data' => [
                 'object' => [
                     'publicId' => 'inv_test',
+                    // Consumers read the outcome off the object, never the
+                    // event name (schema.md §9).
+                    'status' => 'paid',
                 ],
             ],
         ];

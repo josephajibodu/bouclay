@@ -2,9 +2,7 @@
 
 namespace App\Actions\PaymentMethods;
 
-use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Enums\ApiKeyMode;
-use App\Enums\OutboundEventType;
 use App\Enums\PaymentMethodStatus;
 use App\Enums\PaymentMethodType;
 use App\Enums\PaymentProcessor;
@@ -22,12 +20,6 @@ use Illuminate\Support\Facades\DB;
  */
 class StoreTokenizedPaymentMethod
 {
-    public function __construct(
-        private readonly EmitOutboundEvent $emitOutboundEvent,
-    ) {
-        //
-    }
-
     /**
      * @param  array<string, mixed>  $card
      */
@@ -62,16 +54,8 @@ class StoreTokenizedPaymentMethod
             return $paymentMethod;
         });
 
-        if ($paymentMethod->wasRecentlyCreated) {
-            $customer->loadMissing('team');
-
-            $this->emitOutboundEvent->handle(
-                $customer->team,
-                OutboundEventType::PaymentMethodAdded,
-                ['object' => $paymentMethod->toWebhookObject()],
-            );
-        }
-
+        // payment_method.created/updated are emitted by the model — see
+        // PaymentMethod::booted().
         return $paymentMethod;
     }
 

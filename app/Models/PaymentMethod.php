@@ -2,7 +2,10 @@
 
 namespace App\Models;
 
+use App\Actions\PaymentMethods\StoreTokenizedPaymentMethod;
+use App\Actions\Webhooks\EmitOutboundEvent;
 use App\Concerns\HasPublicId;
+use App\Enums\OutboundEventType;
 use App\Enums\PaymentMethodStatus;
 use App\Enums\PaymentMethodType;
 use App\Enums\PaymentProcessor;
@@ -53,6 +56,30 @@ class PaymentMethod extends Model
     public function publicIdPrefix(): string
     {
         return 'pm';
+    }
+
+    /**
+     * Announce payment-method changes to integrators (schema.md §9).
+     *
+     * `created` stays in {@see StoreTokenizedPaymentMethod},
+     * which owns tokenisation. Removal is a soft delete, and a card going
+     * away matters as much to an integrator as one arriving.
+     */
+    protected static function booted(): void
+    {
+        static::updated(fn (PaymentMethod $method) => $method->emitUpdated());
+        static::deleted(fn (PaymentMethod $method) => $method->emitUpdated());
+    }
+
+    private function emitUpdated(): void
+    {
+        $this->loadMissing('team');
+
+        app(EmitOutboundEvent::class)->handle(
+            $this->team,
+            OutboundEventType::PaymentMethodUpdated,
+            ['object' => $this->toWebhookObject()],
+        );
     }
 
     /**

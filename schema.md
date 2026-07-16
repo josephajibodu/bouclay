@@ -813,9 +813,9 @@ One `*.created` event when an object is instantiated; one `*.updated` event reus
 | Plan | `plan.created`, `plan.updated` |
 | Subscription | `subscription.created`, `subscription.updated` |
 | Invoice | `invoice.created`, `invoice.updated` — no separate `invoice.paid`/`invoice.payment_failed` names; consumers read `status` off `invoice.updated` |
-| Payment | `payment.created`, `payment.updated` — **not** `transaction.*`; "Transaction is not a Bouclay entity" (see [Dashboard vocabulary](#dashboard-vocabulary-locked-2026-07-06) above) applies to event names too, not just dashboard labels |
+| Payment | *(not emitted — a payment rides on `invoice.updated` as `data.object.payment`, so its own pair would announce the same occurrence twice. If it ever earns one: `payment.created`/`payment.updated`, **not** `transaction.*` — "Transaction is not a Bouclay entity" (see [Dashboard vocabulary](#dashboard-vocabulary-locked-2026-07-06) above) applies to event names too, not just dashboard labels.)* |
 
-**This is a breaking rename against already-shipped code, not a free consequence of this doc.** Phase 9 (`IMPLEMENTATION.md`) is built and tested: it currently emits the concrete names `invoice.paid` / `invoice.payment_failed` / `payment_method.added`, covered by `OutboundWebhookEndpointTest`, `OutboundWebhookDeliveryTest`, `OutboundWebhookRetryTest`, and consumed by the Phase 12 reference app's webhook handler. Collapsing to `*.created`/`*.updated` pairs is the right target shape, but landing it means updating `OutboundEventType`, every emission call site, those three test files, and the reference app — track it as its own work item when this catalog rework actually ships, not as a side effect of editing `schema.md`.
+**✅ Landed in V2-6 (2026-07-16).** The rename is done: `invoice.paid` / `invoice.payment_failed` / `payment_method.added` are gone, `OutboundEventType` is created/updated pairs only, and `EventCatalogTest` pins the shape so the next addition can't drift. Emission moved onto model hooks for customer, payment_method, product, and plan — completeness shouldn't depend on every future caller remembering, and it doesn't: a payment-link customer used to arrive with no `customer.created` at all, because that path bypassed the action that emitted it.
 
 ### `events`
 Normalised event log emitted **to integrators**.

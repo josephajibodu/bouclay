@@ -15,7 +15,7 @@ use App\Models\WebhookEndpoint;
 use App\Services\Webhooks\SignOutboundWebhook;
 use Illuminate\Support\Facades\Http;
 
-test('a successful charge delivers a signed invoice.paid webhook to the integrator url', function () {
+test('a successful charge delivers a signed invoice.updated webhook to the integrator url', function () {
     ['owner' => $owner, 'team' => $team, 'customer' => $customer, 'price' => $price] = invoiceFixture();
 
     $integratorUrl = 'https://integrator.test/webhooks/bouclay';
@@ -52,9 +52,16 @@ test('a successful charge delivers a signed invoice.paid webhook to the integrat
 
     $invoice = $customer->invoices()->firstOrFail();
 
+    // One `invoice.created` when it was issued, one `invoice.updated` when it
+    // was paid — the outcome is `status` on the payload, not a name of its own.
     expect($invoice->status)->toBe(InvoiceStatus::Paid)
-        ->and(Event::query()->where('type', OutboundEventType::InvoicePaid)->count())->toBe(1)
-        ->and(WebhookDelivery::query()->where('status', WebhookDeliveryStatus::Succeeded)->count())->toBe(1);
+        ->and(Event::query()->where('type', OutboundEventType::InvoiceCreated)->count())->toBe(1)
+        ->and(Event::query()->where('type', OutboundEventType::InvoiceUpdated)->count())->toBe(1)
+        // Both invoice events reached the integrator. (The customer was
+        // created before the endpoint existed, so its event has no delivery —
+        // endpoints only receive what happens after they're registered.)
+        ->and(WebhookDelivery::query()->where('status', WebhookDeliveryStatus::Succeeded)->count())
+        ->toBe(2);
 
     Http::assertSent(function ($request) use ($generated, $invoice) {
         if (! str_contains($request->url(), 'integrator.test')) {
@@ -65,12 +72,14 @@ test('a successful charge delivers a signed invoice.paid webhook to the integrat
         $signatureHeader = $request->header('Bouclay-Signature')[0] ?? '';
 
         return app(SignOutboundWebhook::class)->verify($generated['secret'], $body, $signatureHeader)
-            && str_contains($body, '"type":"invoice.paid"')
+            && str_contains($body, '"type":"invoice.updated"')
+            // The outcome rides on the object, not the event name.
+            && str_contains($body, '"status":"paid"')
             && str_contains($body, $invoice->public_id);
     });
 });
 
-test('marking an already paid invoice paid again does not emit a second invoice.paid event', function () {
+test('marking an already paid invoice paid again does not emit a second invoice.updated event', function () {
     ['team' => $team, 'customer' => $customer, 'price' => $price] = invoiceFixture();
 
     WebhookEndpoint::factory()->for($team)->create([
@@ -106,5 +115,7 @@ test('marking an already paid invoice paid again does not emit a second invoice.
     $invoice->markPaid($payment);
     $invoice->markPaid($payment);
 
-    expect(Event::query()->where('type', OutboundEventType::InvoicePaid)->count())->toBe(1);
+    // Collapsing to `invoice.updated` must not cost the idempotency that
+    // `invoice.paid` had — a second markPaid is a no-op, not a second event.
+    expect(Event::query()->where('type', OutboundEventType::InvoiceUpdated)->count())->toBe(1);
 });
