@@ -10,7 +10,12 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatRelativeTime } from '@/lib/utils';
-import { connect, show, test } from '@/routes/developers/gateways';
+import {
+    connect,
+    index as gatewaysIndex,
+    show,
+    test,
+} from '@/routes/developers/gateways';
 import type {
     ApiKeyMode,
     GatewayConfigField,
@@ -403,11 +408,13 @@ function InputErrorText({ message }: { message?: string }) {
     return <p className="text-sm text-destructive">{message}</p>;
 }
 
-GatewayIntegration.layout = (page: { props: Props }) => ({
+// Inertia calls this with the page's props directly, not a { props } wrapper.
+GatewayIntegration.layout = (props: Props) => ({
     breadcrumbs: [
+        { title: 'Payment gateways', href: gatewaysIndex() },
         {
-            title: `${page.props.manifest.label} Integration`,
-            href: show({ processor: page.props.processor }),
+            title: props.manifest.label,
+            href: show({ processor: props.processor }),
         },
     ],
 });
