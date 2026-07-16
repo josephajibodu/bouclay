@@ -10,6 +10,7 @@ use App\Enums\InvoiceLineKind;
 use App\Enums\InvoiceStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\RefundStatus;
+use App\Enums\ScheduledChangeAction;
 use App\Enums\SubscriptionItemKind;
 use App\Enums\SubscriptionStatus;
 use App\Models\DiscountRedemption;
@@ -172,8 +173,20 @@ it('writes a discount_redemptions row with remaining_intervals snapshotted from 
 });
 
 it('grants hd_streaming and sports_channels while trialing', function () {
-    // Access check: plan:Premium → hd_streaming, product:Sports Pack → sports_channels.
-})->todo();
+    ['fx' => $fx, 'subscription' => $subscription] = subscribeAminaOnFreeTrial();
+
+    expect($subscription->status)->toBe(SubscriptionStatus::Trialing);
+
+    // Access is resolved from the catalog, not from billing state — Amina has
+    // paid nothing at all yet, and streams anyway.
+    expect($fx['amina']->entitlementCodes())->toBe(['hd_streaming', 'sports_channels'])
+        ->and($fx['amina']->hasEntitlement('hd_streaming'))->toBeTrue();
+
+    // hd_streaming is granted by plan:Premium; sports_channels by
+    // product:Sports Pack — two different grantor types, one union.
+    expect($fx['amina']->entitlements()->get('hd_streaming')->grants->first()->grantor_type)->toBe('plan')
+        ->and($fx['amina']->entitlements()->get('sports_channels')->grants->first()->grantor_type)->toBe('product');
+});
 
 // Act 3 — Day 7: trial converts
 it('converts the trial to active and emits subscription.updated', function () {
@@ -412,5 +425,30 @@ it('applies the scheduled cancel at the boundary and stamps applied_at', functio
 })->todo();
 
 it('revokes all entitlements after the subscription ends', function () {
-    // Access check returns nothing after ends_at — HD + sports revoked.
-})->todo();
+    ['fx' => $fx, 'subscription' => $subscription] = subscribeAminaOnFreeTrial();
+    $amina = $fx['amina'];
+
+    // Act 7's actual shape: cancellation is *scheduled*, and status stays
+    // `active` until the boundary. Access must survive the notice period —
+    // Amina paid for it.
+    $subscription->scheduledChanges()->create([
+        'action' => ScheduledChangeAction::Cancel,
+        'effective_at' => $subscription->current_period_end,
+    ]);
+    $subscription->forceFill(['canceled_at' => now()])->save();
+
+    // Status is untouched by scheduling — dashboards read `status`, not
+    // `canceled_at`, to decide "still active".
+    expect($subscription->fresh()->status->grantsAccess())->toBeTrue()
+        ->and($amina->entitlementCodes())->toBe(['hd_streaming', 'sports_channels']);
+
+    $this->travelTo($subscription->current_period_end->copy()->addSecond());
+    $this->artisan('subscriptions:apply-scheduled-changes')->assertSuccessful();
+
+    expect($subscription->fresh()->status)->toBe(SubscriptionStatus::Canceled);
+
+    // Access check now returns nothing — HD + sports revoked.
+    expect($amina->entitlementCodes())->toBe([])
+        ->and($amina->hasEntitlement('hd_streaming'))->toBeFalse()
+        ->and($amina->hasEntitlement('sports_channels'))->toBeFalse();
+});

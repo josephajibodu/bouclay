@@ -36,6 +36,35 @@ enum SubscriptionStatus: string
      * this status. The state object holds no data beyond the subscription —
      * legality lives in which methods each class implements.
      */
+    /**
+     * Whether a subscription in this status still grants entitlement access
+     * (IMPLEMENTATION_V2 §V2-5).
+     *
+     * `past_due` grants access on purpose: a failed renewal is a payment
+     * problem, and locking a paying customer out mid-dunning is how a
+     * recoverable card decline turns into a cancellation. The grace window is
+     * bounded separately by `ends_at`, which the resolver honours.
+     *
+     * `paused` does not grant access — that is what pausing is for.
+     */
+    public function grantsAccess(): bool
+    {
+        return match ($this) {
+            self::Trialing, self::Active, self::PastDue => true,
+            self::Incomplete, self::IncompleteExpired, self::Paused, self::Canceled => false,
+        };
+    }
+
+    /**
+     * The statuses that still grant access, for querying.
+     *
+     * @return list<self>
+     */
+    public static function grantingAccess(): array
+    {
+        return array_values(array_filter(self::cases(), fn (self $status): bool => $status->grantsAccess()));
+    }
+
     public function stateFor(Subscription $subscription): SubscriptionState
     {
         return match ($this) {

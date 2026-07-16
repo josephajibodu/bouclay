@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Actions\Entitlements\ResolveCustomerEntitlements;
 use App\Concerns\HasPortalToken;
 use App\Concerns\HasPublicId;
 use App\Enums\PaymentStatus;
@@ -14,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection as SupportCollection;
 
 /**
  * @property int $id
@@ -104,6 +106,41 @@ class Customer extends Model
     public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class);
+    }
+
+    /**
+     * What this customer can access right now — the union of entitlements
+     * granted by the plans/products on their access-granting subscriptions
+     * (IMPLEMENTATION_V2 §V2-5).
+     *
+     * Deliberately not a relation: access is a *computed* answer that depends
+     * on subscription status and the `ends_at` grace window, not a join an
+     * integrator could get subtly wrong.
+     *
+     * @return SupportCollection<string, Entitlement>
+     */
+    public function entitlements(): SupportCollection
+    {
+        return app(ResolveCustomerEntitlements::class)->handle($this);
+    }
+
+    /**
+     * The entitlement codes this customer holds — what application code
+     * gates on.
+     *
+     * @return list<string>
+     */
+    public function entitlementCodes(): array
+    {
+        return app(ResolveCustomerEntitlements::class)->codes($this);
+    }
+
+    /**
+     * Whether this customer can access a named capability.
+     */
+    public function hasEntitlement(string $code): bool
+    {
+        return $this->entitlements()->has($code);
     }
 
     /**
