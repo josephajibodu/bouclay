@@ -4,9 +4,11 @@ use App\Enums\InvoiceStatus;
 use App\Enums\OutboundEventType;
 use App\Enums\PaymentStatus;
 use App\Enums\SubscriptionStatus;
+use App\Enums\TrialUnit;
 use App\Models\Customer;
 use App\Models\Event;
 use App\Models\Invoice;
+use App\Models\Payment;
 use App\Models\PaymentLink;
 use App\Models\Price;
 use App\Models\Subscription;
@@ -191,6 +193,161 @@ test('a recurring payment link creates the subscription only after hosted paymen
         ->and($invoice->payments->first()->status)->toBe(PaymentStatus::Succeeded)
         ->and($invoice->custom_data)->not->toHaveKey('pending_subscription')
         ->and(Event::query()->where('type', OutboundEventType::SubscriptionCreated)->count())->toBe(1);
+});
+
+test('a payment link on a free-trial price starts the trial and charges nothing', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout('https://checkout.nomba.com/pay/should-not-be-used');
+
+    $price->forceFill([
+        'unit_amount' => 2000000,
+        'trial_length' => 7,
+        'trial_unit' => TrialUnit::Day,
+        'trial_requires_payment_info' => false,
+    ])->save();
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->from(route('hosted.payment-links.show', $paymentLink->public_id))
+        ->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+            'name' => 'Ada Lovelace',
+            'email' => 'ADA@example.com',
+        ])
+        ->assertRedirect(route('hosted.payment-links.show', $paymentLink->public_id))
+        ->assertSessionHas('checkoutSuccess');
+
+    $subscription = Subscription::query()->with('items')->firstOrFail();
+
+    // The bug: day 0 billed the full ₦20,000 on a price sold as a free trial.
+    expect(Invoice::query()->count())->toBe(0)
+        ->and(Payment::query()->count())->toBe(0)
+        ->and($subscription->status)->toBe(SubscriptionStatus::Trialing)
+        ->and($subscription->trial_ends_at?->toDateString())
+        ->toBe(now()->addDays(7)->toDateString())
+        ->and($subscription->items->first()->price_id)->toBe($price->id)
+        ->and($subscription->custom_data['payment_link_id'])->toBe($paymentLink->public_id)
+        ->and(Event::query()->where('type', OutboundEventType::SubscriptionCreated)->count())->toBe(1);
+
+    // No money leg at all — the customer never reaches a gateway.
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), '/v1/checkout/order'));
+});
+
+test('the hosted page confirms a started trial and names the date billing begins', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout('https://checkout.nomba.com/pay/should-not-be-used');
+
+    $price->forceFill([
+        'trial_length' => 7,
+        'trial_unit' => TrialUnit::Day,
+        'trial_requires_payment_info' => false,
+    ])->save();
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->from(route('hosted.payment-links.show', $paymentLink->public_id))
+        ->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+            'email' => 'ada@example.com',
+        ]);
+
+    $this->followingRedirects()
+        ->get(route('hosted.payment-links.show', $paymentLink->public_id))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('checkoutSuccess', 'Your free trial has started — you have not been charged. Billing begins on '.now()->addDays(7)->format('M j, Y').', and you can cancel any time before then.')
+        );
+});
+
+test('a free-trial payment link writes the trial redemption so it cannot be reused', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout('https://checkout.nomba.com/pay/should-not-be-used');
+
+    $price->forceFill([
+        'trial_length' => 7,
+        'trial_unit' => TrialUnit::Day,
+        'trial_requires_payment_info' => false,
+        'trial_once_per_customer' => true,
+    ])->save();
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->from(route('hosted.payment-links.show', $paymentLink->public_id))
+        ->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+            'email' => 'ada@example.com',
+        ])->assertSessionHas('checkoutSuccess');
+
+    expect($team->priceTrialRedemptions()->count())->toBe(1);
+
+    // Same customer, same link, second time — `trial_once_per_customer` holds
+    // on the link path because it routes through CreateSubscription.
+    $this->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+        'email' => 'ada@example.com',
+    ])->assertSessionHas('checkoutError');
+
+    expect(Subscription::query()->count())->toBe(1);
+});
+
+test('a payment link on a trial that requires card details is refused, not charged', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout('https://checkout.nomba.com/pay/should-not-be-used');
+
+    $price->forceFill([
+        'unit_amount' => 2000000,
+        'trial_length' => 7,
+        'trial_unit' => TrialUnit::Day,
+        'trial_requires_payment_info' => true,
+    ])->save();
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+        'email' => 'ada@example.com',
+    ])->assertSessionHas('checkoutError');
+
+    // No gateway can tokenise without charging, so the only wrong outcome here
+    // is taking the customer's ₦20,000 for a "free" trial.
+    expect(Invoice::query()->count())->toBe(0)
+        ->and(Payment::query()->count())->toBe(0)
+        ->and(Subscription::query()->count())->toBe(0);
+
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), '/v1/checkout/order'));
+});
+
+test('a payment link on a price with no trial still charges the full price', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create();
+    fakeNombaCheckout('https://checkout.nomba.com/pay/no-trial');
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    $this->post(route('hosted.payment-links.checkout', $paymentLink->public_id), [
+        'email' => 'ada@example.com',
+    ])->assertRedirect('https://checkout.nomba.com/pay/no-trial');
+
+    expect(Invoice::query()->firstOrFail()->total)->toBe($price->unit_amount)
+        ->and(Subscription::query()->count())->toBe(0);
 });
 
 test('a one-time payment link creates an invoice and starts Nomba checkout', function () {

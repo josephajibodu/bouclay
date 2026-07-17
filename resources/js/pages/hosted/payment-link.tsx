@@ -75,6 +75,10 @@ function priceCaption(price: HostedPaymentLink['price']): string {
         return 'One-time payment';
     }
 
+    if (hasTrial(price)) {
+        return `Billed every ${period(price)} once your trial ends`;
+    }
+
     return `Billed every ${period(price)} until canceled`;
 }
 
@@ -84,6 +88,23 @@ function dueTodayLabel(price: HostedPaymentLink['price']): string {
     }
 
     return 'Due today';
+}
+
+/**
+ * A trial only counts once both halves are present — the pair is what the
+ * backend anchors the trial window to.
+ */
+function hasTrial(price: HostedPaymentLink['price']): boolean {
+    return (
+        price.type === 'recurring' &&
+        price.trialLength !== null &&
+        price.trialUnit !== null
+    );
+}
+
+/** Adjectival unit — "7-day free trial", never "7-days". */
+function trialLabel(price: HostedPaymentLink['price']): string {
+    return `${price.trialLength}-${price.trialUnit} free trial`;
 }
 
 function businessAddress(
@@ -111,6 +132,12 @@ export default function HostedPaymentLink({
         paymentLink.price.unitAmount,
         paymentLink.price.currency,
     );
+    const trialing = hasTrial(paymentLink.price);
+    // Nothing is collected during a free trial, so the headline figure is the
+    // only honest "due today" — the recurring price is what happens later.
+    const dueToday = trialing
+        ? money(0, paymentLink.price.currency)
+        : priceAmount;
 
     return (
         <div className="min-h-screen bg-background">
@@ -172,6 +199,17 @@ export default function HostedPaymentLink({
                                     </span>
                                 )}
                             </div>
+
+                            {trialing && (
+                                <span
+                                    className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-600/10 px-3 py-1 text-sm font-medium text-emerald-700 dark:text-emerald-400"
+                                    data-test="hosted-payment-link-trial-badge"
+                                >
+                                    <ShieldCheck className="size-4" />
+                                    {trialLabel(paymentLink.price)} — free until
+                                    it ends
+                                </span>
+                            )}
                         </div>
 
                         <div className="rounded-2xl border bg-card shadow-sm">
@@ -201,6 +239,23 @@ export default function HostedPaymentLink({
                                     <span>Subtotal</span>
                                     <span>{priceAmount}</span>
                                 </div>
+                                {trialing && (
+                                    <div
+                                        className="flex items-center justify-between text-muted-foreground"
+                                        data-test="hosted-payment-link-trial-discount"
+                                    >
+                                        <span>
+                                            {trialLabel(paymentLink.price)}
+                                        </span>
+                                        <span>
+                                            −
+                                            {money(
+                                                paymentLink.price.unitAmount,
+                                                paymentLink.price.currency,
+                                            )}
+                                        </span>
+                                    </div>
+                                )}
                                 <div className="flex items-center justify-between text-muted-foreground">
                                     <span>Tax</span>
                                     <span>Calculated by merchant settings</span>
@@ -209,17 +264,38 @@ export default function HostedPaymentLink({
                                     <span>
                                         {dueTodayLabel(paymentLink.price)}
                                     </span>
-                                    <span>{priceAmount}</span>
+                                    <span data-test="hosted-payment-link-due-today">
+                                        {dueToday}
+                                    </span>
                                 </div>
                             </div>
                         </div>
 
                         {paymentLink.price.type === 'recurring' && (
-                            <p className="max-w-xl rounded-xl bg-muted/50 p-4 text-sm leading-6 text-muted-foreground">
-                                This starts a recurring subscription with{' '}
-                                {paymentLink.business.name}. You will be charged{' '}
-                                {priceAmount} every {recurringPeriod} until the
-                                subscription is canceled.
+                            <p
+                                className="max-w-xl rounded-xl bg-muted/50 p-4 text-sm leading-6 text-muted-foreground"
+                                data-test="hosted-payment-link-recurring-notice"
+                            >
+                                {trialing ? (
+                                    <>
+                                        Your {trialLabel(paymentLink.price)}{' '}
+                                        with {paymentLink.business.name} starts
+                                        today — you will not be charged now.
+                                        When it ends, this becomes a recurring
+                                        subscription at {priceAmount} every{' '}
+                                        {recurringPeriod} until canceled. Cancel
+                                        any time before then and you pay
+                                        nothing.
+                                    </>
+                                ) : (
+                                    <>
+                                        This starts a recurring subscription
+                                        with {paymentLink.business.name}. You
+                                        will be charged {priceAmount} every{' '}
+                                        {recurringPeriod} until the subscription
+                                        is canceled.
+                                    </>
+                                )}
                             </p>
                         )}
                     </div>
@@ -229,11 +305,14 @@ export default function HostedPaymentLink({
                     <div className="mx-auto max-w-md space-y-6 lg:sticky lg:top-12">
                         <div>
                             <h2 className="text-xl font-semibold">
-                                Complete checkout
+                                {trialing
+                                    ? 'Start your free trial'
+                                    : 'Complete checkout'}
                             </h2>
                             <p className="mt-1 text-sm text-muted-foreground">
-                                Enter your contact details, then continue to
-                                Nomba to pay securely.
+                                {trialing
+                                    ? 'Enter your contact details to begin. No card required, and nothing to pay today.'
+                                    : 'Enter your contact details, then continue to Nomba to pay securely.'}
                             </p>
                         </div>
 
@@ -302,27 +381,29 @@ export default function HostedPaymentLink({
                                         </div>
                                     </div>
 
-                                    <div className="rounded-xl border bg-muted/30 p-4">
-                                        <div className="flex items-center justify-between gap-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex size-9 items-center justify-center rounded-md bg-background">
-                                                    <CreditCard className="size-4 text-muted-foreground" />
+                                    {!trialing && (
+                                        <div className="rounded-xl border bg-muted/30 p-4">
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex size-9 items-center justify-center rounded-md bg-background">
+                                                        <CreditCard className="size-4 text-muted-foreground" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-medium">
+                                                            Pay with card
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Visa, Mastercard,
+                                                            and other
+                                                            Nomba-supported
+                                                            methods
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-sm font-medium">
-                                                        Pay with card
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Visa, Mastercard,
-                                                        and other
-                                                        Nomba-supported
-                                                        methods
-                                                    </p>
-                                                </div>
+                                                <ShieldCheck className="size-5 text-emerald-600" />
                                             </div>
-                                            <ShieldCheck className="size-5 text-emerald-600" />
                                         </div>
-                                    </div>
+                                    )}
 
                                     <label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
                                         <input
@@ -348,10 +429,27 @@ export default function HostedPaymentLink({
                                             className="mt-0.5 size-4 rounded border-input"
                                         />
                                         <span>
-                                            I agree to complete this purchase
-                                            with {paymentLink.business.name}{' '}
-                                            and authorize the payment shown
-                                            above.
+                                            {trialing ? (
+                                                <>
+                                                    I agree to start a{' '}
+                                                    {trialLabel(
+                                                        paymentLink.price,
+                                                    )}{' '}
+                                                    with{' '}
+                                                    {paymentLink.business.name},
+                                                    which becomes a paid
+                                                    subscription when the trial
+                                                    ends unless I cancel.
+                                                </>
+                                            ) : (
+                                                <>
+                                                    I agree to complete this
+                                                    purchase with{' '}
+                                                    {paymentLink.business.name}{' '}
+                                                    and authorize the payment
+                                                    shown above.
+                                                </>
+                                            )}
                                         </span>
                                     </label>
 
@@ -359,30 +457,38 @@ export default function HostedPaymentLink({
                                         type="submit"
                                         className="h-11 w-full text-base"
                                         disabled={processing}
+                                        data-test="hosted-payment-link-submit"
                                     >
                                         {processing
-                                            ? 'Redirecting...'
-                                            : paymentLink.price.type ===
-                                                'recurring'
-                                              ? 'Subscribe'
-                                              : 'Pay now'}
+                                            ? trialing
+                                                ? 'Starting trial...'
+                                                : 'Redirecting...'
+                                            : trialing
+                                              ? 'Start free trial'
+                                              : paymentLink.price.type ===
+                                                  'recurring'
+                                                ? 'Subscribe'
+                                                : 'Pay now'}
                                     </Button>
 
                                     <p className="text-center text-xs leading-5 text-muted-foreground">
-                                        You will review and enter card details
-                                        on Nomba before payment is completed.
+                                        {trialing
+                                            ? 'No card required today. We will ask for payment details before your trial ends.'
+                                            : 'You will review and enter card details on Nomba before payment is completed.'}
                                     </p>
                                 </>
                             )}
                         </Form>
 
-                        <div className="flex items-start gap-3 rounded-xl bg-background p-4 text-xs leading-5 text-muted-foreground">
-                            <Lock className="mt-0.5 size-4 shrink-0" />
-                            <p>
-                                Payment is completed securely on Nomba.
-                                Bouclay never sees your card details.
-                            </p>
-                        </div>
+                        {!trialing && (
+                            <div className="flex items-start gap-3 rounded-xl bg-background p-4 text-xs leading-5 text-muted-foreground">
+                                <Lock className="mt-0.5 size-4 shrink-0" />
+                                <p>
+                                    Payment is completed securely on Nomba.
+                                    Bouclay never sees your card details.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </section>
             </div>

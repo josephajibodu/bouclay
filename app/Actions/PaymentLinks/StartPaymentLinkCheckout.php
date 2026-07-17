@@ -4,6 +4,7 @@ namespace App\Actions\PaymentLinks;
 
 use App\Actions\Invoicing\CreateInvoice;
 use App\Actions\Invoicing\GenerateInvoiceCheckout;
+use App\Actions\Subscriptions\CreateSubscription;
 use App\Enums\CatalogStatus;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
@@ -11,14 +12,20 @@ use App\Enums\InvoiceLineKind;
 use App\Enums\PriceType;
 use App\Models\Customer;
 use App\Models\PaymentLink;
+use App\Models\Price;
 use App\Services\Gateways\GatewayException;
 use App\Services\Gateways\GatewayModeResolver;
 use InvalidArgumentException;
 
 /**
- * V2 payment links point at a price only. Free-trial links (keyed off
- * `prices.trial_*` instead of the removed trial_offers object) come back
- * in V2-1 alongside the plan-aware catalog authoring.
+ * V2 payment links point at a price only. A link whose price starts a free
+ * trial (`prices.trial_*`, or a phased price with a ₦0 phase 0 — the shared
+ * rule lives on {@see Price::startsFreeTrial()}) collects nothing today: it
+ * starts the subscription in `trialing` through the same {@see CreateSubscription}
+ * seam the dashboard and API use, and never reaches a gateway.
+ *
+ * Trials needing a card up front (`trial_requires_payment_info`) are refused
+ * rather than charged — see {@see assertTrialIsSupported()}.
  */
 class StartPaymentLinkCheckout
 {
@@ -26,6 +33,7 @@ class StartPaymentLinkCheckout
         private readonly CreateInvoice $createInvoice,
         private readonly GenerateInvoiceCheckout $generateCheckout,
         private readonly GatewayModeResolver $modeResolver,
+        private readonly CreateSubscription $createSubscription,
     ) {
         //
     }
@@ -36,14 +44,17 @@ class StartPaymentLinkCheckout
      * @throws InvalidArgumentException
      * @throws GatewayException
      */
-    public function handle(PaymentLink $paymentLink, array $buyer): string
+    public function handle(PaymentLink $paymentLink, array $buyer): PaymentLinkCheckoutResult
     {
-        $paymentLink->loadMissing(['team.processorConnection', 'product', 'price']);
+        $paymentLink->loadMissing([
+            'team.processorConnection',
+            'product',
+            'price.phases.chargePrice',
+        ]);
 
         $this->assertCanCheckout($paymentLink);
 
         $team = $paymentLink->team;
-        $customer = $this->resolveCustomer($paymentLink, $buyer);
 
         $connection = $team->processorConnection;
         $mode = $this->modeResolver->forConnection($connection);
@@ -52,11 +63,67 @@ class StartPaymentLinkCheckout
             throw new InvalidArgumentException('This business has not connected payments yet.');
         }
 
-        if ($paymentLink->price->type === PriceType::Recurring) {
-            return $this->startRecurringCheckout($paymentLink, $customer);
+        $customer = $this->resolveCustomer($paymentLink, $buyer);
+
+        // A free trial bills nothing at day 0, so there is no order to take to
+        // a gateway — resolve it before any checkout is built.
+        if ($paymentLink->price->type === PriceType::Recurring
+            && $paymentLink->price->startsFreeTrial()) {
+            return $this->startTrialSubscription($paymentLink, $customer);
         }
 
-        return $this->startOneTimeCheckout($paymentLink, $customer);
+        if ($paymentLink->price->type === PriceType::Recurring) {
+            return PaymentLinkCheckoutResult::redirect(
+                $this->startRecurringCheckout($paymentLink, $customer),
+            );
+        }
+
+        return PaymentLinkCheckoutResult::redirect(
+            $this->startOneTimeCheckout($paymentLink, $customer),
+        );
+    }
+
+    /**
+     * Start a free trial with no payment leg, through the one shared creation
+     * seam so the link path gets trial anchoring, `price_trial_redemptions`,
+     * `trial_once_per_customer` and phase counters identically to every other
+     * surface (SUBSCRIPTIONS_DESIGN §7.4).
+     */
+    private function startTrialSubscription(PaymentLink $paymentLink, Customer $customer): PaymentLinkCheckoutResult
+    {
+        $this->assertTrialIsSupported($paymentLink);
+
+        $subscription = $this->createSubscription->handle($paymentLink->team, [
+            'customer_id' => $customer->id,
+            'collection_mode' => CollectionMode::Automatic->value,
+            'items' => [[
+                'price_id' => $paymentLink->price_id,
+                'quantity' => 1,
+            ]],
+            'custom_data' => [
+                'source' => 'payment_link',
+                'payment_link_id' => $paymentLink->public_id,
+            ],
+        ]);
+
+        return PaymentLinkCheckoutResult::trialStarted($subscription);
+    }
+
+    /**
+     * `trial_requires_payment_info` means the card is stored but **not charged**
+     * (BILLING_SIMULATIONS SIM-01). No connected gateway can mint a token
+     * without a real charge — Nomba tokenises only as a side effect of a
+     * successful payment — so this link has no correct behaviour available.
+     * Refusing is the only honest option: the alternative is what this code
+     * used to do, which was silently charge the full price on day 0.
+     */
+    private function assertTrialIsSupported(PaymentLink $paymentLink): void
+    {
+        if ($paymentLink->price->trial_requires_payment_info) {
+            throw new InvalidArgumentException(
+                'This trial needs card details up front, which this business’s payment provider cannot collect without charging. Please contact the business to get started.'
+            );
+        }
     }
 
     private function assertCanCheckout(PaymentLink $paymentLink): void

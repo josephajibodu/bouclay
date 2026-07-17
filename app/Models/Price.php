@@ -274,6 +274,29 @@ class Price extends Model
     }
 
     /**
+     * Whether this price starts a subscription on a **free** trial: a simple
+     * trial (`trial_length`) is always free during its window, and a phased
+     * price whose phase-0 charge is ₦0 is a free trial too. A phased price
+     * whose phase-0 charge is > 0 is a *paid* trial — it bills at day 0 and is
+     * not `trialing` (schema.md §5). Requires `phases.chargePrice` loaded for
+     * the phased case.
+     *
+     * This is the one shared rule: every surface that decides "does day 0 bill
+     * anything" — subscription create and payment-link checkout alike — asks
+     * here, so the two can't drift apart.
+     */
+    public function startsFreeTrial(): bool
+    {
+        if ($this->trial_length !== null) {
+            return true;
+        }
+
+        $phaseZero = $this->phases->firstWhere('sequence', 0);
+
+        return $phaseZero !== null && ($phaseZero->chargePrice->unit_amount ?? 0) === 0;
+    }
+
+    /**
      * A picker-friendly summary of the trial this price starts, or null when
      * it has none (schema.md §5). A simple trial is always free during its
      * window; a phased price is a free trial when its phase-0 charge is ₦0 and

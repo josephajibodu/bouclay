@@ -212,3 +212,11 @@ Use Wayfinder to generate TypeScript functions for Laravel routes. Import from `
 - IMPORTANT: Activate `inertia-react-development` when working with Inertia React client-side patterns.
 
 </laravel-boost-guidelines>
+
+<!-- Project rules below are maintained by hand. Laravel Boost regenerates
+     everything inside <laravel-boost-guidelines> above, so keep them here. -->
+
+# Git
+
+- Do **not** add a `Co-Authored-By:` trailer to commit messages, and do not sign commits with any AI/assistant attribution. Commits are authored by the repo's git user, full stop.
+- Commit phase work directly on `main` in checkpoints. Do not open a feature branch unless asked.

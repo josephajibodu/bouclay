@@ -64,7 +64,7 @@ class CreateSubscription
     /**
      * @param  array<string, mixed>  $data  the validated request body (customer_id,
      *                                      collection_mode, items[], payment_method_id?,
-     *                                      trial_end_behavior?)
+     *                                      trial_end_behavior?, custom_data?)
      */
     public function handle(Team $team, array $data): Subscription
     {
@@ -92,7 +92,7 @@ class CreateSubscription
         // The base plan item (first line) anchors the subscription's trial —
         // a free trial on it starts the whole subscription in `trialing` and
         // suppresses the day-0 invoice.
-        $freeTrial = $this->startsFreeTrial($lines[0]['price']);
+        $freeTrial = $lines[0]['price']->startsFreeTrial();
 
         /** @var array{0: Subscription, 1: Invoice|null} $result */
         $result = DB::transaction(function () use ($team, $customer, $collectionMode, $currency, $lines, $paymentMethodId, $data, $freeTrial, $discount) {
@@ -113,6 +113,7 @@ class CreateSubscription
                     ?? TrialEndBehavior::CreateInvoice,
                 'billing_cycle_anchor_on_trial_end' => 'now',
                 'current_period_start' => $now,
+                'custom_data' => $data['custom_data'] ?? null,
             ]);
 
             /** @var list<array{item: SubscriptionItem, price: Price, quantity: int}> $items */
@@ -317,24 +318,6 @@ class CreateSubscription
     }
 
     /**
-     * Whether a price starts the subscription on a **free** trial: a simple
-     * trial (`trial_length`) is always free during its window, and a phased
-     * price whose phase-0 charge is ₦0 is a free trial too. A phased price
-     * whose phase-0 charge is > 0 is a *paid* trial — it bills at day 0 and
-     * is not `trialing` (schema.md §5).
-     */
-    private function startsFreeTrial(Price $price): bool
-    {
-        if ($price->trial_length !== null) {
-            return true;
-        }
-
-        $phaseZero = $price->phases->firstWhere('sequence', 0);
-
-        return $phaseZero !== null && ($phaseZero->chargePrice->unit_amount ?? 0) === 0;
-    }
-
-    /**
      * The trial-window end snapshotted onto an item (schema.md §6): a simple
      * trial ends `trial_length` units out; a phased *free* trial ends when
      * phase 0's duration elapses. A paid phase-0 has no trial clock — its
@@ -472,7 +455,7 @@ class CreateSubscription
         foreach ($items as $billed) {
             // An add-on carrying its own free trial doesn't bill now — it keeps
             // its trial and is invoiced at its own conversion.
-            if ($this->startsFreeTrial($billed['price'])) {
+            if ($billed['price']->startsFreeTrial()) {
                 continue;
             }
 
