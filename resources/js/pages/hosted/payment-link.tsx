@@ -41,6 +41,8 @@ type HostedPaymentLink = {
         trialLength: number | null;
         trialUnit: 'day' | 'week' | 'month' | null;
     };
+    /** Display name of the gateway this link opens, or null if none is connected. */
+    paymentGateway: string | null;
     returnUrl: string | null;
 };
 
@@ -133,6 +135,9 @@ export default function HostedPaymentLink({
         paymentLink.price.currency,
     );
     const trialing = hasTrial(paymentLink.price);
+    // Never name a gateway we can't confirm — a link with nothing connected
+    // can't check out anyway, so generic wording is the honest fallback.
+    const gateway = paymentLink.paymentGateway ?? 'our payment provider';
     // Nothing is collected during a free trial, so the headline figure is the
     // only honest "due today" — the recurring price is what happens later.
     const dueToday = trialing
@@ -312,7 +317,7 @@ export default function HostedPaymentLink({
                             <p className="mt-1 text-sm text-muted-foreground">
                                 {trialing
                                     ? 'Enter your contact details to begin. No card required, and nothing to pay today.'
-                                    : 'Enter your contact details, then continue to Nomba to pay securely.'}
+                                    : `Enter your contact details, then continue to ${gateway} to pay securely.`}
                             </p>
                         </div>
 
@@ -394,9 +399,8 @@ export default function HostedPaymentLink({
                                                         </p>
                                                         <p className="text-xs text-muted-foreground">
                                                             Visa, Mastercard,
-                                                            and other
-                                                            Nomba-supported
-                                                            methods
+                                                            and other major
+                                                            cards
                                                         </p>
                                                     </div>
                                                 </div>
@@ -474,7 +478,7 @@ export default function HostedPaymentLink({
                                     <p className="text-center text-xs leading-5 text-muted-foreground">
                                         {trialing
                                             ? 'No card required today. We will ask for payment details before your trial ends.'
-                                            : 'You will review and enter card details on Nomba before payment is completed.'}
+                                            : `You will review and enter card details on ${gateway} before payment is completed.`}
                                     </p>
                                 </>
                             )}
@@ -484,7 +488,7 @@ export default function HostedPaymentLink({
                             <div className="flex items-start gap-3 rounded-xl bg-background p-4 text-xs leading-5 text-muted-foreground">
                                 <Lock className="mt-0.5 size-4 shrink-0" />
                                 <p>
-                                    Payment is completed securely on Nomba.
+                                    Payment is completed securely on {gateway}.
                                     Bouclay never sees your card details.
                                 </p>
                             </div>

@@ -148,6 +148,32 @@ test('the payment methods page renders saved cards', function () {
             ->where('paymentMethods.0.last4', '4242'));
 });
 
+test('the portal names the gateway the customer will actually meet', function () {
+    $team = Team::factory()->create();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create([
+        'processor' => 'paystack',
+    ]);
+    $customer = Customer::factory()->for($team)->create();
+
+    // The portal used to hardcode "Secure Nomba checkout" for every merchant.
+    $this->get(route('portal.payment-methods.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('portal/payment-methods/index')
+            ->where('paymentGateway', 'Paystack'));
+});
+
+test('the portal names no gateway when the business has not connected one', function () {
+    $team = Team::factory()->create();
+    $customer = Customer::factory()->for($team)->create();
+
+    $this->get(route('portal.payment-methods.index', $customer->portal_token))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('paymentGateway', null)
+            ->where('canUpdatePaymentMethod', false));
+});
+
 test('the account page renders customer details', function () {
     $team = Team::factory()->create(['name' => 'Acme Notes']);
     $customer = Customer::factory()->for($team)->create([

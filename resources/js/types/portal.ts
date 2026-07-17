@@ -29,6 +29,8 @@ export type PortalSharedProps = {
     business: PortalBusiness;
     customer: PortalCustomer;
     canUpdatePaymentMethod: boolean;
+    /** Display name of the gateway new checkouts open, or null when none is connected. */
+    paymentGateway: string | null;
     paymentMethod: PortalPaymentMethod | null;
     returnUrl: string | null;
 };

@@ -63,6 +63,10 @@ class BuildPortalContext
                 'createdAt' => $customer->created_at?->toISOString(),
             ],
             'canUpdatePaymentMethod' => $team->processorConnection !== null,
+            // Named so the portal can say where a card actually goes. New
+            // checkouts route through the team's default connection, so that
+            // is the gateway the customer will meet.
+            'paymentGateway' => $team->processorConnection?->processorLabel(),
             'paymentMethod' => $defaultPaymentMethod !== null ? [
                 'brand' => $defaultPaymentMethod->brand,
                 'last4' => $defaultPaymentMethod->last4,

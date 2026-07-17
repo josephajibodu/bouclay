@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ApiKeyMode;
+use App\Enums\PaymentProcessor;
 use Database\Factories\TeamProcessorConnectionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -126,6 +127,17 @@ class TeamProcessorConnection extends Model
             ApiKeyMode::Test => $this->test_credentials = $blob,
             ApiKeyMode::Live => $this->live_credentials = $blob,
         };
+    }
+
+    /**
+     * The gateway's display name, for copy shown to a human — "your card goes
+     * to X". `processor` is a driver-registry key and may name a driver
+     * registered at runtime with no enum case, so an unknown key resolves to
+     * null rather than throwing; callers fall back to generic wording.
+     */
+    public function processorLabel(): ?string
+    {
+        return PaymentProcessor::tryFrom($this->processor)?->label();
     }
 
     /**

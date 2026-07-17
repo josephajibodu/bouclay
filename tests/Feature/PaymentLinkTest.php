@@ -195,6 +195,26 @@ test('a recurring payment link creates the subscription only after hosted paymen
         ->and(Event::query()->where('type', OutboundEventType::SubscriptionCreated)->count())->toBe(1);
 });
 
+test('the hosted payment link names the gateway its checkout will open', function () {
+    ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
+    TeamProcessorConnection::factory()->for($team)->testConnected()->create([
+        'processor' => 'flutterwave',
+    ]);
+
+    $paymentLink = PaymentLink::query()->create([
+        'team_id' => $team->id,
+        'product_id' => $product->id,
+        'price_id' => $price->id,
+    ]);
+
+    // The page used to tell every customer their card was going to Nomba.
+    $this->get(route('hosted.payment-links.show', $paymentLink->public_id))
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('hosted/payment-link')
+            ->where('paymentLink.paymentGateway', 'Flutterwave'));
+});
+
 test('a payment link on a free-trial price starts the trial and charges nothing', function () {
     ['team' => $team, 'product' => $product, 'price' => $price] = invoiceFixture();
     TeamProcessorConnection::factory()->for($team)->testConnected()->create();

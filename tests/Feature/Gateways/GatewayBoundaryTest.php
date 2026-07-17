@@ -98,6 +98,52 @@ test('no gateway credential shape is known outside the driver boundary', functio
         .'driver\'s configSchema() manifest instead. Found: '.json_encode($offenders, JSON_PRETTY_PRINT));
 });
 
+/**
+ * Every page a customer (not a merchant) can see, as [relative path => contents].
+ *
+ * @return array<string, string>
+ */
+function customerFacingFrontendFiles(): array
+{
+    $roots = array_filter([
+        resource_path('js/pages/hosted'),
+        resource_path('js/pages/portal'),
+        resource_path('js/components/portal'),
+        resource_path('js/layouts/portal'),
+    ], 'is_dir');
+
+    $files = [];
+
+    foreach (Finder::create()->files()->name(['*.tsx', '*.ts'])->in($roots) as $file) {
+        $files[str_replace(base_path().'/', '', $file->getRealPath())] = $file->getContents();
+    }
+
+    return $files;
+}
+
+test('no gateway is named in copy shown to customers', function () {
+    // The greps above only scan app/, which is why "Secure Nomba checkout"
+    // sat on the portal for a whole phase after the backend went
+    // gateway-agnostic: a Paystack merchant's customers were told their card
+    // goes to Nomba. The gateway's name is data — it arrives as the
+    // `paymentGateway` prop (TeamProcessorConnection::processorLabel()), so a
+    // literal here is always wrong for somebody.
+    $files = customerFacingFrontendFiles();
+
+    expect($files)->not->toBeEmpty('Customer-facing page roots not found — this guard would pass vacuously.');
+
+    $offenders = [];
+
+    foreach ($files as $path => $contents) {
+        if (preg_match_all('/\b(?:Nomba|Paystack|Flutterwave)\b/i', $contents, $matches)) {
+            $offenders[$path] = array_values(array_unique($matches[0]));
+        }
+    }
+
+    expect($offenders)->toBe([], 'Customer-facing copy must not name a gateway — read the `paymentGateway` prop '
+        .'instead. Found: '.json_encode($offenders, JSON_PRETTY_PRINT));
+});
+
 test('every money path resolves its driver through the manager', function () {
     // The driver boundary only holds if callers go through GatewayManager;
     // a `new NombaGateway` anywhere would satisfy the greps above while

@@ -34,6 +34,7 @@ export default function PortalPaymentMethodsIndex({
     token,
     business,
     canUpdatePaymentMethod,
+    paymentGateway,
     paymentMethods,
 }: Props) {
     return (
@@ -115,8 +116,9 @@ export default function PortalPaymentMethodsIndex({
                                               : 'Add payment method'}
                                     </Button>
                                     <p className="text-xs text-muted-foreground">
-                                        Secure Nomba checkout. A small
-                                        verification charge may apply.
+                                        Secure {paymentGateway ?? 'card'}{' '}
+                                        checkout. A small verification charge
+                                        may apply.
                                     </p>
                                 </div>
                             )}

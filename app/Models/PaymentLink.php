@@ -106,6 +106,10 @@ class PaymentLink extends Model
                 'trialLength' => $price->trial_length,
                 'trialUnit' => $price->trial_unit?->value,
             ],
+            // The gateway this link's checkout will actually open, so the page
+            // can name it instead of assuming one (schema.md routing rule:
+            // `is_default` governs new checkouts).
+            'paymentGateway' => $this->team->processorConnection?->processorLabel(),
             'returnUrl' => $this->product->website_url,
         ];
     }
