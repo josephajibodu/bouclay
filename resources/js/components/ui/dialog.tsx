@@ -2,6 +2,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 import * as React from "react"
 
+import { usePortalContainer } from "@/hooks/use-portal-container"
 import { cn } from "@/lib/utils"
 
 function Dialog({
@@ -17,9 +18,21 @@ function DialogTrigger({
 }
 
 function DialogPortal({
+  container,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+  // Falls back to document.body (Radix's own default) everywhere outside the
+  // customer portal, and to an explicit container prop if a caller ever
+  // passes one — this only fills in the gap when neither is set.
+  const portalContainer = usePortalContainer()
+
+  return (
+    <DialogPrimitive.Portal
+      data-slot="dialog-portal"
+      container={container ?? portalContainer ?? undefined}
+      {...props}
+    />
+  )
 }
 
 function DialogClose({
