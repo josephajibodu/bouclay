@@ -299,6 +299,52 @@ test('a customer can cancel their subscription at period end from the portal', f
         ->and($subscription->scheduledChanges()->first()->action)->toBe(ScheduledChangeAction::Cancel);
 });
 
+test('a cancelling subscription quotes no next payment', function () {
+    $team = Team::factory()->create();
+    $customer = Customer::factory()->for($team)->create();
+    $subscription = Subscription::factory()->for($team)->for($customer)->create([
+        'status' => SubscriptionStatus::Active,
+        'current_period_end' => now()->addMonth(),
+    ]);
+
+    // Before cancelling, the portal rightly quotes the upcoming charge.
+    $this->get(route('portal.subscriptions.show', [
+        'token' => $customer->portal_token,
+        'publicId' => $subscription->public_id,
+    ]))->assertInertia(fn (Assert $page) => $page->has('subscription.nextPayment'));
+
+    $this->post(route('portal.subscriptions.cancel', [
+        'token' => $customer->portal_token,
+        'publicId' => $subscription->public_id,
+    ]));
+
+    // The bug: the status badge said "Cancels <date>" while the card beside it
+    // still read "Next payment ... due <the same date>", contradicting the
+    // modal's "you won't be charged again".
+    $this->get(route('portal.subscriptions.show', [
+        'token' => $customer->portal_token,
+        'publicId' => $subscription->public_id,
+    ]))->assertInertia(fn (Assert $page) => $page
+        ->where('subscription.status', SubscriptionStatus::Active->value)
+        ->whereNot('subscription.scheduledCancelAt', null)
+        ->where('subscription.nextPayment', null));
+});
+
+test('an ended subscription quotes no next payment', function () {
+    $team = Team::factory()->create();
+    $customer = Customer::factory()->for($team)->create();
+    $subscription = Subscription::factory()->for($team)->for($customer)->create([
+        'status' => SubscriptionStatus::Canceled,
+        'current_period_end' => now()->subDay(),
+    ]);
+
+    $this->get(route('portal.subscriptions.show', [
+        'token' => $customer->portal_token,
+        'publicId' => $subscription->public_id,
+    ]))->assertInertia(fn (Assert $page) => $page
+        ->where('subscription.nextPayment', null));
+});
+
 test('a customer cannot cancel another customers subscription via the portal', function () {
     $team = Team::factory()->create();
     $customer = Customer::factory()->for($team)->create();

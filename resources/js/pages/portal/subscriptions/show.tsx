@@ -40,6 +40,14 @@ export default function PortalSubscriptionShow({
         subscription.currentPeriodEnd,
     );
 
+    // Why there is nothing left to collect — must agree with the cancel
+    // dialog's "you won't be charged again" promise.
+    const noFurtherPaymentReason = subscription.scheduledCancelAt
+        ? `Your subscription stays active until ${formatPortalDate(
+              subscription.scheduledCancelAt,
+          )}. You won't be charged again.`
+        : 'This subscription has ended, so there is nothing left to pay.';
+
     return (
         <>
             <Head title={`${subscription.productName} · ${business.name}`} />
@@ -94,34 +102,47 @@ export default function PortalSubscriptionShow({
                     <div className="space-y-6 lg:col-span-2">
                         {/* Next payment */}
                         <PortalCard title="Next payment">
-                            <div className="space-y-4">
-                                <div>
-                                    <p className="text-2xl font-semibold">
-                                        {formatPortalMoney(
-                                            subscription.nextPayment.amount,
-                                            subscription.nextPayment.currency,
-                                        )}
-                                    </p>
-                                    {subscription.nextPayment.dueAt && (
-                                        <p className="mt-1 text-sm text-muted-foreground">
-                                            due{' '}
-                                            {formatPortalDate(
-                                                subscription.nextPayment.dueAt,
+                            {subscription.nextPayment ? (
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="text-2xl font-semibold">
+                                            {formatPortalMoney(
+                                                subscription.nextPayment.amount,
+                                                subscription.nextPayment
+                                                    .currency,
                                             )}
                                         </p>
+                                        {subscription.nextPayment.dueAt && (
+                                            <p className="mt-1 text-sm text-muted-foreground">
+                                                due{' '}
+                                                {formatPortalDate(
+                                                    subscription.nextPayment
+                                                        .dueAt,
+                                                )}
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {cardOnFile && (
+                                        <div className="flex items-center gap-2 rounded-lg border border-border bg-zinc-50 px-3 py-2 text-sm">
+                                            <CreditCard className="size-4 text-muted-foreground" />
+                                            <span>
+                                                {cardOnFile.brand ?? 'Card'} ····{' '}
+                                                {cardOnFile.last4 ?? '••••'}
+                                            </span>
+                                        </div>
                                     )}
                                 </div>
-
-                                {cardOnFile && (
-                                    <div className="flex items-center gap-2 rounded-lg border border-border bg-zinc-50 px-3 py-2 text-sm">
-                                        <CreditCard className="size-4 text-muted-foreground" />
-                                        <span>
-                                            {cardOnFile.brand ?? 'Card'} ····{' '}
-                                            {cardOnFile.last4 ?? '••••'}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
+                            ) : (
+                                <div data-test="portal-no-next-payment">
+                                    <p className="text-2xl font-semibold">
+                                        None
+                                    </p>
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                        {noFurtherPaymentReason}
+                                    </p>
+                                </div>
+                            )}
                         </PortalCard>
 
                         {/* Recent payments */}
@@ -186,9 +207,22 @@ export default function PortalSubscriptionShow({
 
                     {/* Next payment summary */}
                     <PortalCard
-                        title="Next payment summary"
+                        title={
+                            subscription.nextPayment
+                                ? 'Next payment summary'
+                                : 'Your subscription'
+                        }
                         className="lg:col-span-3"
                     >
+                        {!subscription.nextPayment ? (
+                            <p
+                                className="text-sm text-muted-foreground"
+                                data-test="portal-no-next-payment-summary"
+                            >
+                                {noFurtherPaymentReason}
+                            </p>
+                        ) : (
+                        <>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                                 <thead>
@@ -285,6 +319,8 @@ export default function PortalSubscriptionShow({
                                 </span>
                             </div>
                         </div>
+                        </>
+                        )}
                     </PortalCard>
                 </div>
             </div>

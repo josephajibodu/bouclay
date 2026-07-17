@@ -188,7 +188,9 @@ class BuildPortalContext
                 'brand' => $subscription->paymentMethod->brand,
                 'last4' => $subscription->paymentMethod->last4,
             ] : null,
-            'nextPayment' => [
+            // Null when nothing will ever be collected again — the portal must
+            // not quote a "next payment" it has just promised not to take.
+            'nextPayment' => $this->willBillAgain($subscription) ? [
                 'amount' => $total,
                 'currency' => $subscription->currency,
                 'dueAt' => $nextOpenInvoice?->due_at?->toISOString()
@@ -197,7 +199,7 @@ class BuildPortalContext
                 'subtotal' => $subtotal,
                 'taxTotal' => $taxTotal,
                 'lines' => $summaryLines,
-            ],
+            ] : null,
             'recentPayments' => $recentPayments->map(fn (Payment $payment) => [
                 'publicId' => $payment->public_id,
                 'amount' => $payment->amount,
@@ -274,6 +276,25 @@ class BuildPortalContext
             SubscriptionStatus::PastDue,
             SubscriptionStatus::Paused,
         ], true)) {
+            return false;
+        }
+
+        return $this->scheduledCancelAt($subscription) === null;
+    }
+
+    /**
+     * Whether this subscription will ever be charged again.
+     *
+     * A cancel scheduled at period end means the current period is the last
+     * one (SIM-01 Act 7: the row stays `active` with a pending
+     * `scheduled_changes` cancel until the worker flips it), so quoting a
+     * "next payment" due on the very date it cancels contradicts the cancel
+     * notice sitting beside it — and contradicts the modal that just told the
+     * customer they would not be charged again.
+     */
+    private function willBillAgain(Subscription $subscription): bool
+    {
+        if ($subscription->status->isTerminal()) {
             return false;
         }
 

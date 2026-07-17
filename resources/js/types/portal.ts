@@ -64,6 +64,7 @@ export type PortalSubscriptionDetail = PortalSubscriptionListItem & {
         type: string;
     }>;
     paymentMethod: { brand: string | null; last4: string | null } | null;
+    /** Null when the subscription will never bill again (cancelling, or ended). */
     nextPayment: {
         amount: number;
         currency: string;
@@ -78,7 +79,7 @@ export type PortalSubscriptionDetail = PortalSubscriptionListItem & {
             currency: string;
             isRecurring: boolean;
         }>;
-    };
+    } | null;
     recentPayments: Array<{
         publicId: string;
         amount: number;
