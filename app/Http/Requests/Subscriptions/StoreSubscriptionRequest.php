@@ -20,8 +20,18 @@ class StoreSubscriptionRequest extends FormRequest
             'payment_method_id' => ['nullable', 'integer'],
             'trial_end_behavior' => ['nullable', 'in:cancel,pause,create_invoice'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.price_id' => ['required', 'integer'],
+            // Exactly one of price_id / price_phases_id / schedule_steps per
+            // line — enforced in CreateSubscription (the exact rule depends
+            // on line position: only index 0 may carry a schedule).
+            'items.*.price_id' => ['nullable', 'integer'],
+            'items.*.price_phases_id' => ['nullable', 'integer'],
             'items.*.quantity' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            'items.*.schedule_steps' => ['nullable', 'array', 'min:1'],
+            'items.*.schedule_steps.*.price_id' => ['required_with:items.*.schedule_steps', 'integer'],
+            'items.*.schedule_steps.*.quantity' => ['nullable', 'integer', 'min:1'],
+            'items.*.schedule_steps.*.duration_interval' => ['nullable', 'in:day,week,month,year'],
+            'items.*.schedule_steps.*.duration_count' => ['nullable', 'integer', 'min:1'],
+            'items.*.end_behavior' => ['nullable', 'in:release,cancel'],
         ];
     }
 

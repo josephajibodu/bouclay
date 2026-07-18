@@ -21,10 +21,11 @@ import {
     GrantedBadges,
     GrantsEditor,
 } from '@/components/catalog/grants-editor';
+import ArchivePricingJourneyModal from '@/components/catalog/archive-pricing-journey-modal';
 import PaymentLinkModal from '@/components/catalog/payment-link-modal';
 import PlanDrawer from '@/components/catalog/plan-drawer';
 import PriceDetailDrawer from '@/components/catalog/price-detail-drawer';
-import PricePhasesDrawer from '@/components/catalog/price-phases-drawer';
+import PricingJourneyDrawer from '@/components/catalog/pricing-journey-drawer';
 import { ProductMonogram } from '@/components/catalog/product-monogram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,7 @@ import type {
     GrantableEntitlement,
     Plan,
     Price,
+    PricingJourney,
     ProductDetail,
 } from '@/types';
 
@@ -62,6 +64,7 @@ type Props = {
     product: ProductDetail;
     plans: Plan[];
     prices: Price[];
+    pricingJourneys: PricingJourney[];
     entitlements: GrantableEntitlement[];
     permissions: {
         canManageProducts: boolean;
@@ -105,6 +108,7 @@ export default function ProductShow({
     product,
     plans,
     prices,
+    pricingJourneys,
     entitlements,
     permissions,
 }: Props) {
@@ -133,11 +137,16 @@ export default function ProductShow({
     const [detailPriceTarget, setDetailPriceTarget] = useState<Price | null>(
         null,
     );
-    const [phasesPriceTarget, setPhasesPriceTarget] = useState<Price | null>(
-        null,
-    );
+    const [createJourneyOpen, setCreateJourneyOpen] = useState(false);
+    const [editJourneyTarget, setEditJourneyTarget] =
+        useState<PricingJourney | null>(null);
+    const [archiveJourneyTarget, setArchiveJourneyTarget] =
+        useState<PricingJourney | null>(null);
 
     const activePrices = prices.filter((p) => p.status === 'active');
+    const recurringPrices = prices.filter(
+        (p) => p.type === 'recurring' && p.status === 'active',
+    );
     const planNameById = new Map(plans.map((p) => [p.id, p.name]));
     const metadataEntries = Object.entries(product.customData ?? {});
 
@@ -463,8 +472,9 @@ export default function ProductShow({
                         <h2 className="text-lg font-semibold">Pricing</h2>
                         <p className="text-sm text-muted-foreground">
                             Prices define how customers are billed. Recurring
-                            prices belong to a plan; trials and phase schedules
-                            live on the price itself.
+                            prices belong to a plan; a simple trial lives on
+                            the price itself — a multi-step offer is a Pricing
+                            Journey, below.
                         </p>
                     </div>
                     {permissions.canManagePrices && (
@@ -503,14 +513,115 @@ export default function ProductShow({
                                 canManagePrices={permissions.canManagePrices}
                                 onEdit={() => setEditPriceTarget(price)}
                                 onArchive={() => setArchivePriceTarget(price)}
-                                onConfigurePhases={() =>
-                                    setPhasesPriceTarget(price)
-                                }
                                 onCreatePaymentLink={() =>
                                     setPaymentLinkTarget(price)
                                 }
                                 onOpenDetail={() => setDetailPriceTarget(price)}
                             />
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            <Separator />
+
+            {/* Pricing Journeys — reusable multi-step commercial offers */}
+            <section className="space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 className="text-lg font-semibold">
+                            Pricing journeys
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                            A reusable offer a subscription can start
+                            through — e.g. "$1/mo for 3 months, then $10/mo
+                            forever." Steps can span any plan on this
+                            product. Editing a journey never affects a
+                            subscription already on it.
+                        </p>
+                    </div>
+                    {permissions.canManagePrices && (
+                        <Button
+                            data-test="add-journey-trigger"
+                            onClick={() => setCreateJourneyOpen(true)}
+                        >
+                            <Plus /> New journey
+                        </Button>
+                    )}
+                </div>
+
+                {pricingJourneys.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        No pricing journeys yet. Create one to offer intro
+                        pricing, a paid trial, or a multi-step ramp without
+                        re-entering it for every customer.
+                    </div>
+                ) : (
+                    <div className="divide-y rounded-lg border">
+                        {pricingJourneys.map((journey) => (
+                            <div
+                                key={journey.id}
+                                className="flex items-center justify-between gap-4 p-4"
+                                data-test="journey-row"
+                            >
+                                <div className="min-w-0 space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium">
+                                            {journey.name}
+                                        </span>
+                                        <Badge
+                                            variant={
+                                                journey.status === 'active'
+                                                    ? 'secondary'
+                                                    : 'outline'
+                                            }
+                                            className="capitalize"
+                                        >
+                                            {journey.status}
+                                        </Badge>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                        {journey.autoDescription ??
+                                            'No steps configured'}
+                                    </p>
+                                </div>
+                                {permissions.canManagePrices && (
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="shrink-0"
+                                            >
+                                                <MoreHorizontal className="size-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem
+                                                onSelect={() =>
+                                                    setEditJourneyTarget(
+                                                        journey,
+                                                    )
+                                                }
+                                            >
+                                                Edit journey
+                                            </DropdownMenuItem>
+                                            {journey.status === 'active' && (
+                                                <DropdownMenuItem
+                                                    variant="destructive"
+                                                    onSelect={() =>
+                                                        setArchiveJourneyTarget(
+                                                            journey,
+                                                        )
+                                                    }
+                                                >
+                                                    Archive journey
+                                                </DropdownMenuItem>
+                                            )}
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                )}
+                            </div>
                         ))}
                     </div>
                 )}
@@ -654,13 +765,32 @@ export default function ProductShow({
                     onOpenChange={(open) => !open && setEditPriceTarget(null)}
                 />
             )}
-            {phasesPriceTarget && (
-                <PricePhasesDrawer
+            <PricingJourneyDrawer
+                productId={product.id}
+                candidatePrices={recurringPrices}
+                open={createJourneyOpen}
+                onOpenChange={setCreateJourneyOpen}
+            />
+            {editJourneyTarget && (
+                <PricingJourneyDrawer
                     productId={product.id}
-                    price={phasesPriceTarget}
-                    candidatePrices={prices}
-                    open={phasesPriceTarget !== null}
-                    onOpenChange={(open) => !open && setPhasesPriceTarget(null)}
+                    journey={editJourneyTarget}
+                    candidatePrices={recurringPrices}
+                    open={editJourneyTarget !== null}
+                    onOpenChange={(open) =>
+                        !open && setEditJourneyTarget(null)
+                    }
+                />
+            )}
+            {archiveJourneyTarget && (
+                <ArchivePricingJourneyModal
+                    productId={product.id}
+                    journeyId={archiveJourneyTarget.id}
+                    journeyName={archiveJourneyTarget.name}
+                    open={archiveJourneyTarget !== null}
+                    onOpenChange={(open) =>
+                        !open && setArchiveJourneyTarget(null)
+                    }
                 />
             )}
 
@@ -699,7 +829,6 @@ function PriceRow({
     canManagePrices,
     onEdit,
     onArchive,
-    onConfigurePhases,
     onCreatePaymentLink,
     onOpenDetail,
 }: {
@@ -708,7 +837,6 @@ function PriceRow({
     canManagePrices: boolean;
     onEdit: () => void;
     onArchive: () => void;
-    onConfigurePhases: () => void;
     onCreatePaymentLink: () => void;
     onOpenDetail: () => void;
 }) {
@@ -750,13 +878,8 @@ function PriceRow({
                             {price.trialUnit} trial
                         </Badge>
                     )}
-                    {price.phases.length > 0 && (
-                        <Badge variant="outline">
-                            {price.phases.length}-phase schedule
-                        </Badge>
-                    )}
                     {!price.purchasable && (
-                        <Badge variant="outline">Phase-only</Badge>
+                        <Badge variant="outline">Hidden from picker</Badge>
                     )}
                 </button>
                 <p className="text-sm text-muted-foreground">
@@ -825,15 +948,6 @@ function PriceRow({
                             >
                                 Edit price
                             </DropdownMenuItem>
-                            {price.type === 'recurring' &&
-                                !price.hasBeenUsed && (
-                                    <DropdownMenuItem
-                                        onSelect={onConfigurePhases}
-                                        data-test="configure-phases-trigger"
-                                    >
-                                        Configure phases
-                                    </DropdownMenuItem>
-                                )}
                             <DropdownMenuItem
                                 variant="destructive"
                                 onSelect={onArchive}

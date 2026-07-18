@@ -106,7 +106,7 @@ class PriceFactory extends Factory
     }
 
     /**
-     * A phase-only price — exists solely as a price_phases charge target,
+     * A phase-only price — exists solely as a pricing-journey step target,
      * hidden from every picker.
      */
     public function phaseOnly(): static

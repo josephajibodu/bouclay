@@ -9,6 +9,7 @@ use App\Http\Requests\Catalog\StoreProductRequest;
 use App\Http\Requests\Catalog\UpdateProductRequest;
 use App\Models\Entitlement;
 use App\Models\EntitlementGrant;
+use App\Models\PricingJourney;
 use App\Models\Product;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -127,7 +128,8 @@ class ProductController extends Controller
 
         $product->load([
             'plans' => fn ($query) => $query->orderBy('created_at'),
-            'prices' => fn ($query) => $query->with(['tiers', 'paymentLink', 'phases.chargePrice'])->orderBy('created_at'),
+            'prices' => fn ($query) => $query->with(['tiers', 'paymentLink'])->orderBy('created_at'),
+            'pricingJourneys' => fn ($query) => $query->with('steps.price')->orderBy('created_at'),
         ]);
 
         // Which entitlements each grantor on this page already grants, so the
@@ -162,6 +164,7 @@ class ProductController extends Controller
                 'entitlementIds' => $grantsByGrantor->get('plan:'.$plan->id, []),
             ])->all(),
             'prices' => $product->prices->map(fn ($price) => $price->toCatalogArray())->all(),
+            'pricingJourneys' => $product->pricingJourneys->map(fn (PricingJourney $journey) => $journey->toCatalogArray())->all(),
             'entitlements' => $team->entitlements()
                 ->orderBy('code')
                 ->get()

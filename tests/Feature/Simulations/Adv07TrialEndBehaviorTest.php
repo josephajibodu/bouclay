@@ -1,7 +1,7 @@
 <?php
 
 use App\Actions\Invoicing\CollectInvoice;
-use App\Actions\Subscriptions\AdvanceSubscriptionPhases;
+use App\Actions\Subscriptions\AdvanceSubscriptionSchedule;
 use App\Actions\Subscriptions\CreateSubscription;
 use App\Enums\BillingInterval;
 use App\Enums\InvoiceStatus;
@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Mail;
 |
 | BILLING_SIMULATIONS.md ADV-07: the trickiest state path — each
 | trial_end_behavior branch when the clock runs out with no payment method,
-| including the late-pay → activate path. AdvanceSubscriptionPhases owns the
+| including the late-pay → activate path. AdvanceSubscriptionSchedule owns the
 | fork (schema.md §5 "missing_payment_method"). Promoted in V2-2.
 */
 
@@ -68,7 +68,7 @@ it('cancels the subscription at trial end when trial_end_behavior is cancel', fu
     expect($subscription->status)->toBe(SubscriptionStatus::Trialing);
 
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $subscription->refresh();
 
@@ -82,7 +82,7 @@ it('pauses the subscription at trial end when trial_end_behavior is pause', func
     ['subscription' => $subscription] = trialingNoCard('pause');
 
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $subscription->refresh();
 
@@ -100,7 +100,7 @@ it('opens an invoice at trial end when trial_end_behavior is create_invoice', fu
     fakeNombaCheckout('https://checkout.nomba.com/pay/adv07');
 
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $subscription->refresh();
     $invoice = $subscription->invoices()->firstOrFail();
@@ -123,7 +123,7 @@ it('activates the subscription when the open conversion invoice is paid late', f
 
     // Trial ends with no card → open invoice, subscription active.
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $invoice = $subscription->invoices()->firstOrFail();
     expect($invoice->status)->toBe(InvoiceStatus::Open);

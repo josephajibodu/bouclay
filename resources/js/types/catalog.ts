@@ -14,16 +14,6 @@ export type PriceTier = {
     flatAmount: number | null;
 };
 
-export type PricePhase = {
-    id: number;
-    sequence: number;
-    chargePriceId: number;
-    chargePriceLabel: string;
-    chargePriceUnitAmount: number | null;
-    durationInterval: BillingInterval;
-    durationCount: number;
-};
-
 export type Price = {
     id: number;
     publicId: string;
@@ -48,7 +38,38 @@ export type Price = {
     paymentLink: { id: string; url: string; priceLabel: string } | null;
     createdAt: string | null;
     tiers: PriceTier[];
-    phases: PricePhase[];
+};
+
+/** One step of a Pricing Journey — always charges a real, existing price. */
+export type PricingJourneyStep = {
+    id: number;
+    sequence: number;
+    priceId: number;
+    priceLabel: string;
+    priceUnitAmount: number | null;
+    currency: string;
+    quantity: number;
+    durationInterval: BillingInterval | null;
+    durationCount: number | null;
+    /** `duration*` both null — the "forever" step, always last. */
+    isTerminal: boolean;
+};
+
+/**
+ * A reusable, Product-scoped commercial offer template — schema table
+ * `price_phases`, UI label "Pricing Journey". Copied into a customer-owned
+ * Subscription Schedule the moment a subscription is created through it.
+ */
+export type PricingJourney = {
+    id: number;
+    productId: number;
+    name: string;
+    description: string | null;
+    status: CatalogStatus;
+    /** Auto-generated one-line summary, e.g. "$1/mo for 3 months, then $10/mo". */
+    autoDescription: string | null;
+    steps: PricingJourneyStep[];
+    createdAt: string | null;
 };
 
 export type PriceRef = { id: number; label: string };

@@ -29,7 +29,6 @@ class ReplacePrice
             $successor = $this->createSuccessor($original, $changes);
 
             $this->copyTiers($original, $successor, $changes);
-            $this->copyPhases($original, $successor);
 
             // The one in-place mutation the invariant allows: archiving.
             $original->update(['status' => CatalogStatus::Archived]);
@@ -125,22 +124,15 @@ class ReplacePrice
     }
 
     /**
-     * A successor keeps the original's phase schedule — the phases point at
-     * the same charge prices; only the home row is new. (Rewriting phases
-     * is its own edit via SyncPricePhases on the successor.)
+     * Note: unlike tiers, a price's Pricing Journey participation is NOT
+     * copied to the successor. A journey step references a `price_id`
+     * directly (schema.md §3) — replacing a price does not retroactively
+     * repoint any journey step or in-flight schedule step at the successor;
+     * the archived original keeps serving its old amount to those (prices
+     * are already append-only/immutable), and a merchant wanting the new
+     * price reflected must re-sync the journey itself, which only affects
+     * schedules created from that point forward.
      */
-    private function copyPhases(Price $original, Price $successor): void
-    {
-        foreach ($original->phases as $phase) {
-            $successor->phases()->create([
-                'sequence' => $phase->sequence,
-                'charge_price_id' => $phase->charge_price_id,
-                'duration_interval' => $phase->duration_interval->value,
-                'duration_count' => $phase->duration_count,
-            ]);
-        }
-    }
-
     private function toMinorUnits(int|float $majorAmount): int
     {
         return (int) round($majorAmount * 100);

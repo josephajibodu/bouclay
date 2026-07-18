@@ -55,6 +55,7 @@ import type {
     SubscriptionDetail,
     SubscriptionDunning,
     SubscriptionItem,
+    SubscriptionItemSchedule,
     SubscriptionScheduledChange,
     SubscriptionTimelineEvent,
 } from '@/types';
@@ -462,6 +463,11 @@ export default function SubscriptionShow({
                 />
             )}
 
+            {/* Pricing journey schedule */}
+            {primaryItem?.schedule && (
+                <PricingJourneyStepper schedule={primaryItem.schedule} />
+            )}
+
             {/* Payment method */}
             <section className="space-y-3">
                 <h2 className="text-lg font-semibold">Payment method</h2>
@@ -839,6 +845,91 @@ function Banner({
         >
             {children}
         </div>
+    );
+}
+
+/**
+ * A horizontal stepper showing where a subscription's base plan item sits
+ * in its Pricing Journey schedule (schema.md §5, SUBSCRIPTIONS_DESIGN
+ * §9.3) — current step filled, past steps tinted, future steps hollow,
+ * next transition date visible.
+ */
+function PricingJourneyStepper({
+    schedule,
+}: {
+    schedule: SubscriptionItemSchedule;
+}) {
+    const currentIndex = schedule.steps.findIndex(
+        (step) => step.id === schedule.currentStepId,
+    );
+    const currentStep =
+        currentIndex >= 0 ? schedule.steps[currentIndex] : null;
+
+    return (
+        <section
+            className="space-y-3 rounded-lg border p-4"
+            data-test="schedule-stepper"
+        >
+            <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Pricing journey</h2>
+                <Badge variant="outline" className="capitalize">
+                    {schedule.status}
+                </Badge>
+            </div>
+
+            <div className="flex items-center">
+                {schedule.steps.map((step, index) => {
+                    const isCurrent = step.id === schedule.currentStepId;
+                    const isPast =
+                        currentIndex >= 0 && index < currentIndex;
+
+                    return (
+                        <div
+                            key={step.id}
+                            className="flex flex-1 items-center last:flex-none"
+                        >
+                            <div className="flex flex-col items-center gap-1">
+                                <div
+                                    className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
+                                        isCurrent
+                                            ? 'border-primary bg-primary text-primary-foreground'
+                                            : isPast
+                                              ? 'border-primary/40 bg-primary/10 text-primary'
+                                              : 'border-muted-foreground/30 text-muted-foreground'
+                                    }`}
+                                >
+                                    {index + 1}
+                                </div>
+                                <span className="max-w-24 truncate text-center text-[11px] text-muted-foreground">
+                                    {step.priceLabel}
+                                </span>
+                            </div>
+                            {index < schedule.steps.length - 1 && (
+                                <div
+                                    className={`mx-1 h-px flex-1 ${
+                                        isPast
+                                            ? 'bg-primary/40'
+                                            : 'bg-muted-foreground/20'
+                                    }`}
+                                />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {currentStep && (
+                <p className="text-sm text-muted-foreground">
+                    Currently on{' '}
+                    <span className="font-medium text-foreground">
+                        {currentStep.priceLabel}
+                    </span>
+                    {currentStep.endsAt
+                        ? ` — next step starts ${formatDate(currentStep.endsAt)}`
+                        : ' — runs forever'}
+                </p>
+            )}
+        </section>
     );
 }
 

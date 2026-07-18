@@ -25,6 +25,7 @@ import { store } from '@/routes/subscriptions';
 import type {
     CollectionMode,
     CreateCustomerOption,
+    CreatePricingJourneyOption,
     CreatePriceTrial,
     CreateProductOption,
 } from '@/types';
@@ -42,13 +43,21 @@ type Props = {
 type Line = {
     key: string;
     productId: number;
-    priceId: number;
     productName: string;
-    priceLabel: string;
-    unitAmount: number | null;
-    currency: string;
     quantity: number;
-    trial: CreatePriceTrial | null;
+    /** Exactly one of these two is set. */
+    price: {
+        priceId: number;
+        priceLabel: string;
+        unitAmount: number | null;
+        currency: string;
+        trial: CreatePriceTrial | null;
+    } | null;
+    journey: {
+        journeyId: number;
+        journeyName: string;
+        description: string;
+    } | null;
 };
 
 function money(amount: number | null, currency: string): string {
@@ -89,10 +98,10 @@ export default function CreateSubscriptionDrawer({
         customer_id: number | null;
         collection_mode: CollectionMode;
         payment_method_id: number | null;
-        items: Array<{
-            price_id: number;
-            quantity: number;
-        }>;
+        items: Array<
+            | { price_id: number; quantity: number }
+            | { price_phases_id: number; quantity: number }
+        >;
     };
 
     const { transform, post, processing, errors, reset, clearErrors } =
@@ -120,9 +129,11 @@ export default function CreateSubscriptionDrawer({
 
     const customer = customers.find((c) => c.id === customerId) ?? null;
     const currency = customer?.currency ?? teamCurrency;
-    const hasPaidLine = lines.some((line) => line.unitAmount !== null);
+    const hasPaidLine = lines.some(
+        (line) => (line.price?.unitAmount ?? null) !== null || line.journey,
+    );
 
-    // Only prices matching the subscription currency are offered —
+    // Only prices/journeys matching the subscription currency are offered —
     // a subscription is single-currency for life (§7.2). The React Compiler
     // memoizes these derived values; no manual useMemo.
     const productOptions = products
@@ -131,8 +142,15 @@ export default function CreateSubscriptionDrawer({
             prices: product.prices.filter(
                 (price) => price.currency === currency,
             ),
+            pricingJourneys: product.pricingJourneys.filter(
+                (journey) => journey.currency === currency,
+            ),
         }))
-        .filter((product) => product.prices.length > 0);
+        .filter(
+            (product) =>
+                product.prices.length > 0 ||
+                product.pricingJourneys.length > 0,
+        );
 
     // A product appears at most once — two lines for the same product
     // describe the same subscription, so the newest wins.
@@ -163,16 +181,53 @@ export default function CreateSubscriptionDrawer({
         upsertLine({
             key: `price-${priceId}-${Date.now()}`,
             productId: product.id,
-            priceId,
             productName: product.name,
-            priceLabel: price.planName
-                ? `${price.planName} · ${price.label}`
-                : price.label,
-            unitAmount: price.unitAmount,
-            currency: price.currency,
             quantity: 1,
-            trial: price.trial ?? null,
+            journey: null,
+            price: {
+                priceId,
+                priceLabel: price.planName
+                    ? `${price.planName} · ${price.label}`
+                    : price.label,
+                unitAmount: price.unitAmount,
+                currency: price.currency,
+                trial: price.trial ?? null,
+            },
         });
+    };
+
+    // Only one line can be the base plan line, and only the base line may be
+    // a Pricing Journey (schema.md §5) — adding a journey replaces any prior
+    // journey line outright (regardless of product), since there can only
+    // ever be one.
+    const addJourney = (value: string) => {
+        const [productId, journeyId] = value.split(':').map(Number);
+        const product = products.find((p) => p.id === productId);
+        const journey = product?.pricingJourneys.find(
+            (j) => j.id === journeyId,
+        );
+
+        if (!product || !journey) {
+            return;
+        }
+
+        setLines((current) => [
+            ...current.filter(
+                (l) => l.journey === null && l.productId !== product.id,
+            ),
+            {
+                key: `journey-${journeyId}-${Date.now()}`,
+                productId: product.id,
+                productName: product.name,
+                quantity: 1,
+                price: null,
+                journey: {
+                    journeyId,
+                    journeyName: journey.name,
+                    description: journey.description,
+                },
+            },
+        ]);
     };
 
     const removeLine = (key: string) =>
@@ -187,23 +242,39 @@ export default function CreateSubscriptionDrawer({
             ),
         );
 
-    // The base item (first line) anchors the subscription's trial: a free
-    // trial on it charges nothing at day 0 — every add-on rides it (GAP-4).
-    const baseIsFreeTrial = lines[0]?.trial?.free ?? false;
+    // Only the base plan line (index 0) may be a Pricing Journey — a journey
+    // line always sorts first regardless of the order it was added in, since
+    // that's what the server requires (schema.md §5).
+    const orderedLines = [
+        ...lines.filter((l) => l.journey !== null),
+        ...lines.filter((l) => l.journey === null),
+    ];
+    const baseLine = orderedLines[0];
+
+    // The base item anchors the subscription's trial: a free trial on it
+    // charges nothing at day 0 — every add-on rides it (GAP-4). A journey
+    // base's day-0 behaviour depends on its first step, which this drawer
+    // doesn't have data for — the preview says so rather than guessing.
+    const baseIsFreeTrial = baseLine?.price?.trial?.free ?? false;
+    const baseIsJourney = baseLine?.journey !== undefined && !!baseLine?.journey;
 
     // Due today: automatic charges every billing line now, except a line
     // that's itself on a free trial. A free-trial base zeroes the whole
     // day-0 total. Manual bills by invoice, so nothing is charged today.
+    // A journey base's day-0 charge is left out of this total — it's
+    // resolved server-side from the journey's first step.
     const dueToday =
         collectionMode === 'manual' || baseIsFreeTrial
             ? 0
-            : lines.reduce(
-                  (sum, line) =>
-                      line.unitAmount !== null && !(line.trial?.free ?? false)
-                          ? sum + line.unitAmount * line.quantity
-                          : sum,
-                  0,
-              );
+            : orderedLines.reduce((sum, line) => {
+                  if (!line.price || (line.price.trial?.free ?? false)) {
+                      return sum;
+                  }
+
+                  return line.price.unitAmount !== null
+                      ? sum + line.price.unitAmount * line.quantity
+                      : sum;
+              }, 0);
 
     const canSubmit = customerId !== null && lines.length > 0 && !processing;
 
@@ -226,10 +297,17 @@ export default function CreateSubscriptionDrawer({
             collection_mode: collectionMode,
             payment_method_id:
                 collectionMode === 'automatic' ? paymentMethodId : null,
-            items: lines.map((line) => ({
-                price_id: line.priceId,
-                quantity: line.quantity,
-            })),
+            items: orderedLines.map((line) =>
+                line.journey
+                    ? {
+                          price_phases_id: line.journey.journeyId,
+                          quantity: line.quantity,
+                      }
+                    : {
+                          price_id: line.price!.priceId,
+                          quantity: line.quantity,
+                      },
+            ),
         }));
 
         post(store().url, {
@@ -316,14 +394,25 @@ export default function CreateSubscriptionDrawer({
                                             <div className="min-w-0 flex-1">
                                                 <p className="flex items-center gap-2 truncate text-sm font-medium">
                                                     {line.productName}
-                                                    {line.trial && (
+                                                    {line.price?.trial && (
                                                         <span className="inline-flex shrink-0 items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-400">
-                                                            {line.trial.label}
+                                                            {
+                                                                line.price
+                                                                    .trial.label
+                                                            }
+                                                        </span>
+                                                    )}
+                                                    {line.journey && (
+                                                        <span className="inline-flex shrink-0 items-center rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-400">
+                                                            Pricing journey
                                                         </span>
                                                     )}
                                                 </p>
                                                 <p className="truncate text-xs text-muted-foreground">
-                                                    {line.priceLabel}
+                                                    {line.journey
+                                                        ? `${line.journey.journeyName} — ${line.journey.description}`
+                                                        : line.price
+                                                              ?.priceLabel}
                                                 </p>
                                             </div>
                                             <Input
@@ -405,6 +494,49 @@ export default function CreateSubscriptionDrawer({
                                             </SelectContent>
                                         </Select>
                                     </div>
+
+                                    {productOptions.some(
+                                        (p) => p.pricingJourneys.length > 0,
+                                    ) && (
+                                        <div className="w-64">
+                                            <Select
+                                                value=""
+                                                onValueChange={addJourney}
+                                            >
+                                                <SelectTrigger data-test="add-journey">
+                                                    <span className="flex items-center gap-1.5 text-sm">
+                                                        <Plus className="size-4" />{' '}
+                                                        Start via a pricing journey
+                                                    </span>
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {productOptions.map(
+                                                        (product) =>
+                                                            product.pricingJourneys.map(
+                                                                (journey) => (
+                                                                    <SelectItem
+                                                                        key={`${product.id}:${journey.id}`}
+                                                                        value={`${product.id}:${journey.id}`}
+                                                                    >
+                                                                        {
+                                                                            product.name
+                                                                        }{' '}
+                                                                        ·{' '}
+                                                                        {
+                                                                            journey.name
+                                                                        }{' '}
+                                                                        —{' '}
+                                                                        {
+                                                                            journey.description
+                                                                        }
+                                                                    </SelectItem>
+                                                                ),
+                                                            ),
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -524,7 +656,9 @@ export default function CreateSubscriptionDrawer({
                                     Due today
                                 </span>
                                 <span className="font-semibold">
-                                    {money(dueToday, currency)}
+                                    {baseIsJourney
+                                        ? 'Set by journey'
+                                        : money(dueToday, currency)}
                                 </span>
                             </div>
 
@@ -540,13 +674,15 @@ export default function CreateSubscriptionDrawer({
                             <p className="text-center text-xs text-muted-foreground">
                                 {collectionMode === 'manual'
                                     ? "We'll invoice the customer; no card is charged today."
-                                    : baseIsFreeTrial
-                                      ? "Free trial — nothing is charged today. The first invoice lands when the trial ends."
-                                      : noCardAutomatic
-                                        ? "No card on file — we'll send a secure link to collect one. Access starts once they pay."
-                                        : dueToday > 0
-                                          ? `Charges ${money(dueToday, currency)} today, then renews.`
-                                          : 'Creates the subscription and its first period.'}
+                                    : baseIsJourney
+                                      ? "The journey's first step decides what's charged today — resolved to real dates once created."
+                                      : baseIsFreeTrial
+                                        ? "Free trial — nothing is charged today. The first invoice lands when the trial ends."
+                                        : noCardAutomatic
+                                          ? "No card on file — we'll send a secure link to collect one. Access starts once they pay."
+                                          : dueToday > 0
+                                            ? `Charges ${money(dueToday, currency)} today, then renews.`
+                                            : 'Creates the subscription and its first period.'}
                             </p>
                         </div>
                     </div>

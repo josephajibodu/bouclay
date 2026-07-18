@@ -46,6 +46,28 @@ export type SubscriptionFilters = {
 
 export type SubscriptionItemKind = 'plan' | 'addon';
 
+/** One step of the item's Pricing Journey schedule, resolved to real dates. */
+export type SubscriptionScheduleStep = {
+    id: number;
+    sequence: number;
+    priceLabel: string;
+    unitAmount: number | null;
+    currency: string;
+    startsAt: string;
+    endsAt: string | null;
+    isTerminal: boolean;
+};
+
+/** The item's Pricing-Journey-derived schedule, when it's on one (schema.md §5). */
+export type SubscriptionItemSchedule = {
+    id: number;
+    publicId: string;
+    endBehavior: 'release' | 'cancel';
+    status: 'active' | 'completed' | 'canceled';
+    currentStepId: number | null;
+    steps: SubscriptionScheduleStep[];
+};
+
 export type SubscriptionItem = {
     id: number;
     publicId: string;
@@ -62,6 +84,7 @@ export type SubscriptionItem = {
     quantity: number;
     status: string;
     trialEndsAt: string | null;
+    schedule: SubscriptionItemSchedule | null;
 };
 
 export type SubscriptionScheduledChange = {
@@ -113,10 +136,21 @@ export type CreatePriceOption = {
     trial?: CreatePriceTrial | null;
 };
 
+/** An active Pricing Journey offered as an alternative to a flat price for
+ * this product's base plan line (schema.md §3/§5). */
+export type CreatePricingJourneyOption = {
+    id: number;
+    name: string;
+    /** Auto-generated one-line summary, e.g. "$1/mo for 3 months, then $10/mo". */
+    description: string;
+    currency: string;
+};
+
 export type CreateProductOption = {
     id: number;
     name: string;
     prices: CreatePriceOption[];
+    pricingJourneys: CreatePricingJourneyOption[];
 };
 
 export type CreateCustomerPaymentMethod = {

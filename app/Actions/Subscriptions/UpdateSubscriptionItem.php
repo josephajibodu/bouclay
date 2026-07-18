@@ -9,6 +9,7 @@ use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
 use App\Enums\ProrationBehavior;
 use App\Enums\ScheduledChangeAction;
+use App\Enums\SubscriptionScheduleStatus;
 use App\Enums\SubscriptionStatus;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
@@ -53,6 +54,17 @@ class UpdateSubscriptionItem
     ): ?Invoice {
         if ($item->subscription_id !== $subscription->id) {
             throw new InvalidArgumentException('The item does not belong to this subscription.');
+        }
+
+        // One mechanism owns an item's future at a time (schema.md §5): a
+        // deferred `scheduled_changes` update and an active Subscription
+        // Schedule would otherwise race to change the same item at the same
+        // boundary. Checked before the `$remove` branch too — removing an
+        // item is just as much a conflict as a price/quantity change.
+        if ($item->schedule()->where('status', SubscriptionScheduleStatus::Active)->exists()) {
+            throw new InvalidArgumentException(
+                'This item is on an active Pricing Journey schedule — modify or cancel the schedule instead of scheduling a separate change.'
+            );
         }
 
         // Removing an add-on takes effect at the next renewal — no mid-cycle

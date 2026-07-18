@@ -2,7 +2,7 @@
 
 use App\Actions\Dunning\RetryPastDueInvoice;
 use App\Actions\Invoicing\RefundPayment;
-use App\Actions\Subscriptions\AdvanceSubscriptionPhases;
+use App\Actions\Subscriptions\AdvanceSubscriptionSchedule;
 use App\Actions\Subscriptions\CreateSubscription;
 use App\Actions\Subscriptions\RenewSubscription;
 use App\Enums\InvoiceBillingReason;
@@ -196,7 +196,7 @@ it('converts the trial to active and emits subscription.updated', function () {
 
     $this->travelTo(now()->addDays(8));
 
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     expect($subscription->fresh()->status)->toBe(SubscriptionStatus::Active);
 });
@@ -207,7 +207,7 @@ it('issues a conversion invoice bundling plan and add-on with WELCOME20 applied'
     fakeNombaCharge();
 
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $invoice = $subscription->invoices()->firstOrFail();
     $invoice->load('lines');
@@ -238,7 +238,7 @@ it('snapshots product, plan, and price names onto the conversion invoice lines',
     fakeNombaCharge();
 
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $planLine = $subscription->invoices()->firstOrFail()
         ->lines()->where('kind', InvoiceLineKind::Plan)->firstOrFail();
@@ -254,7 +254,7 @@ it('keeps discount_total equal to the sum of line discount_amounts with no kind=
     fakeNombaCharge();
 
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $invoice = $subscription->invoices()->firstOrFail();
 
@@ -271,7 +271,7 @@ it('charges the conversion invoice on the stored token and marks it paid', funct
     fakeNombaCharge();
 
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $invoice = $subscription->invoices()->firstOrFail();
     $payment = $invoice->payments()->firstOrFail();
@@ -296,7 +296,7 @@ function convertedAminaSubscription(): array
     fakeNombaCharge();
 
     test()->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     return ['fx' => $fx, 'subscription' => $subscription->fresh()];
 }

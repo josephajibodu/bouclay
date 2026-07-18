@@ -1,6 +1,6 @@
 <?php
 
-use App\Actions\Subscriptions\AdvanceSubscriptionPhases;
+use App\Actions\Subscriptions\AdvanceSubscriptionSchedule;
 use App\Actions\Subscriptions\CreateSubscription;
 use App\Actions\Subscriptions\UpdateSubscriptionItem;
 use App\Enums\SubscriptionStatus;
@@ -74,7 +74,7 @@ it('bills the conversion invoice on the final post-upgrade composition', functio
     // At trial end the conversion invoice reflects 2 seats, not the 1 chosen
     // at signup: 2 × 500000 = 1000000.
     $this->travelTo(now()->addDays(8));
-    app(AdvanceSubscriptionPhases::class)->handle($subscription->fresh());
+    app(AdvanceSubscriptionSchedule::class)->handle($subscription->fresh());
 
     $invoice = $subscription->invoices()->firstOrFail();
 

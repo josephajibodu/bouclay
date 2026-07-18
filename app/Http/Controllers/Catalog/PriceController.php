@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Catalog;
 
 use App\Actions\Catalog\CreatePrice;
 use App\Actions\Catalog\ReplacePrice;
-use App\Actions\Catalog\SyncPricePhases;
 use App\Enums\CatalogStatus;
 use App\Enums\PriceType;
 use App\Http\Controllers\Controller;
@@ -20,14 +19,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
-use InvalidArgumentException;
 
 class PriceController extends Controller
 {
     public function __construct(
         private readonly CreatePrice $createPrice,
         private readonly ReplacePrice $replacePrice,
-        private readonly SyncPricePhases $syncPricePhases,
     ) {
         //
     }
@@ -140,47 +137,6 @@ class PriceController extends Controller
     }
 
     /**
-     * Replace a price's phase schedule — trials that transition, paid
-     * intro periods, ramps. Only editable while the price is unreferenced;
-     * after that, edit the price (which creates a successor) and author
-     * phases there.
-     */
-    public function phases(Request $request, Product $product, Price $price): RedirectResponse
-    {
-        $team = $request->user()->currentTeam;
-
-        abort_unless($product->team_id === $team->id && $price->product_id === $product->id, 404);
-
-        Gate::authorize('managePrices', $team);
-
-        $data = $request->validate([
-            'phases' => ['present', 'array'],
-            'phases.*.charge_price_id' => ['nullable', 'integer'],
-            'phases.*.charge_price' => ['nullable', 'array'],
-            'phases.*.charge_price.unit_amount' => ['required_with:phases.*.charge_price', 'numeric', 'min:0'],
-            'phases.*.charge_price.name' => ['nullable', 'string', 'max:255'],
-            'phases.*.duration_interval' => ['required', 'in:day,week,month,year'],
-            'phases.*.duration_count' => ['required', 'integer', 'min:1'],
-        ]);
-
-        if ($price->hasBeenUsed()) {
-            throw ValidationException::withMessages([
-                'phases' => 'This price has subscribers — edit the price to create a new version, then author phases there.',
-            ]);
-        }
-
-        try {
-            $this->syncPricePhases->handle($price, $data['phases']);
-        } catch (InvalidArgumentException $exception) {
-            throw ValidationException::withMessages(['phases' => $exception->getMessage()]);
-        }
-
-        Inertia::flash('toast', ['type' => 'success', 'message' => 'Phase schedule saved']);
-
-        return back();
-    }
-
-    /**
      * Archive a price — hides it from checkout without deleting history.
      */
     public function archive(Request $request, Product $product, Price $price): RedirectResponse
@@ -222,6 +178,19 @@ class PriceController extends Controller
             Inertia::flash('toast', [
                 'type' => 'error',
                 'message' => 'Payment links are available for active, fixed-amount prices under an active plan.',
+            ]);
+
+            return back();
+        }
+
+        // Payment links can't express "this price is step 0 of Journey J"
+        // (Journeys are Product-scoped, not Price-scoped) — deferred to v2,
+        // guarded rather than silently sold as a flat price that never
+        // advances (schema.md §3).
+        if ($price->startsPricingJourney()) {
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => 'This price starts a Pricing Journey — payment links for journey-backed prices aren\'t supported yet.',
             ]);
 
             return back();

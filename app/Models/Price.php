@@ -65,7 +65,6 @@ use Illuminate\Support\Carbon;
  * @property-read Plan|null $plan
  * @property-read Price|null $replacesPrice
  * @property-read Collection<int, PriceTier> $tiers
- * @property-read Collection<int, PricePhase> $phases
  * @property-read Collection<int, PriceTrialRedemption> $trialRedemptions
  * @property-read PaymentLink|null $paymentLink
  */
@@ -213,17 +212,6 @@ class Price extends Model
     }
 
     /**
-     * Get the phase schedule anchored to this price, when one exists
-     * (schema.md §3 — paid trials, plan transitions, ramps).
-     *
-     * @return HasMany<PricePhase, $this>
-     */
-    public function phases(): HasMany
-    {
-        return $this->hasMany(PricePhase::class)->orderBy('sequence');
-    }
-
-    /**
      * Get the trial redemptions recorded against this price
      * (`trial_once_per_customer` anti-abuse).
      *
@@ -274,12 +262,12 @@ class Price extends Model
     }
 
     /**
-     * Whether this price starts a subscription on a **free** trial: a simple
-     * trial (`trial_length`) is always free during its window, and a phased
-     * price whose phase-0 charge is ₦0 is a free trial too. A phased price
-     * whose phase-0 charge is > 0 is a *paid* trial — it bills at day 0 and is
-     * not `trialing` (schema.md §5). Requires `phases.chargePrice` loaded for
-     * the phased case.
+     * Whether this price starts a subscription on a **free** trial: always
+     * free during its `trial_length` window (schema.md §5). A price is no
+     * longer intrinsically "phased" — a paid intro/ramp offer now comes from
+     * a Pricing Journey chosen at subscription-create time, resolved by
+     * {@see \App\Actions\Subscriptions\CreateSubscription} from the
+     * journey/schedule input rather than from the price itself.
      *
      * This is the one shared rule: every surface that decides "does day 0 bill
      * anything" — subscription create and payment-link checkout alike — asks
@@ -287,41 +275,23 @@ class Price extends Model
      */
     public function startsFreeTrial(): bool
     {
-        if ($this->trial_length !== null) {
-            return true;
-        }
-
-        $phaseZero = $this->phases->firstWhere('sequence', 0);
-
-        return $phaseZero !== null && ($phaseZero->chargePrice->unit_amount ?? 0) === 0;
+        return $this->trial_length !== null;
     }
 
     /**
-     * A picker-friendly summary of the trial this price starts, or null when
-     * it has none (schema.md §5). A simple trial is always free during its
-     * window; a phased price is a free trial when its phase-0 charge is ₦0 and
-     * an intro-priced ("paid") trial otherwise. Requires `phases.chargePrice`
-     * loaded for the phased case.
+     * A picker-friendly summary of the simple trial this price starts, or
+     * null when it has none (schema.md §5).
      *
      * @return array{label: string, free: bool}|null
      */
     public function trialSummary(): ?array
     {
-        if ($this->trial_length !== null && $this->trial_unit !== null) {
-            // Adjectival unit — "7-day free trial", never "7-days".
-            return ['label' => "{$this->trial_length}-{$this->trial_unit->value} free trial", 'free' => true];
+        if ($this->trial_length === null || $this->trial_unit === null) {
+            return null;
         }
 
-        $phaseZero = $this->phases
-            ->first(fn (PricePhase $phase): bool => $phase->sequence === 0);
-
-        if ($phaseZero !== null) {
-            $free = ($phaseZero->chargePrice->unit_amount ?? 0) === 0;
-
-            return ['label' => $free ? 'Free trial' : 'Intro pricing', 'free' => $free];
-        }
-
-        return null;
+        // Adjectival unit — "7-day free trial", never "7-days".
+        return ['label' => "{$this->trial_length}-{$this->trial_unit->value} free trial", 'free' => true];
     }
 
     /**
@@ -368,19 +338,6 @@ class Price extends Model
                     'upTo' => $tier->up_to,
                     'unitAmount' => $tier->unit_amount / 100,
                     'flatAmount' => $tier->flat_amount !== null ? $tier->flat_amount / 100 : null,
-                ])->all()
-                : [],
-            'phases' => $this->relationLoaded('phases')
-                ? $this->phases->map(fn (PricePhase $phase) => [
-                    'id' => $phase->id,
-                    'sequence' => $phase->sequence,
-                    'chargePriceId' => $phase->charge_price_id,
-                    'chargePriceLabel' => $phase->chargePrice->toPickerLabel(),
-                    'chargePriceUnitAmount' => $phase->chargePrice->unit_amount !== null
-                        ? $phase->chargePrice->unit_amount / 100
-                        : null,
-                    'durationInterval' => $phase->duration_interval->value,
-                    'durationCount' => $phase->duration_count,
                 ])->all()
                 : [],
         ];
@@ -462,6 +419,22 @@ class Price extends Model
     public function hasBeenUsed(): bool
     {
         return $this->subscriptionItems()->exists() || $this->invoiceLines()->exists();
+    }
+
+    /**
+     * Whether this price is step 0 of an active Pricing Journey — a payment
+     * link can't express "this price is step 0 of Journey J" (Journeys are
+     * Product-scoped, not Price-scoped), so selling this price directly via
+     * a link would silently regress it to a flat price that never advances.
+     * Deferred to v2 (schema.md §3) — guarded here rather than left silent.
+     */
+    public function startsPricingJourney(): bool
+    {
+        return PricingJourneyStep::query()
+            ->where('price_id', $this->id)
+            ->where('sequence', 0)
+            ->whereHas('journey', fn (Builder $query) => $query->where('status', CatalogStatus::Active))
+            ->exists();
     }
 
     /**

@@ -8,41 +8,56 @@ use App\Enums\BillingInterval;
 use App\Enums\CollectionMode;
 use App\Enums\InvoiceBillingReason;
 use App\Enums\InvoiceLineKind;
+use App\Enums\ScheduleEndBehavior;
 use App\Enums\SubscriptionItemStatus;
+use App\Enums\SubscriptionScheduleStatus;
 use App\Enums\SubscriptionStatus;
 use App\Enums\TrialEndBehavior;
 use App\Models\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\Price;
-use App\Models\PricePhase;
 use App\Models\Product;
 use App\Models\Subscription;
 use App\Models\SubscriptionItem;
+use App\Models\SubscriptionSchedule;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Advance a subscription across a price-phase boundary (schema.md §5).
+ * Advance a subscription across a subscription-schedule boundary
+ * (schema.md §5) — the engine behind Pricing Journeys: at each boundary the
+ * item's `current_schedule_step_id` advances to the next
+ * `subscription_schedule_steps` row (dates already resolved at copy time —
+ * no interval arithmetic here) and its `price_id`/`plan_id`/`product_id`
+ * re-anchor to that step's price, so entitlements and reporting always
+ * reflect what the customer is actually being billed for.
  *
- * This is the generalized trial-conversion worker: a *simple* trial is the
- * degenerate single-boundary case where the item keeps one price, the trial
- * clock runs out, and the subscription converts `trialing → active`. A phased
- * price is the general case — at each boundary the item's `current_phase_sequence`
- * advances and its effective charge price swaps to the next phase
- * ({@see SubscriptionItem::effectiveChargePrice()}), until the schedule lands
- * on its steady-state (final) phase, after which normal renewal takes over.
+ * A *free* trial is the degenerate single-boundary case: the item's step-0
+ * price is ₦0, the schedule clock runs out, and the subscription converts
+ * `trialing → active`. A ramp is the general case — the item steps through
+ * boundaries until it lands on its terminal ("forever") step, at which
+ * point the schedule finalizes: `end_behavior=release` collapses the item
+ * back to flat, ordinary billing; `end_behavior=cancel` cancels the
+ * subscription.
  *
- * State threading (schema.md §5): while the next phase is still free the
- * subscription stays `trialing`; the moment it lands on a paid phase it
+ * Discount re-validation (schema.md §7, deliberately stricter than every
+ * other price-change path in the app): a schedule step can move an item
+ * onto a different plan entirely, so at every boundary an active discount
+ * redemption is re-checked against the item's POST-step state — if it's no
+ * longer eligible, it's permanently ended, not just skipped for one invoice.
+ *
+ * State threading (schema.md §5): while the next step is still free the
+ * subscription stays `trialing`; the moment it lands on a paid step it
  * converts and bills. When a free trial ends with no payment method, the
  * subscription honours `trial_end_behavior` (cancel / pause / create_invoice).
  */
-class AdvanceSubscriptionPhases
+class AdvanceSubscriptionSchedule
 {
     public function __construct(
         private readonly CreateInvoice $createInvoice,
         private readonly CollectInvoice $collectInvoice,
+        private readonly RedeemDiscount $redeemDiscount,
     ) {
         //
     }
@@ -53,15 +68,18 @@ class AdvanceSubscriptionPhases
             return null;
         }
 
-        $subscription->loadMissing(['customer', 'items.price.product', 'items.price.phases.chargePrice', 'paymentMethod', 'team']);
+        $subscription->loadMissing([
+            'customer', 'items.price.product', 'items.currentScheduleStep.price', 'items.schedule',
+            'paymentMethod', 'team',
+        ]);
 
         /** @var Invoice|null $invoice */
         $invoice = DB::transaction(function () use ($subscription): ?Invoice {
             $now = Carbon::now();
 
-            $this->advanceDueItems($subscription, $now);
+            $pendingFinalizations = $this->advanceDueItems($subscription, $now);
 
-            // A subsequent phase can itself be a free trial — if any item is
+            // A subsequent step can itself be a free trial — if any item is
             // still trialing after advancing, the subscription stays `trialing`
             // and simply re-anchors its clock to the next boundary.
             if ($this->stillTrialing($subscription)) {
@@ -70,7 +88,13 @@ class AdvanceSubscriptionPhases
                 return null;
             }
 
-            return $this->settleAfterBoundary($subscription, $now);
+            $invoice = $this->settleAfterBoundary($subscription, $now);
+
+            foreach ($pendingFinalizations as $pending) {
+                $this->finalizeSchedule($pending['schedule'], $pending['item'], $subscription, $now);
+            }
+
+            return $invoice;
         });
 
         if ($invoice === null) {
@@ -87,9 +111,10 @@ class AdvanceSubscriptionPhases
     }
 
     /**
-     * A subscription is due for phase advancement when a free trial's clock
-     * has run out, or when an active subscription still threading a paid ramp
-     * has reached its current phase's boundary (its `current_period_end`).
+     * A subscription is due for schedule advancement when a free trial's
+     * clock has run out, or when an active subscription still threading a
+     * schedule has reached its current step's boundary
+     * (`current_period_end`).
      */
     private function isDue(Subscription $subscription): bool
     {
@@ -102,61 +127,120 @@ class AdvanceSubscriptionPhases
         if ($subscription->status === SubscriptionStatus::Active) {
             return $subscription->current_period_end !== null
                 && $subscription->current_period_end->lte($now)
-                && $this->hasItemProgressingThroughPhases($subscription);
+                && $this->hasItemOnSchedule($subscription);
         }
 
         return false;
     }
 
-    private function hasItemProgressingThroughPhases(Subscription $subscription): bool
+    private function hasItemOnSchedule(Subscription $subscription): bool
     {
         return $subscription->items->contains(
             fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active
-                && $item->isProgressingThroughPhases(),
+                && $item->isOnSchedule(),
         );
     }
 
     /**
-     * Advance every item sitting on a boundary: a phased item steps to its next
-     * phase (re-arming its trial clock if that phase is itself free); a simple
-     * trial item simply clears its trial clock.
+     * Advance every item sitting on a boundary: a scheduled item steps to
+     * its next step (re-arming its trial clock if that step is itself
+     * free); a simple trial item simply clears its trial clock.
+     *
+     * @return list<array{schedule: SubscriptionSchedule, item: SubscriptionItem}>
      */
-    private function advanceDueItems(Subscription $subscription, Carbon $now): void
+    private function advanceDueItems(Subscription $subscription, Carbon $now): array
     {
+        $pendingFinalizations = [];
+
         foreach ($subscription->items as $item) {
             if ($item->status !== SubscriptionItemStatus::Active) {
                 continue;
             }
 
-            if ($item->isProgressingThroughPhases()) {
-                $this->stepItemToNextPhase($item, $now);
+            if ($item->isOnSchedule()) {
+                $schedule = $this->stepItemToNextStep($subscription, $item, $now);
+
+                if ($schedule !== null) {
+                    $pendingFinalizations[] = ['schedule' => $schedule, 'item' => $item];
+                }
 
                 continue;
             }
 
-            // Simple trial (or a final-phase item) whose clock has elapsed.
+            // Simple trial (or a steady, non-scheduled item) whose clock has elapsed.
             if ($item->trial_ends_at !== null && $item->trial_ends_at->lte($now)) {
                 $item->forceFill(['trial_ends_at' => null])->save();
             }
         }
+
+        return $pendingFinalizations;
     }
 
-    private function stepItemToNextPhase(SubscriptionItem $item, Carbon $now): void
+    /**
+     * Step an item to its schedule's next step, re-anchoring price/plan/
+     * product (and quantity) to that step and re-validating any active
+     * discount redemption against the new state. Returns the schedule when
+     * the item just landed on its terminal step (caller finalizes it after
+     * billing), null otherwise.
+     */
+    private function stepItemToNextStep(Subscription $subscription, SubscriptionItem $item, Carbon $now): ?SubscriptionSchedule
     {
-        $nextSequence = (int) $item->current_phase_sequence + 1;
-        $nextPhase = $item->price->phases
-            ->first(fn (PricePhase $phase): bool => $phase->sequence === $nextSequence);
+        $schedule = $item->schedule;
+        $currentStep = $item->currentScheduleStep;
+        $nextSequence = (int) $currentStep->sequence + 1;
 
-        // The new phase is a free trial only while its charge price is ₦0 —
-        // then the item keeps a trial clock; otherwise the trial ends here.
-        $nextIsFree = $nextPhase !== null && ($nextPhase->chargePrice->unit_amount ?? 0) === 0;
+        $nextStep = $schedule->steps()->where('sequence', $nextSequence)->with('price')->first();
+
+        if ($nextStep === null) {
+            return null;
+        }
+
+        $nextIsFree = ! $nextStep->isTerminal() && ($nextStep->price->unit_amount ?? 0) === 0;
 
         $item->forceFill([
-            'current_phase_sequence' => $nextSequence,
-            'trial_ends_at' => $nextIsFree && $nextPhase !== null
-                ? $this->addInterval($now->copy(), $nextPhase->duration_interval, $nextPhase->duration_count)
-                : null,
+            'price_id' => $nextStep->price_id,
+            'plan_id' => $nextStep->price->plan_id,
+            'product_id' => $nextStep->price->product_id,
+            'quantity' => $nextStep->quantity,
+            'current_schedule_step_id' => $nextStep->id,
+            'trial_ends_at' => $nextIsFree ? $nextStep->ends_at : null,
         ])->save();
+
+        // Mutating price_id/plan_id/product_id does NOT refresh Eloquent's
+        // already-loaded `price`/`plan`/`product` relations — every
+        // downstream read (boundary invoice lines, the anchor price for the
+        // next period end) must see the item's NEW price, not the stale
+        // cached one from before this boundary.
+        $item->unsetRelation('price');
+        $item->unsetRelation('plan');
+        $item->unsetRelation('product');
+
+        $this->reValidateDiscount($subscription);
+
+        return $nextStep->isTerminal() ? $schedule : null;
+    }
+
+    /**
+     * A schedule step can move an item onto a different plan entirely — a
+     * discount redeemed against the old plan may no longer qualify. Every
+     * other price-change path in the app treats eligibility as a
+     * signup-time-only gate (schema.md §7); schedules deliberately don't,
+     * since re-anchoring plan/product at each boundary already makes the
+     * "what is this customer actually on" question a live one.
+     */
+    private function reValidateDiscount(Subscription $subscription): void
+    {
+        $redemption = $subscription->activeDiscountRedemption();
+
+        if ($redemption === null) {
+            return;
+        }
+
+        $items = $subscription->items()->get();
+
+        if (! $redemption->discount->isRedeemableBySubscriptionItems($items, $subscription->currency)) {
+            $this->redeemDiscount->remove($subscription);
+        }
     }
 
     private function stillTrialing(Subscription $subscription): bool
@@ -192,8 +276,8 @@ class AdvanceSubscriptionPhases
         $subscription->trial_ends_at = null;
 
         // `trial_end_behavior` only governs a *free trial* that runs out with
-        // no way to charge. An already-active paid ramp just bills its next
-        // phase and lets normal dunning handle a decline.
+        // no way to charge. An already-active schedule just bills its next
+        // step and lets normal dunning handle a decline.
         if ($subscription->status === SubscriptionStatus::Trialing && ! $this->canBill($subscription)) {
             // No behavior set falls back to `create_invoice` — issue the open
             // invoice rather than silently cancelling access (Stripe default).
@@ -225,7 +309,7 @@ class AdvanceSubscriptionPhases
 
     private function startBilling(Subscription $subscription, Carbon $now): ?Invoice
     {
-        // A trialing subscription converts; an active ramp stays active.
+        // A trialing subscription converts; an already-active schedule stays active.
         if ($subscription->status === SubscriptionStatus::Trialing) {
             $subscription->apply('convert');
         }
@@ -268,7 +352,7 @@ class AdvanceSubscriptionPhases
     {
         $anchorItem = $subscription->items
             ->first(fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active);
-        $anchorPrice = $anchorItem?->effectiveChargePrice();
+        $anchorPrice = $anchorItem?->price;
 
         if ($anchorPrice === null) {
             return;
@@ -290,7 +374,7 @@ class AdvanceSubscriptionPhases
     }
 
     /**
-     * The boundary invoice bundles every active item at its now-effective
+     * The boundary invoice bundles every active item at its now-current
      * price — plan and add-ons alike (GAP-4: add-ons ride the plan item's
      * trial and are first invoiced here, together).
      *
@@ -298,10 +382,10 @@ class AdvanceSubscriptionPhases
      */
     private function buildBoundaryLines(Subscription $subscription): array
     {
-        return $subscription->items
+        return array_values($subscription->items
             ->filter(fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active)
             ->map(function (SubscriptionItem $item): array {
-                $price = $item->effectiveChargePrice();
+                $price = $item->price;
                 $product = $price->product;
 
                 return [
@@ -314,8 +398,29 @@ class AdvanceSubscriptionPhases
                     'quantity' => $item->quantity,
                 ];
             })
-            ->values()
-            ->all();
+            ->all());
+    }
+
+    /**
+     * Finalize a schedule that just landed on its terminal step: `release`
+     * collapses the item back to flat billing (nothing left to track —
+     * `current_schedule_step_id` clears and every future biller just reads
+     * `price_id` like any ordinary item); `cancel` cancels the subscription.
+     * Runs after the boundary invoice bills, so a `release` schedule's
+     * terminal-step invoice (already at the right price) settles normally
+     * first.
+     */
+    private function finalizeSchedule(SubscriptionSchedule $schedule, SubscriptionItem $item, Subscription $subscription, Carbon $now): void
+    {
+        if ($schedule->end_behavior === ScheduleEndBehavior::Cancel) {
+            $subscription->apply('cancel');
+            $schedule->update(['status' => SubscriptionScheduleStatus::Canceled, 'completed_at' => $now]);
+
+            return;
+        }
+
+        $item->forceFill(['current_schedule_step_id' => null])->save();
+        $schedule->update(['status' => SubscriptionScheduleStatus::Completed, 'completed_at' => $now]);
     }
 
     private function earliestActiveTrialEnd(Subscription $subscription): ?Carbon

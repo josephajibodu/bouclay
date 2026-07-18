@@ -81,15 +81,21 @@ erDiagram
     plans ||--o{ prices : priced_by
     prices ||--o{ price_tiers : tiered_by
     prices ||--o{ price_currency_options : priced_in
-    prices ||--o{ price_phases : phased_from
-    prices ||--o{ price_phases : charged_during
     prices ||--o{ price_trial_redemptions : redeemed_as
+    products ||--o{ price_phases : offers
+    price_phases ||--o{ price_phase_steps : steps
+    prices ||--o{ price_phase_steps : charged_during
 
     entitlements ||--o{ entitlement_grants : granted_via
     plans ||--o{ entitlement_grants : grants
     products ||--o{ entitlement_grants : grants
 
     subscriptions ||--o{ subscription_items : contains
+    subscriptions ||--o{ subscription_schedules : schedules
+    subscription_items ||--o| subscription_schedules : drives
+    subscription_schedules ||--o{ subscription_schedule_steps : steps
+    prices ||--o{ subscription_schedule_steps : charged_during
+    price_phases ||--o{ subscription_schedules : copied_into
     subscriptions ||--o{ scheduled_changes : schedules
     subscriptions ||--o{ invoices : generates
     subscriptions ||--o{ discount_redemptions : applies
@@ -468,7 +474,7 @@ The tier. Deliberately thin — no `billing_interval`, no `pricing_model`, no tr
 | trial_unit | string | yes | enum: `day` / `week` / `month`; null when `trial_length` is null |
 | trial_requires_payment_info | boolean | no | default false — mirrors the `missing_payment_method` framing used on `subscriptions.trial_end_behavior` |
 | trial_once_per_customer | boolean | no | default true — anti-abuse toggle, enforced via `price_trial_redemptions` |
-| purchasable | boolean | no | default true — false for a price that exists only as a `price_phases.charge_price_id` target, never meant to be offered directly. The "New Price" picker and the Products list both filter `WHERE purchasable = true`, so phase-only prices never surface as something a merchant could confuse for a sellable option — see `price_phases` below. |
+| purchasable | boolean | no | default true — set false for a price that exists only as a Pricing Journey step target, never meant to be offered directly. The "New Price" picker and the Products list both filter `WHERE purchasable = true`, so step-only prices never surface as something a merchant could confuse for a sellable option — see `price_phases` below. |
 | custom_data | json | yes | |
 | created_at / updated_at | timestamp | no | |
 
@@ -504,24 +510,67 @@ Present one logical price in many currencies instead of a row per currency. If u
 | currency | char(3) | no | unique with price_id |
 | unit_amount | bigInteger | no | minor units |
 
-### `price_phases`
-The generalized mechanism for anything beyond a simple trial: a paid multi-iteration trial, a transition to a different plan/price when a trial ends, or a genuine multi-step ramp schedule. Deliberately named for the *price* it's scoped to, not "ramp" — same underlying shape as Stripe subscription-schedule phases or Recurly's `PlanPhase`, adapted to Bouclay's Plan→Price split.
+### `price_phases` — "Pricing Journey" in the UI
+A reusable, merchant-authored template for anything beyond a simple trial: a paid multi-iteration trial, a transition to a different plan/price, or a genuine multi-step ramp offer (e.g. "$1/mo for 3 months, then $10/mo forever"). Unlike the price-scoped mechanism this table used to hold, a journey is scoped to a **Product** and is Plan-agnostic — its steps can move a customer between any of the product's plans, which is often the entire point of the offer. A journey is a template only: it holds no billing state itself.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | id | ulid | no | PK |
-| price_id | ulid | no | FK → prices — the "home" price this schedule is attached to (what a subscription_item nominally references, e.g. "Pro Monthly") |
-| sequence | smallInteger | no | 0-based ordering |
-| charge_price_id | ulid | no | FK → prices — the price actually charged during this phase; distinct from `price_id` because a phase can charge a trial-priced row, or **a price under a different plan entirely** for "transition to a different plan after trial" — no dedicated `transition_plan_id` field needed |
-| duration_interval | string | no | enum: `day` / `week` / `month` / `year` |
-| duration_count | integer | no | |
+| team_id | ulid | no | FK → teams |
+| product_id | ulid | no | FK → products — every step's price must belong to this product (enforced at the application layer) |
+| name | string | no | merchant-facing name, e.g. "Starter Offer" |
+| description | text | yes | |
+| status | string | no | enum: `active` / `archived` — never hard-deleted once any schedule (below) references it, preserving reporting integrity; freely editable at any time, since editing a journey never touches a schedule already copied from it |
 | created_at / updated_at | timestamp | no | |
 
-A simple trial (`prices.trial_length` set) never touches this table. A phased trial is phase 0 (`charge_price_id` = a trial-priced row) → phase 1 (`charge_price_id` = the regular price, possibly under a different plan). A genuine 3+ step ramp is just more rows.
+### `price_phase_steps`
+Ordered steps within a journey.
 
-**Why `charge_price_id` points at a full `prices` row instead of `price_phases` carrying its own amount/currency/tiering columns**: a phase's charge still needs everything a normal price gets — reuse (phase 1 is routinely just the plan's existing regular price), `version` bumps for grandfathering, `pricing_model`/`price_tiers` for a tiered or graduated phase, and a real `price_id` for `invoice_lines` to reference so every charge — phase-originated or not — settles through the one invoicing code path. Duplicating that shape onto `price_phases` instead would mean reimplementing tiering/currency/versioning twice.
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| price_phases_id | ulid | no | FK → price_phases |
+| sequence | smallInteger | no | 0-based ordering |
+| price_id | ulid | no | FK → prices — always an existing, defined price; no inline/ad hoc amounts |
+| quantity | integer | no | default 1 |
+| duration_interval | string | yes | enum: `day` / `week` / `month` / `year`; null on the last step |
+| duration_count | integer | yes | null on the last step |
+| created_at / updated_at | timestamp | no | |
 
-The actual cost of that is prices that exist purely to be a phase's trial-priced target and were never meant to be sold on their own — `prices.purchasable = false` is what keeps those out of the merchant-facing catalog (picker, Products list) without giving up any of the above. A price auto-generated while authoring a phase should default `purchasable = false`; a price created directly from the Products page defaults `purchasable = true`.
+`duration_interval`/`duration_count` both null marks the terminal ("forever") step — always the last step in a journey by construction. A simple trial (`prices.trial_length` set) never touches this table.
+
+**Why `price_id` points at a full `prices` row instead of a step carrying its own amount/currency/tiering columns**: a step's charge still needs everything a normal price gets — reuse (a later step is routinely just the plan's existing regular price), `version` bumps for grandfathering, `pricing_model`/`price_tiers` for a tiered or graduated step, and a real `price_id` for `invoice_lines` to reference so every charge — journey-originated or not — settles through the one invoicing code path.
+
+The cost of that is prices that exist purely to be a step's target and were never meant to be sold on their own — `prices.purchasable = false` is what keeps those out of the merchant-facing catalog (picker, Products list) without giving up any of the above. Nothing auto-defaults this anymore (journeys reference existing prices only, no inline-amount authoring), so a merchant creating an intro-only price decides its `purchasable` flag explicitly.
+
+### `subscription_schedules`
+A customer-owned copy of a journey (or an ad hoc, journey-less step sequence), forked off the moment a subscription is created through it — the same snapshot pattern already used for invoices. From this point on, editing the source journey never touches this row, and editing this row never touches the journey or any other customer.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| public_id | string | no | |
+| subscription_id | ulid | no | FK → subscriptions |
+| subscription_item_id | ulid | no | FK → subscription_items — the specific plan item this schedule drives (v1: base plan item only, never an add-on) |
+| price_phases_id | ulid | yes | FK → price_phases — kept as a non-authoritative reference for reporting only ("how many active subs came from Starter Offer"); no billing, invoicing, or dunning logic may read from it; null for an ad hoc schedule |
+| end_behavior | string | no | enum: `release` (collapse to flat billing at the last step's price) / `cancel` (cancel the subscription) — what happens once the terminal step is reached |
+| status | string | no | enum: `active` / `completed` / `canceled` |
+| completed_at | timestamp | yes | |
+| created_at / updated_at | timestamp | no | |
+
+### `subscription_schedule_steps`
+The resolved, customer-specific counterpart of `price_phase_steps`: durations become absolute dates at copy time, so the advance-schedule worker never re-derives boundaries from interval arithmetic.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | ulid | no | PK |
+| schedule_id | ulid | no | FK → subscription_schedules |
+| sequence | smallInteger | no | 0-based ordering |
+| price_id | ulid | no | FK → prices |
+| quantity | integer | no | |
+| starts_at | timestamp | no | |
+| ends_at | timestamp | yes | null marks the terminal ("forever") step |
+| created_at / updated_at | timestamp | no | |
 
 ### `price_trial_redemptions`
 The one piece of trial state worth its own durable row: enforcing `trial_once_per_customer`.
@@ -613,15 +662,15 @@ subscription doesn't lock a customer out of what another still pays for.
 
 ---
 
-## 5. Trials & Phased Pricing
+## 5. Trials & Pricing Journeys
 
-Simple trials live directly on `prices.trial_length` / `trial_unit` / `trial_requires_payment_info` (§3) — a price either has a trial or it doesn't, no separate catalog object for the common case. Free vs. paid is inferred from the trial-phase price (`unit_amount = 0` → free); whether a card is required at signup is `trial_requires_payment_info`.
+Simple trials live directly on `prices.trial_length` / `trial_unit` / `trial_requires_payment_info` (§3) — a price either has a trial or it doesn't, no separate catalog object for the common case, and this mechanism is untouched by everything below. Free vs. paid is inferred from the trial price (`unit_amount = 0` → free); whether a card is required at signup is `trial_requires_payment_info`.
 
-Complex cases — a paid multi-iteration trial, a transition to a different plan's price when the trial ends, or a true multi-step ramp — use `price_phases` (§3): an ordered `(charge_price_id, duration)` list anchored to a price.
+Complex cases — a paid multi-iteration trial, a transition to a different plan's price, or a true multi-step ramp — use a **Pricing Journey** (`price_phases`/`price_phase_steps`, §3): a reusable, Product-scoped template a merchant authors once and reuses across any number of subscriptions. When a subscription is created through a journey (or through an ad hoc, journey-less step list), its steps are copied — durations resolved to absolute dates — into a customer-owned **Subscription Schedule** (`subscription_schedules`/`subscription_schedule_steps`, §3), the same snapshot pattern already used for invoices: editing the journey afterward never touches that schedule, and editing that schedule never touches the journey or any other customer.
 
-`subscription_items.trial_ends_at` and `current_phase_sequence` (§6) track where one subscription item is in this, snapshotted at creation so a later edit to the catalog doesn't rewrite an active subscriber's history. `subscriptions.trial_ends_at` stays the denormalised clock the billing/access workers read (earliest active item trial end). `price_trial_redemptions` (§3) is the durable row kept purely for `trial_once_per_customer` anti-abuse.
+Unlike the flat `Subscription → Price` shape, a scheduled item's `subscription_items.price_id`/`plan_id`/`product_id` are **live**, not fixed at signup — they re-anchor to the schedule's current step at every boundary, and entitlement resolution (§4) follows along automatically since it already keys off those same columns. `subscription_items.current_schedule_step_id` (§6) points at the item's current `subscription_schedule_steps` row — null unless the item is on one. `subscriptions.trial_ends_at` stays the denormalised clock the billing/access workers read (earliest active item trial end). `price_trial_redemptions` (§3) is the durable row kept purely for `trial_once_per_customer` anti-abuse on a *simple* trial — a schedule-driven free step doesn't write it.
 
-**State-machine threading**: free trial (`unit_amount = 0` during the trial phase, no payment method required) → subscription starts in `trialing`, skips `incomplete`. Paid trial (`unit_amount > 0`) → payment captured at signup, subscription follows the normal `incomplete → active` path (paid trials are treated as active, not trialing). At `trial_ends_at` (or a phase boundary) → the item's effective price swaps, subscription → `active` (or `canceled`/`paused` per `trial_end_behavior` if no payment method).
+**State-machine threading**: a free step 0 (`unit_amount = 0`, not the schedule's terminal step, no payment method required) → subscription starts in `trialing`, skips `incomplete`. A paid step 0 (`unit_amount > 0`) → payment captured at signup, subscription follows the normal `incomplete → active` path (paid trials are treated as active, not trialing). At `trial_ends_at` or a schedule boundary → the item re-anchors to the next step, subscription → `active` (or `canceled`/`paused` per `trial_end_behavior` if no payment method). Landing on the terminal step finalizes the schedule: `end_behavior = release` collapses the item back to flat billing (`current_schedule_step_id` clears, `price_id` stays at the terminal step's price); `end_behavior = cancel` cancels the subscription. A discount redemption is **re-validated at every schedule boundary** (not just signup, schema.md §7) — a step can move an item onto a different plan entirely, so an already-redeemed discount that's no longer eligible is permanently ended rather than silently kept.
 
 **Add-ons during a trial (Stripe-style, locked):** the subscription's trial is **anchored to its base plan item**. An add-on item that has no trial of its own does **not** bill on its own at signup — it rides the subscription's trial and is first invoiced at conversion, alongside the plan. A "free trial" subscription therefore charges nothing at day 0 even when it carries a paid add-on. (An add-on that *itself* defines a trial keeps that trial; the anchor rule only covers add-ons without one.) This matches Stripe's subscription-level trial and is why the first real invoice (`billing_reason = subscription_create`) bundles plan + add-on lines together.
 
@@ -664,14 +713,14 @@ A subscription carries many priced items (base + add-ons).
 |---|---|---|---|
 | id | ulid | no | PK |
 | subscription_id | ulid | no | FK → subscriptions |
-| price_id | ulid | no | FK → prices |
-| plan_id | ulid | no | FK → plans (denormalised, alongside `price_id`) |
-| product_id | ulid | no | FK → products (denormalised) |
+| price_id | ulid | no | FK → prices — **live**, not fixed at signup: re-anchors to the schedule's current step at every boundary when the item is on one (§5) |
+| plan_id | ulid | no | FK → plans (denormalised, alongside `price_id`; live for the same reason) |
+| product_id | ulid | no | FK → products (denormalised; live for the same reason) |
 | kind | string | no | enum: `plan` / `addon`; default `plan` — distinguishes the base charge from add-ons |
 | quantity | integer | no | default 1 |
 | status | string | no | enum: `active` / `removed` |
-| trial_ends_at | timestamp | yes | snapshotted from `price.trial_length`/`trial_unit` at creation — a later edit to the price's trial fields doesn't rewrite history for already-active items |
-| current_phase_sequence | smallInteger | yes | null unless this item is progressing through `price_phases` |
+| trial_ends_at | timestamp | yes | snapshotted from `price.trial_length`/`trial_unit`, or the schedule's step-0 window, at creation — a later edit doesn't rewrite history for already-active items |
+| current_schedule_step_id | ulid | yes | FK → subscription_schedule_steps — null unless this item is on an active Subscription Schedule (§5); added via a deferred migration since it depends on `subscription_schedules`, which itself depends on this table existing first |
 | created_at / updated_at | timestamp | no | |
 
 ### `scheduled_changes`
@@ -938,15 +987,18 @@ At-least-once delivery with exponential backoff.
 | Customer | belongsTo team, parentCustomer; hasMany childCustomers, addresses, paymentMethods, subscriptions, invoices, payments, priceTrialRedemptions; belongsTo defaultPaymentMethod |
 | Address | belongsTo team, customer |
 | PaymentMethod | belongsTo team, customer, billingAddress; hasMany payments |
-| Product | belongsTo team; hasMany plans, entitlementGrants (as grantor) |
+| Product | belongsTo team; hasMany plans, pricingJourneys, entitlementGrants (as grantor) |
 | Plan | belongsTo team, product; hasMany prices, entitlementGrants (as grantor) |
-| Price | belongsTo team, product, plan; hasMany tiers, currencyOptions, subscriptionItems, phases (as home price), trialRedemptions |
-| PricePhase | belongsTo price (home), chargePrice |
+| Price | belongsTo team, product, plan; hasMany tiers, currencyOptions, subscriptionItems, trialRedemptions |
+| PricingJourney *(model; table `price_phases`)* | belongsTo team, product; hasMany steps, schedules |
+| PricingJourneyStep *(model; table `price_phase_steps`)* | belongsTo journey, price |
 | PriceTrialRedemption | belongsTo price, customer, subscriptionItem |
 | Entitlement | belongsTo team; hasMany grants |
 | EntitlementGrant | belongsTo entitlement; morphTo grantor (plan or product) |
 | Subscription | belongsTo team, customer, paymentMethod, discount; hasMany items, scheduledChanges, invoices |
-| SubscriptionItem | belongsTo subscription, price, plan, product |
+| SubscriptionItem | belongsTo subscription, price, plan, product, currentScheduleStep; hasOne schedule |
+| SubscriptionSchedule | belongsTo subscription, subscriptionItem, journey; hasMany steps |
+| SubscriptionScheduleStep | belongsTo schedule, price |
 | ScheduledChange | belongsTo subscription |
 | Discount | belongsTo team; hasMany redemptions |
 | DiscountRedemption | belongsTo discount, subscription, customer |
@@ -981,7 +1033,10 @@ At-least-once delivery with exponential backoff.
 | prices.tax_mode | inclusive, exclusive, account |
 | prices.status | active, archived |
 | prices.trial_unit | day, week, month |
-| price_phases.duration_interval | day, week, month, year |
+| price_phases.status | active, archived |
+| price_phase_steps.duration_interval | day, week, month, year *(null on the terminal step)* |
+| subscription_schedules.end_behavior | release, cancel |
+| subscription_schedules.status | active, completed, canceled |
 | entitlement_grants.grantor_type | plan, product *(morph map alias — `customer` reserved for future per-customer grants, additive)* |
 | subscriptions.status | incomplete, incomplete_expired, trialing, active, past_due, paused, canceled |
 | subscriptions.collection_mode | automatic, manual |
@@ -1100,21 +1155,23 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 12. products
 13. plans *(refs products)*
 14. prices *(refs plans, products)*
-15. price_tiers, price_currency_options, price_phases *(refs prices twice — home + charge)*
+15. price_tiers, price_currency_options, price_phases *(refs products — Pricing Journey template)*, price_phase_steps *(refs price_phases, prices)*
 16. entitlements, entitlement_grants *(refs plans, products via polymorphic grantor)*
 17. discounts
 18. subscriptions *(refs customers, payment_methods, discounts)*
-19. subscription_items, scheduled_changes, price_trial_redemptions, discount_redemptions
-20. invoices *(refs customers twice — `customer_id`, `billed_to_customer_id`)*
-21. invoice_lines
-22. payments
-23. refunds
+19. subscription_items *(without `current_schedule_step_id`)*, scheduled_changes, price_trial_redemptions, discount_redemptions
+20. subscription_schedules *(refs subscriptions, subscription_items, price_phases)*, subscription_schedule_steps *(refs subscription_schedules, prices)*
+21. **alter** subscription_items → add `current_schedule_step_id` FK (deferred — depends on subscription_schedule_steps)
+22. invoices *(refs customers twice — `customer_id`, `billed_to_customer_id`)*
+23. invoice_lines
+24. payments
+25. refunds
 
 ---
 
 ## Build order & cut-lines (MVP)
 
-**Build now** — a complete, demoable engine: teams, team_members, team_member_roles, permissions, roles, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, plans, prices (standard + graduated), price_tiers, price_phases, price_trial_redemptions, entitlements, entitlement_grants, subscriptions, subscription_items, invoices, invoice_lines, payments, refunds, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
+**Build now** — a complete, demoable engine: teams, team_members, team_member_roles, permissions, roles, team_invitations, team_processor_connections (Nomba BYOK + inbound webhook URL), users, api_keys, customers, payment_methods, products, plans, prices (standard + graduated), price_tiers, price_phases, price_phase_steps, price_trial_redemptions, entitlements, entitlement_grants, subscriptions, subscription_items, subscription_schedules, subscription_schedule_steps, invoices, invoice_lines, payments, refunds, the lifecycle + dunning workers, events, webhook_endpoints, webhook_deliveries, idempotency_keys.
 
 **Defer** — keep the tables, don't wire the logic: price_currency_options, volume pricing model (graduated ships instead), discounts + discount_redemptions if time-pressed.
 
@@ -1124,7 +1181,7 @@ Two FKs are circular and must be deferred: `customers.default_payment_method_id 
 
 - Bouclay's `products` / `plans` / `prices` / `subscriptions` / `subscription_items` correspond to Paddle's catalog and Cashier's mirror — except Bouclay *owns* them rather than mirroring Paddle, and adds the Plan layer Paddle/Cashier don't have.
 - **Nomba BYOK**: each `team` connects their own Nomba keys via `team_processor_connections`. Bouclay orchestrates checkout/charge/dunning; money settles to the integrator's Nomba merchant account. Inbound Nomba webhooks hit a generated Bouclay URL; outbound billing events hit the integrator's `webhook_endpoints`.
-- Trials are a property of the billable `Price` (`trial_length`/`trial_unit`), not a separate Stripe-style Trial Offer catalog object — the simple case needs no extra entity. Complex transitions (paid multi-step trials, moving to a different plan) are ordinary `price_phases`, not a bespoke feature.
+- Trials are a property of the billable `Price` (`trial_length`/`trial_unit`), not a separate Stripe-style Trial Offer catalog object — the simple case needs no extra entity. Complex transitions (paid multi-step trials, moving to a different plan, multi-step ramps) go through a reusable Pricing Journey (`price_phases`/`price_phase_steps`), copied into a customer-owned Subscription Schedule at signup.
 - **Paddle "Transaction" → Bouclay `Invoice`.** Paddle's central billing entity maps to Bouclay's numbered invoice. Paddle/Cashier "transactions" (completed money movement) map loosely to Bouclay `Payment` rows where `status = succeeded`, but Bouclay deliberately stores *every* charge attempt, not just successes.
 - The `incomplete` / `incomplete_expired` states and the first-class dunning machine are the deliberate divergence from Paddle: Bouclay charges the token itself, so it needs the pre-active states Paddle hides behind hosted checkout.
 - **Entitlements** (`entitlements`/`entitlement_grants`) are net-new — no Paddle/Cashier equivalent. A genuine Bouclay differentiator: access is decoupled from billing status by design, not inferred from subscription state at check time.

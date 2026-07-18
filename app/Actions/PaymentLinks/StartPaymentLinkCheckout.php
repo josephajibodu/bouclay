@@ -49,7 +49,7 @@ class StartPaymentLinkCheckout
         $paymentLink->loadMissing([
             'team.processorConnection',
             'product',
-            'price.phases.chargePrice',
+            'price',
         ]);
 
         $this->assertCanCheckout($paymentLink);
@@ -150,6 +150,15 @@ class StartPaymentLinkCheckout
         // (Price::purchasableForNewSubscriptions).
         if ($paymentLink->price->type === PriceType::Recurring
             && ! $paymentLink->price->isPurchasableForNewSubscriptions()) {
+            throw new InvalidArgumentException('This payment link is no longer available.');
+        }
+
+        // Deferred to v2 (schema.md §3): a payment link can't express "this
+        // price is step 0 of Journey J" — block checkout rather than
+        // silently sell a flat price that never advances, even if the link
+        // predates the journey being authored.
+        if ($paymentLink->price->type === PriceType::Recurring
+            && $paymentLink->price->startsPricingJourney()) {
             throw new InvalidArgumentException('This payment link is no longer available.');
         }
     }

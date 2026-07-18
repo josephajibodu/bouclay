@@ -4,6 +4,7 @@ use App\Http\Controllers\Catalog\EntitlementController;
 use App\Http\Controllers\Catalog\GrantorEntitlementController;
 use App\Http\Controllers\Catalog\PlanController;
 use App\Http\Controllers\Catalog\PriceController;
+use App\Http\Controllers\Catalog\PricingJourneyController;
 use App\Http\Controllers\Catalog\ProductController;
 use App\Http\Middleware\EnsureCurrentTeam;
 use Illuminate\Support\Facades\Route;
@@ -32,7 +33,10 @@ Route::prefix('catalog')
 
         Route::post('products/{product}/prices', [PriceController::class, 'store'])->name('prices.store');
         Route::patch('products/{product}/prices/{price}', [PriceController::class, 'update'])->name('prices.update');
-        Route::put('products/{product}/prices/{price}/phases', [PriceController::class, 'phases'])->name('prices.phases');
         Route::delete('products/{product}/prices/{price}', [PriceController::class, 'archive'])->name('prices.archive');
         Route::post('products/{product}/prices/{price}/payment-link', [PriceController::class, 'paymentLink'])->name('prices.payment-link');
+
+        Route::post('products/{product}/pricing-journeys', [PricingJourneyController::class, 'store'])->name('pricing-journeys.store');
+        Route::patch('products/{product}/pricing-journeys/{journey}', [PricingJourneyController::class, 'update'])->name('pricing-journeys.update');
+        Route::delete('products/{product}/pricing-journeys/{journey}', [PricingJourneyController::class, 'archive'])->name('pricing-journeys.archive');
     });

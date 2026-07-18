@@ -147,6 +147,7 @@ class SubscriptionController extends Controller
             'items.product',
             'items.plan',
             'items.price',
+            'items.schedule.steps.price',
             'scheduledChanges' => fn ($query) => $query->whereNull('applied_at'),
             'invoices' => fn ($query) => $query->orderByDesc('created_at'),
             'invoices.payments' => fn ($query) => $query->orderByDesc('created_at'),

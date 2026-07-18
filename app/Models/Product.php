@@ -34,6 +34,7 @@ use Illuminate\Support\Carbon;
  * @property-read Team $team
  * @property-read Collection<int, Plan> $plans
  * @property-read Collection<int, Price> $prices
+ * @property-read Collection<int, PricingJourney> $pricingJourneys
  * @property-read Collection<int, EntitlementGrant> $entitlementGrants
  */
 #[Fillable(['team_id', 'name', 'description', 'category', 'image_url', 'website_url', 'status', 'custom_data'])]
@@ -145,6 +146,17 @@ class Product extends Model
     public function prices(): HasMany
     {
         return $this->hasMany(Price::class);
+    }
+
+    /**
+     * Get the Pricing Journeys authored for this product (schema.md §3) —
+     * every journey is scoped to exactly one product, Plan-agnostic within it.
+     *
+     * @return HasMany<PricingJourney, $this>
+     */
+    public function pricingJourneys(): HasMany
+    {
+        return $this->hasMany(PricingJourney::class, 'product_id');
     }
 
     /**

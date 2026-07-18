@@ -9,28 +9,28 @@ return new class extends Migration
     /**
      * Run the migrations.
      *
-     * The generalized mechanism for anything beyond a simple trial: a paid
-     * multi-iteration trial, a transition to a different plan/price when a
-     * trial ends, or a true multi-step ramp (schema.md §3). A simple trial
-     * (`prices.trial_length` set) never touches this table.
+     * A "Pricing Journey" (schema.md §3) — a reusable, merchant-authored
+     * multi-phase commercial offer scoped to one Product, e.g. "$1/mo for 3
+     * months, then $10/mo forever." Its steps live in `price_phase_steps`
+     * and reference real `prices` rows across any of the product's plans.
+     * A journey is a template: it never holds billing state itself — that's
+     * copied into a customer-owned `subscription_schedules` row the moment
+     * a subscription is created through it (schema.md §5).
      */
     public function up(): void
     {
         Schema::create('price_phases', function (Blueprint $table) {
             $table->id();
-            // The "home" price this schedule is attached to — what a
-            // subscription_item nominally references.
-            $table->foreignId('price_id')->constrained()->cascadeOnDelete();
-            $table->smallInteger('sequence');
-            // The price actually charged during this phase — can live under
-            // a different plan entirely ("transition after trial"). Restrict
-            // deletion: a price serving as a phase target must not vanish.
-            $table->foreignId('charge_price_id')->constrained('prices')->restrictOnDelete();
-            $table->string('duration_interval');
-            $table->integer('duration_count');
+            $table->foreignId('team_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('product_id')->constrained()->cascadeOnDelete();
+            $table->string('name');
+            $table->text('description')->nullable();
+            // enum: active / archived — never hard-deleted once referenced by
+            // a subscription_schedules row (preserves reporting integrity).
+            $table->string('status')->default('active');
             $table->timestamps();
 
-            $table->unique(['price_id', 'sequence']);
+            $table->index(['team_id', 'product_id']);
         });
     }
 

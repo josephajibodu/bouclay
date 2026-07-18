@@ -10,14 +10,18 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
  * One priced line on a subscription — the base plan item or an add-on
- * (schema.md §6). `plan_id`/`product_id` are denormalised alongside
- * `price_id`; `trial_ends_at` is snapshotted from the price's trial config
- * at creation so a later catalog edit doesn't rewrite history;
- * `current_phase_sequence` tracks progression through `price_phases`.
+ * (schema.md §6). `price_id`/`plan_id`/`product_id` are live current
+ * values — a plan-item on a {@see SubscriptionSchedule} has them re-anchored
+ * to the schedule's current step at every boundary, not fixed at signup.
+ * `trial_ends_at` is snapshotted from the price's trial config (or the
+ * schedule's step-0 window) at creation so a later catalog edit doesn't
+ * rewrite history. `current_schedule_step_id` tracks progression through a
+ * {@see SubscriptionSchedule} — null unless this item is on one.
  *
  * @property int $id
  * @property string $public_id
@@ -29,17 +33,19 @@ use Illuminate\Support\Carbon;
  * @property int $quantity
  * @property SubscriptionItemStatus $status
  * @property Carbon|null $trial_ends_at
- * @property int|null $current_phase_sequence
+ * @property int|null $current_schedule_step_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Subscription $subscription
  * @property-read Price $price
  * @property-read Plan $plan
  * @property-read Product $product
+ * @property-read SubscriptionScheduleStep|null $currentScheduleStep
+ * @property-read SubscriptionSchedule|null $schedule
  */
 #[Fillable([
     'subscription_id', 'price_id', 'plan_id', 'product_id', 'kind',
-    'quantity', 'status', 'trial_ends_at', 'current_phase_sequence',
+    'quantity', 'status', 'trial_ends_at', 'current_schedule_step_id',
 ])]
 class SubscriptionItem extends Model
 {
@@ -95,6 +101,28 @@ class SubscriptionItem extends Model
     }
 
     /**
+     * Get the schedule step this item is currently on, when it's on one.
+     *
+     * @return BelongsTo<SubscriptionScheduleStep, $this>
+     */
+    public function currentScheduleStep(): BelongsTo
+    {
+        return $this->belongsTo(SubscriptionScheduleStep::class, 'current_schedule_step_id');
+    }
+
+    /**
+     * Get the schedule driving this item, when one exists (v1: at most one
+     * per item — a plan item created flat, or created through a journey/ad
+     * hoc schedule that hasn't been attempted again since).
+     *
+     * @return HasOne<SubscriptionSchedule, $this>
+     */
+    public function schedule(): HasOne
+    {
+        return $this->hasOne(SubscriptionSchedule::class, 'subscription_item_id');
+    }
+
+    /**
      * Whether this item is still inside its snapshotted trial window.
      */
     public function isOnTrial(): bool
@@ -103,53 +131,16 @@ class SubscriptionItem extends Model
     }
 
     /**
-     * The price actually charged for this item right now (schema.md §5/§6).
-     *
-     * `price_id` is the nominal "home" price the customer signed up for; when
-     * the item is progressing through `price_phases` (`current_phase_sequence`
-     * set), the effective charge is the current phase's `charge_price`. A
-     * simple trial or a plain item never touches phases, so the home price is
-     * also the effective one. Every biller (renewal, conversion, day-0)
-     * resolves the amount to charge through here so phase ramps settle down
-     * the one invoicing path.
+     * Whether this item still has a schedule boundary ahead of it — it's on
+     * an active {@see SubscriptionSchedule} and hasn't reached the terminal
+     * (steady-state) step yet. `subscriptions:advance-schedule` owns it
+     * until then, and renewal takes over once it's steady (schema.md §5).
      */
-    public function effectiveChargePrice(): Price
+    public function isOnSchedule(): bool
     {
-        if ($this->current_phase_sequence === null) {
-            return $this->price;
-        }
-
-        $phase = $this->price->phases
-            ->first(fn (PricePhase $phase): bool => $phase->sequence === $this->current_phase_sequence);
-
-        return $phase?->chargePrice ?? $this->price;
-    }
-
-    /**
-     * The final phase index of this item's schedule, or null when it has no
-     * phases (a simple trial or a plain item).
-     */
-    public function lastPhaseSequence(): ?int
-    {
-        $last = $this->price->phases->max('sequence');
-
-        return $last === null ? null : (int) $last;
-    }
-
-    /**
-     * Whether this item still has a phase boundary ahead of it — it's threading
-     * `price_phases` and hasn't reached the final (steady-state) phase yet.
-     * A paid-trial ramp is mid-progress until it lands on its regular phase;
-     * `subscriptions:advance-phases` owns it until then, and renewal takes over
-     * once it's steady.
-     */
-    public function isProgressingThroughPhases(): bool
-    {
-        $last = $this->lastPhaseSequence();
-
-        return $this->current_phase_sequence !== null
-            && $last !== null
-            && $this->current_phase_sequence < $last;
+        return $this->current_schedule_step_id !== null
+            && $this->currentScheduleStep !== null
+            && ! $this->currentScheduleStep->isTerminal();
     }
 
     /**
@@ -181,6 +172,9 @@ class SubscriptionItem extends Model
             'quantity' => $this->quantity,
             'status' => $this->status->value,
             'trialEndsAt' => $this->trial_ends_at?->toISOString(),
+            'schedule' => $this->relationLoaded('schedule') && $this->schedule !== null
+                ? $this->schedule->toDashboardArray($this->current_schedule_step_id)
+                : null,
         ];
     }
 
@@ -217,7 +211,6 @@ class SubscriptionItem extends Model
             'status' => SubscriptionItemStatus::class,
             'quantity' => 'integer',
             'trial_ends_at' => 'datetime',
-            'current_phase_sequence' => 'integer',
         ];
     }
 }

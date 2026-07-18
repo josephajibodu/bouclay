@@ -42,12 +42,12 @@ class RenewSubscription
             return null;
         }
 
-        $subscription->loadMissing(['customer', 'items.price.product', 'items.price.phases.chargePrice', 'paymentMethod', 'team']);
+        $subscription->loadMissing(['customer', 'items.price.product', 'items.currentScheduleStep', 'paymentMethod', 'team']);
 
-        // A subscription still stepping through a paid ramp is owned by
-        // `subscriptions:advance-phases` until it reaches its steady-state
-        // phase — don't renew it out from under the ramp.
-        if ($this->isProgressingThroughPhases($subscription)) {
+        // A subscription still stepping through a Pricing Journey schedule is
+        // owned by `subscriptions:advance-schedule` until it reaches its
+        // terminal step — don't renew it out from under the schedule.
+        if ($this->hasItemOnSchedule($subscription)) {
             return null;
         }
 
@@ -62,7 +62,7 @@ class RenewSubscription
             $periodStart = $subscription->current_period_end->copy();
             $anchorItem = $subscription->items
                 ->first(fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active);
-            $anchorPrice = $anchorItem?->effectiveChargePrice();
+            $anchorPrice = $anchorItem?->price;
             $periodEnd = $anchorPrice !== null
                 ? $this->addInterval(
                     $periodStart->copy(),
@@ -119,7 +119,7 @@ class RenewSubscription
         return array_values($subscription->items
             ->filter(fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active)
             ->map(function (SubscriptionItem $item): array {
-                $price = $item->effectiveChargePrice();
+                $price = $item->price;
                 $product = $price->product;
 
                 return [
@@ -145,11 +145,11 @@ class RenewSubscription
         return $subscription->paymentMethod;
     }
 
-    private function isProgressingThroughPhases(Subscription $subscription): bool
+    private function hasItemOnSchedule(Subscription $subscription): bool
     {
         return $subscription->items->contains(
             fn (SubscriptionItem $item): bool => $item->status === SubscriptionItemStatus::Active
-                && $item->isProgressingThroughPhases(),
+                && $item->isOnSchedule(),
         );
     }
 

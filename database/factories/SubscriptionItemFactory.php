@@ -34,7 +34,6 @@ class SubscriptionItemFactory extends Factory
             'quantity' => 1,
             'status' => SubscriptionItemStatus::Active,
             'trial_ends_at' => null,
-            'current_phase_sequence' => null,
         ];
     }
 
