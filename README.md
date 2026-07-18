@@ -75,6 +75,7 @@ All hourly except webhook delivery (every minute) — see `routes/console.php`:
 
 | Doc | What it's for |
 |---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Start here.** The whole system explained end to end — one map to everything below. |
 | [`schema.md`](schema.md) | **The data model — the authority.** Locked decisions live here. |
 | [`IMPLEMENTATION_V2.md`](IMPLEMENTATION_V2.md) | The live roadmap (V2-0 … V2-8). |
 | [`BILLING_SIMULATIONS.md`](BILLING_SIMULATIONS.md) | Acceptance spec — SIM/ADV scenarios, executable as `tests/Feature/Simulations/`. |
