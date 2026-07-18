@@ -44,6 +44,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { SCHEDULE_STATUS_META } from '@/lib/status-colors';
 import { show as customerShow } from '@/routes/customers';
 import { show as invoiceShow } from '@/routes/invoices';
 import { cancel, index, pause, resume, retryPayment, undoCancel } from '@/routes/subscriptions';
@@ -872,8 +873,11 @@ function PricingJourneyStepper({
         >
             <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Pricing journey</h2>
-                <Badge variant="outline" className="capitalize">
-                    {schedule.status}
+                <Badge variant="secondary" className="gap-1.5">
+                    <span
+                        className={`size-1.5 rounded-full ${SCHEDULE_STATUS_META[schedule.status].dot}`}
+                    />
+                    {SCHEDULE_STATUS_META[schedule.status].label}
                 </Badge>
             </div>
 

@@ -12,6 +12,7 @@ import {
 import { useState } from 'react';
 import { toast } from 'sonner';
 import ArchivePriceModal from '@/components/catalog/archive-price-modal';
+import ArchivePricingJourneyModal from '@/components/catalog/archive-pricing-journey-modal';
 import ArchiveProductModal from '@/components/catalog/archive-product-modal';
 import CreatePriceDrawer from '@/components/catalog/create-price-drawer';
 import EditMetadataDrawer from '@/components/catalog/edit-metadata-drawer';
@@ -21,7 +22,6 @@ import {
     GrantedBadges,
     GrantsEditor,
 } from '@/components/catalog/grants-editor';
-import ArchivePricingJourneyModal from '@/components/catalog/archive-pricing-journey-modal';
 import PaymentLinkModal from '@/components/catalog/payment-link-modal';
 import PlanDrawer from '@/components/catalog/plan-drawer';
 import PriceDetailDrawer from '@/components/catalog/price-detail-drawer';
@@ -37,6 +37,10 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
+import {
+    CATALOG_STATUS_META,
+    PLAN_STATUS_META,
+} from '@/lib/status-colors';
 import {
     formatPriceInterval,
     formatMoney,
@@ -72,15 +76,6 @@ type Props = {
         canManagePrices: boolean;
         canManageEntitlements: boolean;
     };
-};
-
-const PLAN_STATUS_VARIANT: Record<
-    Plan['status'],
-    'secondary' | 'outline' | 'destructive'
-> = {
-    active: 'secondary',
-    draft: 'outline',
-    archived: 'destructive',
 };
 
 function priceLabel(price: Price): string {
@@ -187,15 +182,11 @@ export default function ProductShow({
                             <h1 className="text-2xl font-semibold">
                                 {product.name}
                             </h1>
-                            <Badge
-                                variant={
-                                    product.status === 'active'
-                                        ? 'secondary'
-                                        : 'outline'
-                                }
-                                className="capitalize"
-                            >
-                                {product.status}
+                            <Badge variant="secondary" className="gap-1.5">
+                                <span
+                                    className={`size-1.5 rounded-full ${CATALOG_STATUS_META[product.status].dot}`}
+                                />
+                                {CATALOG_STATUS_META[product.status].label}
                             </Badge>
                         </div>
                         <button
@@ -394,12 +385,13 @@ export default function ProductShow({
                                         {plan.name}
                                     </span>
                                     <Badge
-                                        variant={
-                                            PLAN_STATUS_VARIANT[plan.status]
-                                        }
-                                        className="capitalize"
+                                        variant="secondary"
+                                        className="gap-1.5"
                                     >
-                                        {plan.status}
+                                        <span
+                                            className={`size-1.5 rounded-full ${PLAN_STATUS_META[plan.status].dot}`}
+                                        />
+                                        {PLAN_STATUS_META[plan.status].label}
                                     </Badge>
                                     {plan.code && (
                                         <span className="font-mono text-xs text-muted-foreground">
@@ -574,14 +566,17 @@ export default function ProductShow({
                                             {journey.name}
                                         </span>
                                         <Badge
-                                            variant={
-                                                journey.status === 'active'
-                                                    ? 'secondary'
-                                                    : 'outline'
-                                            }
-                                            className="capitalize"
+                                            variant="secondary"
+                                            className="gap-1.5"
                                         >
-                                            {journey.status}
+                                            <span
+                                                className={`size-1.5 rounded-full ${CATALOG_STATUS_META[journey.status].dot}`}
+                                            />
+                                            {
+                                                CATALOG_STATUS_META[
+                                                    journey.status
+                                                ].label
+                                            }
                                         </Badge>
                                     </div>
                                     <p className="text-sm text-muted-foreground">
@@ -867,13 +862,11 @@ function PriceRow({
                     <span className="font-medium underline-offset-4 hover:underline">
                         {priceLabel(price)}
                     </span>
-                    <Badge
-                        variant={
-                            price.status === 'active' ? 'secondary' : 'outline'
-                        }
-                        className="capitalize"
-                    >
-                        {price.status}
+                    <Badge variant="secondary" className="gap-1.5">
+                        <span
+                            className={`size-1.5 rounded-full ${CATALOG_STATUS_META[price.status].dot}`}
+                        />
+                        {CATALOG_STATUS_META[price.status].label}
                     </Badge>
                     {planName && <Badge variant="outline">{planName}</Badge>}
                     {price.trialLength !== null && (

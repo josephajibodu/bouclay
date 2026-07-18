@@ -12,6 +12,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { ACTIVE_STATUS_META } from '@/lib/status-colors';
 import { destroy, index as discountsIndex } from '@/routes/discounts';
 import type {
     DiscountEligibilityPlan,
@@ -142,15 +143,25 @@ export default function Discounts({
                                     </TableCell>
                                     <TableCell>
                                         <Badge
-                                            variant={
-                                                discount.active
-                                                    ? 'default'
-                                                    : 'secondary'
-                                            }
+                                            variant="secondary"
+                                            className="gap-1.5"
                                         >
-                                            {discount.active
-                                                ? 'Active'
-                                                : 'Inactive'}
+                                            <span
+                                                className={`size-1.5 rounded-full ${
+                                                    ACTIVE_STATUS_META[
+                                                        discount.active
+                                                            ? 'active'
+                                                            : 'inactive'
+                                                    ].dot
+                                                }`}
+                                            />
+                                            {
+                                                ACTIVE_STATUS_META[
+                                                    discount.active
+                                                        ? 'active'
+                                                        : 'inactive'
+                                                ].label
+                                            }
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-right">

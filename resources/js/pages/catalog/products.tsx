@@ -20,6 +20,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { CATALOG_STATUS_META } from '@/lib/status-colors';
 import { formatPriceInterval } from '@/lib/utils';
 import { create, index as productsIndex, show } from '@/routes/catalog/products';
 import type { CatalogProduct, CatalogStatus } from '@/types';
@@ -69,7 +70,7 @@ function formatDate(iso: string | null): string {
 
 export default function Products({ products, categories, canManage }: Props) {
     const [search, setSearch] = useState('');
-    const [status, setStatus] = useState<'all' | CatalogStatus>('all');
+    const [status, setStatus] = useState<'all' | CatalogStatus>('active');
     const [category, setCategory] = useState<string>('all');
 
     const filtered = useMemo(() => {
@@ -95,11 +96,11 @@ export default function Products({ products, categories, canManage }: Props) {
 
     const hasAnyProducts = products.length > 0;
     const hasActiveFilters =
-        search.trim() !== '' || status !== 'all' || category !== 'all';
+        search.trim() !== '' || status !== 'active' || category !== 'all';
 
     const clearFilters = () => {
         setSearch('');
-        setStatus('all');
+        setStatus('active');
         setCategory('all');
     };
 
@@ -242,15 +243,17 @@ export default function Products({ products, categories, canManage }: Props) {
                                             </TableCell>
                                             <TableCell>
                                                 <Badge
-                                                    variant={
-                                                        product.status ===
-                                                        'active'
-                                                            ? 'secondary'
-                                                            : 'outline'
-                                                    }
-                                                    className="capitalize"
+                                                    variant="secondary"
+                                                    className="gap-1.5"
                                                 >
-                                                    {product.status}
+                                                    <span
+                                                        className={`size-1.5 rounded-full ${CATALOG_STATUS_META[product.status].dot}`}
+                                                    />
+                                                    {
+                                                        CATALOG_STATUS_META[
+                                                            product.status
+                                                        ].label
+                                                    }
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">

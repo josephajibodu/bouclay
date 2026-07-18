@@ -10,14 +10,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DELIVERY_STATUS_META, ENABLED_STATUS_META } from '@/lib/status-colors';
 import { formatRelativeTime } from '@/lib/utils';
+import { secret, show, test } from '@/routes/developers/webhooks';
 import {
     destroy as destroyEndpoint,
     rotateSecret,
     store as storeEndpoint,
     update as updateEndpoint,
 } from '@/routes/developers/webhooks/endpoints';
-import { secret, show, test } from '@/routes/developers/webhooks';
 import type {
     GeneratedWebhookSecret,
     OutboundWebhookEndpoint,
@@ -267,12 +268,21 @@ function OutboundEndpointRow({
                         <code className="block truncate text-sm">
                             {endpoint.url}
                         </code>
-                        <Badge
-                            variant={
-                                endpoint.active ? 'secondary' : 'outline'
+                        <Badge variant="secondary" className="gap-1.5">
+                            <span
+                                className={`size-1.5 rounded-full ${
+                                    ENABLED_STATUS_META[
+                                        endpoint.active
+                                            ? 'enabled'
+                                            : 'disabled'
+                                    ].dot
+                                }`}
+                            />
+                            {
+                                ENABLED_STATUS_META[
+                                    endpoint.active ? 'enabled' : 'disabled'
+                                ].label
                             }
-                        >
-                            {endpoint.active ? 'Active' : 'Disabled'}
                         </Badge>
                     </div>
                     <p className="font-mono text-sm text-muted-foreground">
@@ -347,21 +357,14 @@ function DeliveryStatusBadge({
 }: {
     status: WebhookDeliveryLogEntry['status'];
 }) {
-    const label =
-        status === 'succeeded'
-            ? 'Delivered'
-            : status === 'pending'
-              ? 'Pending'
-              : 'Failed';
+    const meta = DELIVERY_STATUS_META[status];
 
-    const variant =
-        status === 'succeeded'
-            ? 'secondary'
-            : status === 'pending'
-              ? 'outline'
-              : 'destructive';
-
-    return <Badge variant={variant}>{label}</Badge>;
+    return (
+        <Badge variant="secondary" className="gap-1.5">
+            <span className={`size-1.5 rounded-full ${meta.dot}`} />
+            {meta.label}
+        </Badge>
+    );
 }
 
 function GatewayInboundTab({

@@ -9,6 +9,7 @@ import {
     SheetTitle,
 } from '@/components/ui/sheet';
 import { useClipboard } from '@/hooks/use-clipboard';
+import { CATALOG_STATUS_META } from '@/lib/status-colors';
 import {
     formatMoney,
     formatPriceInterval,
@@ -76,15 +77,11 @@ export default function PriceDetailDrawer({
                         <SheetTitle className="text-xl">
                             Price for {productName}
                         </SheetTitle>
-                        <Badge
-                            variant={
-                                price.status === 'active'
-                                    ? 'secondary'
-                                    : 'outline'
-                            }
-                            className="capitalize"
-                        >
-                            {price.status}
+                        <Badge variant="secondary" className="gap-1.5">
+                            <span
+                                className={`size-1.5 rounded-full ${CATALOG_STATUS_META[price.status].dot}`}
+                            />
+                            {CATALOG_STATUS_META[price.status].label}
                         </Badge>
                     </div>
                     <button
