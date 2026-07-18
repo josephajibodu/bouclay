@@ -383,8 +383,10 @@ class Price extends Model
     }
 
     /**
-     * Format this price as a short label for pickers, e.g.
-     * "Monthly — NGN 15,000/mo".
+     * Format this price as a short label for pickers, e.g. "NGN 15,000 /
+     * every month" for a recurring price or "NGN 1,000 flat" for a
+     * one-time one — falls back to a name only when one was set, since an
+     * auto-generated amount reads more intuitively than a bare "Price".
      */
     public function toPickerLabel(): string
     {
@@ -392,11 +394,20 @@ class Price extends Model
             return $this->name;
         }
 
-        if ($this->unit_amount === null || $this->billing_interval === null) {
+        if ($this->pricing_model === PricingModel::Graduated) {
+            return 'Graduated pricing';
+        }
+
+        if ($this->unit_amount === null) {
             return 'Custom pricing';
         }
 
         $amount = number_format($this->unit_amount / 100, 2);
+
+        if ($this->type === PriceType::OneTime || $this->billing_interval === null) {
+            return "{$this->currency} {$amount} flat";
+        }
+
         $frequency = $this->billing_frequency > 1 ? "{$this->billing_frequency} " : '';
 
         return "{$this->currency} {$amount} / every {$frequency}{$this->billing_interval->value}";

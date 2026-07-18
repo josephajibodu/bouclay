@@ -89,10 +89,14 @@ function priceLabel(price: Price): string {
     }
 
     if (price.pricingModel === 'graduated') {
-        return 'Graduated price';
+        return 'Graduated pricing';
     }
 
-    if (price.unitAmount !== null && price.billingInterval) {
+    if (price.unitAmount === null) {
+        return 'Custom pricing';
+    }
+
+    if (price.billingInterval) {
         return formatPriceInterval(
             price.unitAmount,
             price.currency,
@@ -101,7 +105,7 @@ function priceLabel(price: Price): string {
         );
     }
 
-    return 'Price';
+    return `${formatMoney(price.unitAmount, price.currency)} flat`;
 }
 
 export default function ProductShow({
@@ -861,7 +865,7 @@ function PriceRow({
                     data-test="price-row-detail-trigger"
                 >
                     <span className="font-medium underline-offset-4 hover:underline">
-                        {price.name ?? 'Price'}
+                        {priceLabel(price)}
                     </span>
                     <Badge
                         variant={
@@ -883,7 +887,13 @@ function PriceRow({
                     )}
                 </button>
                 <p className="text-sm text-muted-foreground">
-                    {price.pricingModel === 'graduated' ? (
+                    {!price.name ? (
+                        // The title already carries the auto-generated
+                        // amount label — only add the monthly-equivalent
+                        // note here so it isn't repeated verbatim.
+                        monthlyEquivalent !== null &&
+                        `≈ ${formatMoney(monthlyEquivalent, price.currency)}/mo`
+                    ) : price.pricingModel === 'graduated' ? (
                         'Graduated pricing'
                     ) : price.unitAmount !== null && price.billingInterval ? (
                         <>
