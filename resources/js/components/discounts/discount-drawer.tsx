@@ -115,6 +115,13 @@ setData('eligible_plan_ids', []);
 setData('eligible_price_ids', []);
 }
 
+        // The backend prohibits `duration_in_intervals` unless duration is
+        // "repeating" — the field defaults to '3' so it must be cleared
+        // here, or every non-repeating discount fails validation silently.
+        if (data.duration !== 'repeating') {
+            setData('duration_in_intervals', '');
+        }
+
         const onSuccess = () => onOpenChange(false);
 
         if (isEdit) {
@@ -264,6 +271,11 @@ setData('eligible_price_ids', []);
                                         )
                                     }
                                 />
+                                {errors.duration_in_intervals && (
+                                    <p className="text-sm text-destructive">
+                                        {errors.duration_in_intervals}
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>
