@@ -24,6 +24,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { nonDefaultParams } from '@/lib/utils';
 import { index, show } from '@/routes/invoices';
 import type {
     CreateCustomerOption,
@@ -42,6 +43,8 @@ type Props = {
     teamCurrency: string;
     canManage: boolean;
 };
+
+const DEFAULT_FILTERS: InvoiceFilters = { search: '', status: 'all' };
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -102,7 +105,10 @@ export default function InvoicesIndex({
         const handle = window.setTimeout(() => {
             router.get(
                 index().url,
-                { search, status: filters.status },
+                nonDefaultParams(
+                    { search, status: filters.status },
+                    DEFAULT_FILTERS,
+                ),
                 { preserveState: true, preserveScroll: true, replace: true },
             );
         }, 300);
@@ -118,7 +124,7 @@ export default function InvoicesIndex({
     const changeStatus = (status: string) => {
         router.get(
             index().url,
-            { search, status },
+            nonDefaultParams({ search, status }, DEFAULT_FILTERS),
             { preserveState: true, preserveScroll: true, replace: true },
         );
     };
@@ -286,7 +292,7 @@ function Pagination({
         if (url) {
             router.get(
                 url,
-                { search, status },
+                nonDefaultParams({ search, status }, DEFAULT_FILTERS),
                 { preserveState: true, preserveScroll: true, replace: true },
             );
         }

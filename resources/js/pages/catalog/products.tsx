@@ -21,7 +21,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { CATALOG_STATUS_META } from '@/lib/status-colors';
-import { formatPriceInterval } from '@/lib/utils';
+import { formatPriceInterval, nonDefaultParams } from '@/lib/utils';
 import { create, index as productsIndex, show } from '@/routes/catalog/products';
 import type { CatalogProduct, ProductFilters } from '@/types';
 
@@ -31,6 +31,12 @@ type Props = {
     filters: ProductFilters;
     hasAny: boolean;
     canManage: boolean;
+};
+
+const DEFAULT_FILTERS: ProductFilters = {
+    search: '',
+    status: 'active',
+    category: 'all',
 };
 
 function pricingSummary(product: CatalogProduct): string {
@@ -93,7 +99,14 @@ export default function Products({
         const handle = window.setTimeout(() => {
             router.get(
                 productsIndex().url,
-                { search, status: filters.status, category: filters.category },
+                nonDefaultParams(
+                    {
+                        search,
+                        status: filters.status,
+                        category: filters.category,
+                    },
+                    DEFAULT_FILTERS,
+                ),
                 { preserveState: true, preserveScroll: true, replace: true },
             );
         }, 300);
@@ -105,7 +118,10 @@ export default function Products({
     const changeStatus = (status: string) => {
         router.get(
             productsIndex().url,
-            { search, status, category: filters.category },
+            nonDefaultParams(
+                { search, status, category: filters.category },
+                DEFAULT_FILTERS,
+            ),
             { preserveState: true, preserveScroll: true, replace: true },
         );
     };
@@ -113,7 +129,10 @@ export default function Products({
     const changeCategory = (category: string) => {
         router.get(
             productsIndex().url,
-            { search, status: filters.status, category },
+            nonDefaultParams(
+                { search, status: filters.status, category },
+                DEFAULT_FILTERS,
+            ),
             { preserveState: true, preserveScroll: true, replace: true },
         );
     };
@@ -127,7 +146,7 @@ export default function Products({
         setSearch('');
         router.get(
             productsIndex().url,
-            { search: '', status: 'active', category: 'all' },
+            {},
             { preserveState: true, preserveScroll: true, replace: true },
         );
     };

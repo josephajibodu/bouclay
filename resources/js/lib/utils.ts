@@ -12,6 +12,26 @@ export function toUrl(url: NonNullable<InertiaLinkProps['href']>): string {
 }
 
 /**
+ * Drop entries that already match their default, so a filter's URL query
+ * string only ever shows what the user actually changed — landing on a
+ * list page (or clearing its filters) stays a clean, param-free URL.
+ */
+export function nonDefaultParams<T extends Record<string, string>>(
+    values: T,
+    defaults: Partial<T>,
+): Partial<T> {
+    const result: Partial<T> = {};
+
+    for (const key in values) {
+        if (values[key] !== defaults[key]) {
+            result[key] = values[key];
+        }
+    }
+
+    return result;
+}
+
+/**
  * Format an ISO timestamp as a short relative time (e.g. "2 minutes ago").
  */
 export function formatRelativeTime(isoDate: string): string {

@@ -21,6 +21,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { nonDefaultParams } from '@/lib/utils';
 import { index as products } from '@/routes/catalog/products';
 import { index, show } from '@/routes/subscriptions';
 import type {
@@ -41,6 +42,8 @@ type Props = {
     teamCurrency: string;
     canManage: boolean;
 };
+
+const DEFAULT_FILTERS: SubscriptionFilters = { search: '', status: 'all_active' };
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
     { value: 'all_active', label: 'All active' },
@@ -102,7 +105,10 @@ export default function SubscriptionsIndex({
         const handle = window.setTimeout(() => {
             router.get(
                 index().url,
-                { search, status: filters.status },
+                nonDefaultParams(
+                    { search, status: filters.status },
+                    DEFAULT_FILTERS,
+                ),
                 { preserveState: true, preserveScroll: true, replace: true },
             );
         }, 300);
@@ -118,7 +124,7 @@ export default function SubscriptionsIndex({
     const changeStatus = (status: string) => {
         router.get(
             index().url,
-            { search, status },
+            nonDefaultParams({ search, status }, DEFAULT_FILTERS),
             { preserveState: true, preserveScroll: true, replace: true },
         );
     };
@@ -319,7 +325,7 @@ function Pagination({
         if (url) {
             router.get(
                 url,
-                { search, status },
+                nonDefaultParams({ search, status }, DEFAULT_FILTERS),
                 { preserveState: true, preserveScroll: true, replace: true },
             );
         }

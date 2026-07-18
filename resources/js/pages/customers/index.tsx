@@ -38,6 +38,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { nonDefaultParams } from '@/lib/utils';
 import { archive, bulkArchive, index, show } from '@/routes/customers';
 import type {
     CustomerFilters,
@@ -52,6 +53,8 @@ type Props = {
     teamCurrency: string;
     canManage: boolean;
 };
+
+const DEFAULT_FILTERS: CustomerFilters = { search: '', status: 'active' };
 
 function formatDate(iso: string | null): string {
     if (!iso) {
@@ -94,7 +97,10 @@ export default function CustomersIndex({
         const handle = window.setTimeout(() => {
             router.get(
                 index().url,
-                { search, status: filters.status },
+                nonDefaultParams(
+                    { search, status: filters.status },
+                    DEFAULT_FILTERS,
+                ),
                 { preserveState: true, preserveScroll: true, replace: true },
             );
         }, 300);
@@ -115,7 +121,7 @@ export default function CustomersIndex({
     const changeStatus = (status: string) => {
         router.get(
             index().url,
-            { search, status },
+            nonDefaultParams({ search, status }, DEFAULT_FILTERS),
             { preserveState: true, preserveScroll: true, replace: true },
         );
     };
@@ -405,7 +411,7 @@ function Pagination({
         if (url) {
             router.get(
                 url,
-                { search, status },
+                nonDefaultParams({ search, status }, DEFAULT_FILTERS),
                 { preserveState: true, preserveScroll: true, replace: true },
             );
         }
