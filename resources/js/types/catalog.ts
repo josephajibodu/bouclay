@@ -100,6 +100,12 @@ export type CatalogProduct = {
     prices: Price[];
 };
 
+export type ProductFilters = {
+    search: string;
+    status: 'all' | CatalogStatus;
+    category: string;
+};
+
 export type ProductDetail = {
     id: number;
     publicId: string;

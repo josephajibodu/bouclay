@@ -33,10 +33,25 @@ class ProductController extends Controller
 
         Gate::authorize('viewProducts', $team);
 
+        $search = trim((string) $request->query('search', ''));
+        $status = in_array($request->query('status'), ['all', 'active', 'archived'], true)
+            ? $request->query('status')
+            : 'active';
+        $category = $request->query('category', 'all');
+
         $products = $team->products()
             // Phase-only charge targets (purchasable=false) never surface
             // in the Products list (schema.md §3).
             ->with(['prices' => fn ($query) => $query->where('status', 'active')->where('purchasable', true)])
+            ->when($status !== 'all', fn ($query) => $query->where('status', $status))
+            ->when($category !== 'all', fn ($query) => $query->where('category', $category))
+            ->when($search !== '', function ($query) use ($search) {
+                // LOWER(...) LIKE keeps the match case-insensitive on both
+                // Postgres (prod) and SQLite (tests) — `ilike` is Postgres-only.
+                $term = '%'.mb_strtolower($search).'%';
+
+                $query->whereRaw('lower(name) like ?', [$term]);
+            })
             ->orderByDesc('created_at')
             ->get()
             ->map(fn (Product $product) => [
@@ -51,7 +66,11 @@ class ProductController extends Controller
 
         return Inertia::render('catalog/products', [
             'products' => $products,
-            'categories' => $products->pluck('category')->filter()->unique()->values(),
+            // Unaffected by the current filters, so the dropdown always
+            // offers every category the team has ever used.
+            'categories' => $team->products()->whereNotNull('category')->distinct()->orderBy('category')->pluck('category'),
+            'filters' => ['search' => $search, 'status' => $status, 'category' => $category],
+            'hasAny' => $team->products()->exists(),
             'canManage' => $request->user()->toTeamPermissions($team)->canManageProducts,
         ]);
     }

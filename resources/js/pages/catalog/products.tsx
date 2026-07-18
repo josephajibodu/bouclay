@@ -1,6 +1,6 @@
 import { Head, Link, router } from '@inertiajs/react';
 import { Package, Plus, Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ProductMonogram } from '@/components/catalog/product-monogram';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,11 +23,13 @@ import {
 import { CATALOG_STATUS_META } from '@/lib/status-colors';
 import { formatPriceInterval } from '@/lib/utils';
 import { create, index as productsIndex, show } from '@/routes/catalog/products';
-import type { CatalogProduct, CatalogStatus } from '@/types';
+import type { CatalogProduct, ProductFilters } from '@/types';
 
 type Props = {
     products: CatalogProduct[];
     categories: string[];
+    filters: ProductFilters;
+    hasAny: boolean;
     canManage: boolean;
 };
 
@@ -68,40 +70,66 @@ function formatDate(iso: string | null): string {
     });
 }
 
-export default function Products({ products, categories, canManage }: Props) {
-    const [search, setSearch] = useState('');
-    const [status, setStatus] = useState<'all' | CatalogStatus>('active');
-    const [category, setCategory] = useState<string>('all');
+export default function Products({
+    products,
+    categories,
+    filters,
+    hasAny,
+    canManage,
+}: Props) {
+    const [search, setSearch] = useState(filters.search);
+    const isFirstRender = useRef(true);
 
-    const filtered = useMemo(() => {
-        return products.filter((product) => {
-            if (status !== 'all' && product.status !== status) {
-                return false;
-            }
+    // Debounced server-side search — status/category filters are applied
+    // synchronously via router.get below, and all three land in the URL
+    // query string so navigating back or refreshing keeps them.
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
 
-            if (category !== 'all' && product.category !== category) {
-                return false;
-            }
+            return;
+        }
 
-            if (
-                search.trim() &&
-                !product.name.toLowerCase().includes(search.trim().toLowerCase())
-            ) {
-                return false;
-            }
+        const handle = window.setTimeout(() => {
+            router.get(
+                productsIndex().url,
+                { search, status: filters.status, category: filters.category },
+                { preserveState: true, preserveScroll: true, replace: true },
+            );
+        }, 300);
 
-            return true;
-        });
-    }, [products, search, status, category]);
+        return () => window.clearTimeout(handle);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [search]);
 
-    const hasAnyProducts = products.length > 0;
+    const changeStatus = (status: string) => {
+        router.get(
+            productsIndex().url,
+            { search, status, category: filters.category },
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
+    };
+
+    const changeCategory = (category: string) => {
+        router.get(
+            productsIndex().url,
+            { search, status: filters.status, category },
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
+    };
+
     const hasActiveFilters =
-        search.trim() !== '' || status !== 'active' || category !== 'all';
+        filters.search !== '' ||
+        filters.status !== 'active' ||
+        filters.category !== 'all';
 
     const clearFilters = () => {
         setSearch('');
-        setStatus('active');
-        setCategory('all');
+        router.get(
+            productsIndex().url,
+            { search: '', status: 'active', category: 'all' },
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
     };
 
     return (
@@ -117,7 +145,7 @@ export default function Products({ products, categories, canManage }: Props) {
                     </p>
                 </div>
 
-                {canManage && hasAnyProducts && (
+                {canManage && hasAny && (
                     <Button asChild data-test="create-product-trigger">
                         <Link href={create()}>
                             <Plus /> Create product
@@ -126,7 +154,7 @@ export default function Products({ products, categories, canManage }: Props) {
                 )}
             </div>
 
-            {!hasAnyProducts ? (
+            {!hasAny ? (
                 <EmptyState canManage={canManage} />
             ) : (
                 <>
@@ -142,12 +170,7 @@ export default function Products({ products, categories, canManage }: Props) {
                             />
                         </div>
 
-                        <Select
-                            value={status}
-                            onValueChange={(value) =>
-                                setStatus(value as 'all' | CatalogStatus)
-                            }
-                        >
+                        <Select value={filters.status} onValueChange={changeStatus}>
                             <SelectTrigger
                                 className="w-40"
                                 data-test="status-filter"
@@ -166,7 +189,10 @@ export default function Products({ products, categories, canManage }: Props) {
                         </Select>
 
                         {categories.length > 0 && (
-                            <Select value={category} onValueChange={setCategory}>
+                            <Select
+                                value={filters.category}
+                                onValueChange={changeCategory}
+                            >
                                 <SelectTrigger
                                     className="w-52"
                                     data-test="category-filter"
@@ -197,7 +223,7 @@ export default function Products({ products, categories, canManage }: Props) {
                         )}
                     </div>
 
-                    {filtered.length === 0 ? (
+                    {products.length === 0 ? (
                         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
                             No products match your filters.
                         </div>
@@ -214,7 +240,7 @@ export default function Products({ products, categories, canManage }: Props) {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filtered.map((product) => (
+                                    {products.map((product) => (
                                         <TableRow
                                             key={product.id}
                                             className="cursor-pointer"
@@ -267,8 +293,8 @@ export default function Products({ products, categories, canManage }: Props) {
                     )}
 
                     <p className="text-sm text-muted-foreground">
-                        {filtered.length}{' '}
-                        {filtered.length === 1 ? 'item' : 'items'}
+                        {products.length}{' '}
+                        {products.length === 1 ? 'item' : 'items'}
                     </p>
                 </>
             )}
