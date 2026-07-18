@@ -25,6 +25,7 @@ import {
     SheetTrigger,
 } from '@/components/ui/sheet';
 import { Spinner } from '@/components/ui/spinner';
+import { formatMoney, formatPriceInterval } from '@/lib/utils';
 import { store, update } from '@/routes/catalog/pricing-journeys';
 import type { BillingInterval, Price, PricingJourney } from '@/types';
 
@@ -112,9 +113,30 @@ export default function PricingJourneyDrawer({
         ? update.form([productId, journey.id])
         : store.form(productId);
 
-    const priceLabel = (price: Price) =>
-        price.name ??
-        `${price.currency} ${((price.unitAmount ?? 0) / 1).toFixed(2)}/${price.billingInterval ?? ''}`;
+    const priceLabel = (price: Price): string => {
+        if (price.name) {
+            return price.name;
+        }
+
+        if (price.pricingModel === 'graduated') {
+            return 'Graduated pricing';
+        }
+
+        if (price.unitAmount === null) {
+            return 'Custom pricing';
+        }
+
+        if (price.billingInterval) {
+            return formatPriceInterval(
+                price.unitAmount,
+                price.currency,
+                price.billingInterval,
+                price.billingFrequency,
+            );
+        }
+
+        return `${formatMoney(price.unitAmount, price.currency)} flat`;
+    };
 
     return (
         <Sheet open={open} onOpenChange={handleOpenChange}>
